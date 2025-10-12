@@ -1,11 +1,21 @@
 
-import ufox_engine;
+#include <exception>
+#include <iostream>
 
+import ufox_engine;
 
 
 int main() {
 
-    ufox::IDE ide;
-    ide.Init();
-    return ide.Run();
+    try {
+        ufox::Engine ide;
+        ide.Init();
+        ide.Run();
+    } catch (const std::exception& e) {
+        std::cerr << "Fatal error: " << e.what() << std::endl;
+        return 1;
+    }
+    return 0;
+
+
 }

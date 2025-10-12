@@ -43,7 +43,7 @@ CPMAddPackage(NAME SDL3 GITHUB_REPOSITORY libsdl-org/SDL GIT_TAG release-3.2.24 
 CPMAddPackage(NAME Vulkan-Headers GITHUB_REPOSITORY KhronosGroup/Vulkan-Headers GIT_TAG v1.4.328)
 CPMAddPackage(NAME glm GITHUB_REPOSITORY g-truc/glm GIT_TAG 1.0.1)
 target_compile_definitions(Vulkan-Headers INTERFACE
-        "VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL=OFF"
+      "VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL=OFF"
 )
 
 add_library(glm-module)
@@ -77,7 +77,11 @@ target_sources(UFoxEngine
 target_sources(UFoxEngine
         PRIVATE
         FILE_SET cxx_modules TYPE CXX_MODULES FILES
-        hello_world.cppm ufox_Lib.cppm ufox_windowing.cppm ufox_engine.cppm
+        hello_world.cppm
+        ufox_Lib.cppm
+        ufox_windowing.cppm
+        ufox_graphic.cppm
+        ufox_engine.cppm
 )
 
 

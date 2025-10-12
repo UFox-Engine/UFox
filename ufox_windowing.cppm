@@ -1,5 +1,5 @@
 //
-// Created by b-boy on 05.10.2025.
+// Created by Puwiwad on 05.10.2025.
 //
 module;
 #include <SDL3/SDL.h>
@@ -7,11 +7,14 @@ module;
 #include <string>
 #include <stdexcept>
 #include <memory>
+#include <optional>
+#include <vulkan/vulkan_raii.hpp>
 
 export module ufox_windowing;
 
 import glm;
 import ufox_lib;
+
 
 
 export namespace ufox::windowing::sdl {
@@ -38,56 +41,53 @@ export namespace ufox::windowing::sdl {
         return a;
     }
 
-
-    class UFoxWindow {
-    public:
-        explicit UFoxWindow(const std::string& title, WindowFlag flags = WindowFlag::None)
-            : UFoxWindow(title, static_cast<Uint32>(flags)) {}
-
-        UFoxWindow(const std::string &title, Uint32 flags):_window{nullptr, SDL_DestroyWindow} {
-            if (!SDL_Init(SDL_INIT_VIDEO)) throw SDLException("Failed to initialize SDL");
-
-            SDL_DisplayID primary = SDL_GetPrimaryDisplay();
-            SDL_Rect usableBounds{};
-            SDL_GetDisplayUsableBounds(primary, &usableBounds);
-
-            // Create window while ensuring proper cleanup on failure
-            SDL_Window *rawWindow = SDL_CreateWindow(title.c_str(),
-                usableBounds.w - 4, usableBounds.h - 34, flags);
-
-            if (!rawWindow) throw SDLException("Failed to create window");
-
-            _window.reset(rawWindow);
-
-            SDL_SetWindowPosition(_window.get(), 2, 32);
-
-            UpdateRootPanel();
-
-            if (flags & SDL_WINDOW_VULKAN && !SDL_Vulkan_LoadLibrary(nullptr)) throw SDLException("Failed to load Vulkan library");
-        }
-        ~UFoxWindow() = default;
-
-        void Show() const {
-            SDL_ShowWindow(_window.get());
-        }
-
-        void Hide() const {
-            SDL_HideWindow(_window.get());
-        }
-
-        void UpdateRootPanel() {
-            SDL_GetWindowSize(_window.get(), &_rootPanel.width, &_rootPanel.height);
-            _rootPanel.print();
-        }
-
-    private:
-        std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> _window;
-        Panel _rootPanel{};
-
-
+    struct UFoxWindowCreateInfo {
+        std::string title;
+        WindowFlag flags;
     };
 
+    struct UFoxWindowResource {
+        std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> window{nullptr, SDL_DestroyWindow};
+        Panel panel{};
+    };
 
+    void UpdatePanel(UFoxWindowResource& resource) {
+        SDL_GetWindowSize(resource.window.get(), &resource.panel.width, &resource.panel.height);
+        resource.panel.print();
+    }
 
+    void Show(const UFoxWindowResource& resource) {
+        SDL_ShowWindow(resource.window.get());
+    }
+
+    void Hide(const UFoxWindowResource& resource) {
+        SDL_HideWindow(resource.window.get());
+    }
+
+    UFoxWindowResource CreateWindowResource(const UFoxWindowCreateInfo& info) {
+        UFoxWindowResource resource{};
+
+        if (!SDL_Init(SDL_INIT_VIDEO)) throw SDLException("Failed to initialize SDL");
+
+        SDL_DisplayID primary = SDL_GetPrimaryDisplay();
+        SDL_Rect usableBounds{};
+        SDL_GetDisplayUsableBounds(primary, &usableBounds);
+
+        // Create window while ensuring proper cleanup on failure
+        auto flags = static_cast<Uint32>(info.flags);
+        SDL_Window *rawWindow = SDL_CreateWindow(info.title.c_str(),
+            usableBounds.w - 4, usableBounds.h - 34, flags);
+
+        if (!rawWindow) throw SDLException("Failed to create window");
+
+        resource.window.reset(rawWindow);
+
+        SDL_SetWindowPosition(resource.window.get(), 2, 32);
+
+        UpdatePanel(resource);
+
+        if (flags & SDL_WINDOW_VULKAN && !SDL_Vulkan_LoadLibrary(nullptr)) throw SDLException("Failed to load Vulkan library");
+        return resource;
+    }
 
 }
