@@ -48,6 +48,11 @@ CPMAddPackage(NAME glm GITHUB_REPOSITORY g-truc/glm GIT_TAG 1.0.1)
         #"VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL=OFF"
 #)
 
+# Enable USE_SDL define
+option(USE_SDL "Enable SDL3 support" OFF)
+
+
+
 add_library(glm-module)
 target_sources(glm-module
         PUBLIC
@@ -74,6 +79,11 @@ target_sources(UFoxEngine
         src/main.cpp
 )
 
+# Add USE_SDL define if enabled
+if(USE_SDL)
+    target_compile_definitions(UFoxEngine PRIVATE USE_SDL=1)
+endif()
+
 # Explicitly declare module interface files
 target_sources(UFoxEngine
         PRIVATE
@@ -81,7 +91,7 @@ target_sources(UFoxEngine
         src/hello_world.cppm
         src/ufox_Lib.cppm
         src/ufox_windowing.cppm
-        src/ufox_graphic.cppm
+        src/ufox_graphic_device.cppm
         src/ufox_engine.cppm
 )
 

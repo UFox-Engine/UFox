@@ -13,24 +13,13 @@ int main() {
     try {
         ufox::Engine ide;
         ide.Init();
-        //ide.Run();
-        std::this_thread::sleep_for( std::chrono::milliseconds( 10000 ) );
-    } catch ( vk::SystemError & err )
-    {
-        std::cout << "vk::SystemError: " << err.what() << std::endl;
-        exit( -1 );
+        ide.Run();
+
+     } catch (const std::exception& e) {
+        std::cerr << e.what() << std::endl;
+        return EXIT_FAILURE;
     }
-    catch ( std::exception & err )
-    {
-        std::cout << "std::exception: " << err.what() << std::endl;
-        exit( -1 );
-    }
-    catch ( ... )
-    {
-        std::cout << "unknown error\n";
-        exit( -1 );
-    }
-    return 0;
+    return EXIT_SUCCESS;
 
 
 }

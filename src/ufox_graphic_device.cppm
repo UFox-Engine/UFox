@@ -1,4 +1,5 @@
 module;
+
 #if defined( _WIN32 )
 #define VK_USE_PLATFORM_WIN32_KHR
 #elif defined( __linux__ )
@@ -19,9 +20,10 @@ module;
 export module ufox_graphic;
 
 import ufox_lib;
-import ufox_windowing;
 
 export namespace ufox::gpu::vulkan {
+
+
 
     std::vector<std::string> GetDeviceExtensions() {
         return {
@@ -56,14 +58,64 @@ export namespace ufox::gpu::vulkan {
         return extensions;
     }
 
-    struct GraphicDeviceCreateInfo {
-        vk::ApplicationInfo appInfo{};
-        std::vector<std::string> instanceExtensions{};
-        std::vector<std::string> deviceExtensions{};
-        bool enableDynamicRendering{true};
-        bool enableExtendedDynamicState{true};
-        vk::CommandPoolCreateFlags commandPoolCreateFlags{};
-    };
+    vk::AccessFlags2 GetAccessFlags2(const vk::ImageLayout& layout)
+    {
+        switch (layout)
+        {
+            case vk::ImageLayout::eUndefined:
+            case vk::ImageLayout::ePresentSrcKHR:
+                return {};
+            case vk::ImageLayout::ePreinitialized:
+                return vk::AccessFlagBits2::eHostWrite;
+            case vk::ImageLayout::eColorAttachmentOptimal:
+                return vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite;
+            case vk::ImageLayout::eDepthAttachmentOptimal:
+                return vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+            case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
+                return vk::AccessFlagBits2::eFragmentShadingRateAttachmentReadKHR;
+            case vk::ImageLayout::eShaderReadOnlyOptimal:
+                return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eInputAttachmentRead;
+            case vk::ImageLayout::eTransferSrcOptimal:
+                return vk::AccessFlagBits2::eTransferRead;
+            case vk::ImageLayout::eTransferDstOptimal:
+                return vk::AccessFlagBits2::eTransferWrite;
+            case vk::ImageLayout::eGeneral:
+                assert(false && "Don't know how to get a meaningful VkAccessFlags for VK_IMAGE_LAYOUT_GENERAL! Don't use it!");
+                return {};
+            default:
+                assert(false);
+                return {};
+        }
+    }
+
+    vk::PipelineStageFlags2 GetPipelineStageFlags2(const vk::ImageLayout& layout) {
+        switch (layout)
+        {
+            case vk::ImageLayout::eUndefined:
+                return vk::PipelineStageFlagBits2::eTopOfPipe;
+            case vk::ImageLayout::ePreinitialized:
+                return vk::PipelineStageFlagBits2::eHost;
+            case vk::ImageLayout::eTransferDstOptimal:
+            case vk::ImageLayout::eTransferSrcOptimal:
+                return vk::PipelineStageFlagBits2::eTransfer;
+            case vk::ImageLayout::eColorAttachmentOptimal:
+                return vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+            case vk::ImageLayout::eDepthAttachmentOptimal:
+                return vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests;
+            case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
+                return vk::PipelineStageFlagBits2::eFragmentShadingRateAttachmentKHR;
+            case vk::ImageLayout::eShaderReadOnlyOptimal:
+                return vk::PipelineStageFlagBits2::eVertexShader | vk::PipelineStageFlagBits2::eFragmentShader;
+            case vk::ImageLayout::ePresentSrcKHR:
+                return vk::PipelineStageFlagBits2::eBottomOfPipe;
+            case vk::ImageLayout::eGeneral:
+                assert(false && "Don't know how to get a meaningful VkPipelineStageFlags for VK_IMAGE_LAYOUT_GENERAL! Don't use it!");
+                return {};
+            default:
+                assert(false);
+                return {};
+        }
+    }
 
     [[nodiscard]] vk::PresentModeKHR ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresentModes) {
         for (const auto& availablePresentMode : availablePresentModes) {
@@ -84,8 +136,6 @@ export namespace ufox::gpu::vulkan {
             std::clamp<uint32_t>(extent.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height)
         };
     }
-
-
 
     auto ChooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& formats) {
         const auto preferredFormat = std::find_if(formats.begin(), formats.end(),
@@ -109,7 +159,7 @@ export namespace ufox::gpu::vulkan {
                 }
             }
             if (!found) {
-                debug::log(debug::LogLevel::WARNING, "Missing extension: {}", req);
+                debug::log(debug::LogLevel::eWarning, "Missing extension: {}", req);
                 return false;
             }
         }
@@ -210,7 +260,7 @@ export namespace ufox::gpu::vulkan {
         return PickBestPhysicalDevice(*gpu.instance);
     }
 
-    QueueFamilyIndices FindGraphicsAndPresentQueueFamilyIndex(const vk::raii::PhysicalDevice& physicalDevice, const SurfaceData& surfaceData) {
+    QueueFamilyIndices FindGraphicsAndPresentQueueFamilyIndex(const vk::raii::PhysicalDevice& physicalDevice, const SurfaceResource& surfaceData) {
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
         assert(queueFamilyProperties.size() < (std::numeric_limits<uint32_t>::max)());
 
@@ -249,7 +299,7 @@ export namespace ufox::gpu::vulkan {
         throw std::runtime_error( "Could not find queues for both graphics or present -> terminating" );
     }
 
-    QueueFamilyIndices FindGraphicsAndPresentQueueFamilyIndex(const GPUResources& gpu, const SurfaceData& surfaceData) {
+    QueueFamilyIndices FindGraphicsAndPresentQueueFamilyIndex(const GPUResources& gpu, const SurfaceResource& surfaceData) {
         return FindGraphicsAndPresentQueueFamilyIndex(*gpu.physicalDevice, surfaceData);
     }
 
@@ -278,6 +328,7 @@ export namespace ufox::gpu::vulkan {
         vk::PhysicalDeviceVulkan13Features vulkan13Features;
         vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures;
         vulkan13Features.dynamicRendering = info.enableDynamicRendering ? vk::True : vk::False;
+        vulkan13Features.synchronization2 = info.enableSynchronization2 ? vk::True : vk::False;
         extendedDynamicStateFeatures.extendedDynamicState = info.enableExtendedDynamicState ? vk::True : vk::False;
         vulkan13Features.pNext = &extendedDynamicStateFeatures;
         features.pNext = &vulkan13Features;
@@ -304,7 +355,7 @@ export namespace ufox::gpu::vulkan {
     }
 
     vk::raii::Queue MakeGraphicsQueue(const vk::raii::Device& device, const QueueFamilyIndices& queueFamilyIndices) {
-        ufox::debug::log(debug::LogLevel::INFO, "Retrieving graphics queue for queue family index: {}", queueFamilyIndices.graphicsFamily);
+        ufox::debug::log(debug::LogLevel::eInfo, "Retrieving graphics queue for queue family index: {}", queueFamilyIndices.graphicsFamily);
 
         return {device, queueFamilyIndices.graphicsFamily, 0};
     }
@@ -322,15 +373,17 @@ export namespace ufox::gpu::vulkan {
         return MakePresentQueue(*gpu.device, *gpu.queueFamilyIndices);
     }
 
-    SwapchainData MakeSwapchainData(const vk::raii::PhysicalDevice& physicalDevice, const vk::raii::Device& device, const vk::raii::SurfaceKHR& surface,
+
+
+
+    void ReMakeSwapchainResource(SwapchainResource& resource, const vk::raii::PhysicalDevice& physicalDevice, const vk::raii::Device& device, const vk::raii::SurfaceKHR& surface,
         const vk::Extent2D& extent, vk::ImageUsageFlags usage, uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex) {
-        SwapchainData resource{};
         vk::SurfaceCapabilitiesKHR surfaceCapabilities  = physicalDevice.getSurfaceCapabilitiesKHR( surface );
         vk::SurfaceFormatKHR surfaceFormat              = ChooseSwapSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(*surface));
         resource.colorFormat                            = surfaceFormat.format;
-        vk::Extent2D swapchainExtent                    = ChooseSwapExtent(extent, surfaceCapabilities);
+        resource.extent                                 = ChooseSwapExtent(extent, surfaceCapabilities);
         vk::PresentModeKHR presentMode                  = ChooseSwapPresentMode(physicalDevice.getSurfacePresentModesKHR(*surface));
-        vk::SurfaceTransformFlagBitsKHR preTransform    =  surfaceCapabilities.supportedTransforms & vk::SurfaceTransformFlagBitsKHR::eIdentity ? vk::SurfaceTransformFlagBitsKHR::eIdentity : surfaceCapabilities.currentTransform;
+        vk::SurfaceTransformFlagBitsKHR preTransform    = surfaceCapabilities.supportedTransforms & vk::SurfaceTransformFlagBitsKHR::eIdentity ? vk::SurfaceTransformFlagBitsKHR::eIdentity : surfaceCapabilities.currentTransform;
         vk::CompositeAlphaFlagBitsKHR compositeAlpha    = surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePreMultiplied  ? vk::CompositeAlphaFlagBitsKHR::ePreMultiplied
             :  surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::ePostMultiplied ? vk::CompositeAlphaFlagBitsKHR::ePostMultiplied
             : surfaceCapabilities.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eInherit ? vk::CompositeAlphaFlagBitsKHR::eInherit: vk::CompositeAlphaFlagBitsKHR::eOpaque;
@@ -340,7 +393,7 @@ export namespace ufox::gpu::vulkan {
             .setMinImageCount(ClampSurfaceImageCount(3u, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount))
             .setImageFormat(resource.colorFormat )
             .setImageColorSpace(surfaceFormat.colorSpace) // Use colorSpace from surfaceFormat
-            .setImageExtent(swapchainExtent)
+            .setImageExtent(resource.extent)
             .setImageArrayLayers(1)
             .setImageUsage(usage)
             .setPreTransform(preTransform)
@@ -363,18 +416,98 @@ export namespace ufox::gpu::vulkan {
         resource.images = resource.swapChain->getImages();
 
         resource.imageViews.reserve( resource.images.size() );
+        resource.renderFinishedSemaphores.reserve( resource.images.size() );
+
+        vk::SemaphoreCreateInfo semaphoreInfo{};
         vk::ImageViewCreateInfo imageViewCreateInfo( {}, {}, vk::ImageViewType::e2D, resource.colorFormat, {}, { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 } );
+
         for ( auto image : resource.images )
         {
             imageViewCreateInfo.image = image;
             resource.imageViews.emplace_back( device, imageViewCreateInfo );
+            resource.renderFinishedSemaphores.emplace_back( device, semaphoreInfo );
         }
+    }
+
+    void ReMakeSwapchainResource(SwapchainResource& resource,const GPUResources& gpu, const SurfaceResource& surfaceData, vk::ImageUsageFlags usage) {
+        ReMakeSwapchainResource(resource, *gpu.physicalDevice, *gpu.device, *surfaceData.surface, surfaceData.extent,
+            usage, gpu.queueFamilyIndices->graphicsFamily, gpu.queueFamilyIndices->presentFamily);
+    }
+
+
+    SwapchainResource MakeSwapchainResource(const vk::raii::PhysicalDevice& physicalDevice, const vk::raii::Device& device, const vk::raii::SurfaceKHR& surface,
+        const vk::Extent2D& extent, vk::ImageUsageFlags usage, uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex) {
+        SwapchainResource resource{};
+        ReMakeSwapchainResource(resource, physicalDevice, device, surface, extent, usage, graphicsQueueFamilyIndex, presentQueueFamilyIndex);
+        return resource;
+    }
+
+    SwapchainResource MakeSwapchainResource(const GPUResources& gpu, const SurfaceResource& surfaceData, vk::ImageUsageFlags usage) {
+        return MakeSwapchainResource(*gpu.physicalDevice, *gpu.device, *surfaceData.surface, surfaceData.extent,
+            usage, gpu.queueFamilyIndices->graphicsFamily, gpu.queueFamilyIndices->presentFamily);
+    }
+
+    FrameResource MakeFrameResource(const vk::raii::Device& device, const vk::raii::CommandPool& commandPool, const vk::FenceCreateFlags& fenceFlags) {
+        FrameResource resource{};
+        vk::CommandBufferAllocateInfo commandBufferAllocateInfo(commandPool, vk::CommandBufferLevel::ePrimary, FrameResource::MAX_FRAMES_IN_FLIGHT);
+        resource.commandBuffers = device.allocateCommandBuffers(commandBufferAllocateInfo);
+
+        vk::SemaphoreCreateInfo semaphoreInfo{};
+        vk::FenceCreateInfo fenceInfo{ fenceFlags };
+
+        resource.presentCompleteSemaphores.reserve(FrameResource::MAX_FRAMES_IN_FLIGHT);
+        resource.drawFences.reserve(FrameResource::MAX_FRAMES_IN_FLIGHT);
+
+        for (uint32_t i = 0; i < FrameResource::MAX_FRAMES_IN_FLIGHT; ++i) {
+            resource.presentCompleteSemaphores.emplace_back(device, semaphoreInfo);
+            resource.drawFences.emplace_back(device, fenceInfo);
+        }
+
+        resource.currentFrameIndex = 0;
 
         return resource;
     }
 
-    SwapchainData MakeSwapchainData(const GPUResources& gpu, const SurfaceData& surfaceData, vk::ImageUsageFlags usage) {
-        return MakeSwapchainData(*gpu.physicalDevice, *gpu.device, *surfaceData.surface, surfaceData.extent,
-            usage, gpu.queueFamilyIndices->graphicsFamily, gpu.queueFamilyIndices->presentFamily);
+    FrameResource MakeFrameResource(const GPUResources& gpu, const vk::FenceCreateFlags& fenceFlags) {
+        return MakeFrameResource(*gpu.device, *gpu.commandPool, fenceFlags);
     }
+
+    void TransitionImageLayout(const vk::raii::CommandBuffer& cmb, const vk::Image& image,
+        const vk::PipelineStageFlags2& srcStageMask, const vk::PipelineStageFlags2& dstStageMask,
+        const vk::AccessFlags2& srcAccessMask, const vk::AccessFlags2& dstAccessMask,
+        const vk::ImageLayout& oldLayout, const vk::ImageLayout& newLayout, const vk::ImageSubresourceRange &range) {
+
+        vk::ImageMemoryBarrier2 barrier {};
+        barrier.setSrcStageMask(srcStageMask)
+               .setDstStageMask(dstStageMask)
+               .setSrcAccessMask(srcAccessMask)
+               .setDstAccessMask(dstAccessMask)
+               .setOldLayout(oldLayout)
+               .setNewLayout(newLayout)
+               .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+               .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+               .setImage(image)
+               .setSubresourceRange(range);
+
+
+        vk::DependencyInfo dependencyInfo {};
+        dependencyInfo.setDependencyFlags({})
+                      .setImageMemoryBarrierCount(1)
+                      .setPImageMemoryBarriers(&barrier);
+
+
+        cmb.pipelineBarrier2(dependencyInfo);
+    }
+
+    void TransitionImageLayout(const vk::raii::CommandBuffer& cmb, const vk::Image& image,
+        vk::ImageLayout oldLayout, vk::ImageLayout newLayout, const vk::ImageSubresourceRange &range) {
+
+        vk::PipelineStageFlags2 srcStageMask  = GetPipelineStageFlags2(oldLayout);
+        vk::PipelineStageFlags2 dstStageMask  = GetPipelineStageFlags2(newLayout);
+        vk::AccessFlags2        srcAccessMask = GetAccessFlags2(oldLayout);
+        vk::AccessFlags2        dstAccessMask = GetAccessFlags2(newLayout);
+
+        TransitionImageLayout(cmb, image, srcStageMask, dstStageMask, srcAccessMask, dstAccessMask, oldLayout, newLayout, range);
+    }
+
 }
