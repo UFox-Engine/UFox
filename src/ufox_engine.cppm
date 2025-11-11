@@ -360,12 +360,18 @@ export namespace ufox {
 
             cmb.endRendering();
 
-            render::RenderArea(cmb, *windowResource, viewpanel4->rect, viewpanel4->clearColor);
-            render::RenderArea(cmb, *windowResource, viewpanel2->rect, viewpanel2->clearColor);
-            render::RenderArea(cmb, *windowResource, viewpanel6->rect, viewpanel6->clearColor);
-            render::RenderArea(cmb, *windowResource, viewpanel7->rect, viewpanel7->clearColor);
-            render::RenderArea(cmb, *windowResource, viewpanel8->rect, viewpanel8->clearColor);
-            render::RenderArea(cmb, *windowResource, viewpanel9->rect, viewpanel9->clearColor);
+            vk::ClearColorValue c4 = viewport->hoveredPanel == &viewpanel4.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel4->clearColor;
+            vk::ClearColorValue c2 = viewport->hoveredPanel == &viewpanel2.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel2->clearColor;
+            vk::ClearColorValue c6 = viewport->hoveredPanel == &viewpanel6.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel6->clearColor;
+            vk::ClearColorValue c7 = viewport->hoveredPanel == &viewpanel7.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel7->clearColor;
+            vk::ClearColorValue c8 = viewport->hoveredPanel == &viewpanel8.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel8->clearColor;
+            vk::ClearColorValue c9 = viewport->hoveredPanel == &viewpanel9.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel9->clearColor;
+            render::RenderArea(cmb, *windowResource, viewpanel4->rect, c4);
+            render::RenderArea(cmb, *windowResource, viewpanel2->rect, c2);
+            render::RenderArea(cmb, *windowResource, viewpanel6->rect, c6);
+            render::RenderArea(cmb, *windowResource, viewpanel7->rect, c7);
+            render::RenderArea(cmb, *windowResource, viewpanel8->rect, c8);
+            render::RenderArea(cmb, *windowResource, viewpanel9->rect, c9);
 
 
             gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(),
