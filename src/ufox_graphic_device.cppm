@@ -117,8 +117,6 @@ export namespace ufox::gpu::vulkan {
         }
     }
 
-
-
     [[nodiscard]] vk::PresentModeKHR ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresentModes) {
         for (const auto& availablePresentMode : availablePresentModes) {
             if (availablePresentMode == vk::PresentModeKHR::eMailbox) {
@@ -262,7 +260,7 @@ export namespace ufox::gpu::vulkan {
         return PickBestPhysicalDevice(*gpu.instance);
     }
 
-    QueueFamilyIndices FindGraphicsAndPresentQueueFamilyIndex(const vk::raii::PhysicalDevice& physicalDevice, const SurfaceResource& surfaceData) {
+    QueueFamilyIndices FindGraphicsAndPresentQueueFamilyIndex(const vk::raii::PhysicalDevice& physicalDevice, const windowing::WindowResource& surfaceData) {
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
         assert(queueFamilyProperties.size() < (std::numeric_limits<uint32_t>::max)());
 
@@ -301,7 +299,7 @@ export namespace ufox::gpu::vulkan {
         throw std::runtime_error( "Could not find queues for both graphics or present -> terminating" );
     }
 
-    QueueFamilyIndices FindGraphicsAndPresentQueueFamilyIndex(const GPUResources& gpu, const SurfaceResource& surfaceData) {
+    QueueFamilyIndices FindGraphicsAndPresentQueueFamilyIndex(const GPUResources& gpu, const windowing::WindowResource& surfaceData) {
         return FindGraphicsAndPresentQueueFamilyIndex(*gpu.physicalDevice, surfaceData);
     }
 
@@ -376,7 +374,7 @@ export namespace ufox::gpu::vulkan {
     }
 
     void ReMakeSwapchainResource(SwapchainResource& resource, const vk::raii::PhysicalDevice& physicalDevice, const vk::raii::Device& device, const vk::raii::SurfaceKHR& surface,
-        const vk::Extent2D& extent, vk::ImageUsageFlags usage, uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex) {
+        const vk::Extent2D& extent, const vk::ImageUsageFlags usage, uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex) {
 
         vk::SurfaceCapabilitiesKHR surfaceCapabilities  = physicalDevice.getSurfaceCapabilitiesKHR( surface );
         vk::SurfaceFormatKHR surfaceFormat              = ChooseSwapSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(*surface));
@@ -429,20 +427,20 @@ export namespace ufox::gpu::vulkan {
         }
     }
 
-    void ReMakeSwapchainResource(SwapchainResource& resource,const GPUResources& gpu, const SurfaceResource& surfaceData, vk::ImageUsageFlags usage) {
+    void ReMakeSwapchainResource(SwapchainResource& resource,const GPUResources& gpu, const windowing::WindowResource& surfaceData, vk::ImageUsageFlags usage) {
         ReMakeSwapchainResource(resource, *gpu.physicalDevice, *gpu.device, *surfaceData.surface, surfaceData.extent,
             usage, gpu.queueFamilyIndices->graphicsFamily, gpu.queueFamilyIndices->presentFamily);
     }
 
 
     SwapchainResource MakeSwapchainResource(const vk::raii::PhysicalDevice& physicalDevice, const vk::raii::Device& device, const vk::raii::SurfaceKHR& surface,
-        const vk::Extent2D& extent, vk::ImageUsageFlags usage, uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex) {
+        const vk::Extent2D& extent, const vk::ImageUsageFlags usage, uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex) {
         SwapchainResource resource{};
         ReMakeSwapchainResource(resource, physicalDevice, device, surface, extent, usage, graphicsQueueFamilyIndex, presentQueueFamilyIndex);
         return resource;
     }
 
-    SwapchainResource MakeSwapchainResource(const GPUResources& gpu, const SurfaceResource& surfaceData, vk::ImageUsageFlags usage) {
+    SwapchainResource MakeSwapchainResource(const GPUResources& gpu, const windowing::WindowResource& surfaceData, const vk::ImageUsageFlags usage) {
         return MakeSwapchainResource(*gpu.physicalDevice, *gpu.device, *surfaceData.surface, surfaceData.extent,
             usage, gpu.queueFamilyIndices->graphicsFamily, gpu.queueFamilyIndices->presentFamily);
     }
@@ -630,7 +628,7 @@ export namespace ufox::gpu::vulkan {
     vk::raii::CommandBuffer BeginSingleTimeCommands(const vk::raii::Device& device, const vk::raii::CommandPool& commandPool)  {
         vk::CommandBufferAllocateInfo allocInfo{};
         allocInfo.setLevel(vk::CommandBufferLevel::ePrimary)
-                 .setCommandPool(*commandPool)
+                 .setCommandPool(commandPool)
                  .setCommandBufferCount(1);
 
         vk::raii::CommandBuffer cmd = std::move(device.allocateCommandBuffers(allocInfo).front());
@@ -646,7 +644,7 @@ export namespace ufox::gpu::vulkan {
         return BeginSingleTimeCommands(*gpu.device, *gpu.commandPool);
     }
 
-    void EndSingleTimeCommands(const vk::raii::Queue& graphicsQueue, const vk::raii::CommandBuffer &cmd) {
+    void EndSingleTimeCommands(const vk::raii::CommandBuffer &cmd, const vk::raii::Queue& graphicsQueue) {
         cmd.end();
         vk::SubmitInfo submitInfo{};
         submitInfo.setCommandBufferCount(1)
@@ -656,11 +654,38 @@ export namespace ufox::gpu::vulkan {
     }
 
     void EndSingleTimeCommands(const GPUResources& gpu, const vk::raii::CommandBuffer &cmd) {
-        EndSingleTimeCommands(*gpu.graphicsQueue, cmd);
+        EndSingleTimeCommands(cmd, *gpu.graphicsQueue);
     }
 
-    void CreateBuffer(const vk::raii::Device& device, const vk::raii::PhysicalDevice& physicalDevice, vk::DeviceSize size, vk::BufferUsageFlags usage,
-                                      vk::MemoryPropertyFlags properties, Buffer &buffer) {
+    vk::raii::ImageView CreateImageView(const vk::raii::Device& device, const vk::raii::Image& image, const vk::Format& format,
+        const vk::ImageViewType type = vk::ImageViewType::e2D,
+        const vk::ImageSubresourceRange &subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 } ) {
+        vk::ImageViewCreateInfo createInfo{};
+                                createInfo
+                                    .setImage(image)
+                                    .setViewType(type)
+                                    .setFormat(format)
+                                    .setSubresourceRange(subresourceRange);
+
+        return { device, createInfo };
+    }
+
+
+    void CreateImageView(const GPUResources& gpu, TextureImage& image) {
+        image.view.reset();
+
+        vk::ImageViewCreateInfo createInfo{};
+        createInfo
+            .setImage(*image.data)
+            .setViewType(image.viewType)
+            .setFormat(image.format)
+            .setSubresourceRange(image.subresourceRange);
+
+        image.view.emplace(*gpu.device, createInfo);
+    }
+
+    void CreateBuffer(const vk::raii::Device& device, const vk::raii::PhysicalDevice& physicalDevice, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage,
+                                    const vk::MemoryPropertyFlags& properties, Buffer &buffer) {
 
         vk::BufferCreateInfo bufferInfo{};
         bufferInfo.setSize(size)
@@ -676,7 +701,7 @@ export namespace ufox::gpu::vulkan {
         buffer.data->bindMemory( *buffer.memory, 0 );
     }
 
-    void CreateBuffer(const GPUResources& gpu, vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties, Buffer &buffer) {
+    void CreateBuffer(const GPUResources& gpu, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage, const vk::MemoryPropertyFlags& properties, Buffer &buffer) {
         CreateBuffer(*gpu.device, *gpu.physicalDevice, size, usage, properties, buffer);
     }
 
@@ -687,11 +712,122 @@ export namespace ufox::gpu::vulkan {
         copyRegion.setSize(size);
         cmd.copyBuffer(*srcBuffer.data, *dstBuffer.data, { copyRegion });
 
-        EndSingleTimeCommands(graphicsQueue,cmd);
+        EndSingleTimeCommands(cmd, graphicsQueue);
     }
 
     void CopyBuffer(const GPUResources& gpu,  const Buffer& srcBuffer, const Buffer& dstBuffer, const vk::DeviceSize& size) {
         CopyBuffer(*gpu.device, *gpu.commandPool, *gpu.graphicsQueue, srcBuffer, dstBuffer, size);
     }
+
+    void CopyBufferToImage(const vk::raii::Device& device, const vk::raii::CommandPool& commandPool, const vk::raii::Queue& graphicsQueue, const Buffer& buffer, const TextureImage& image,
+        const vk::Extent3D extent, const vk::ImageSubresourceLayers& subresourceLayers = {vk::ImageAspectFlagBits::eColor,0,0,1}, const vk::Offset3D& offset = {0,0,0},
+        vk::DeviceSize bufferOffset = 0, const uint32_t& bufferRowLength = 0, const uint32_t& bufferImageHeight = 0) {
+        const vk::raii::CommandBuffer cmd = BeginSingleTimeCommands(device, commandPool);
+
+        vk::BufferImageCopy region{};
+                            region
+                            .setImageSubresource( subresourceLayers)
+                                  .setImageOffset(offset)
+                                  .setImageExtent(extent)
+                                  .setBufferOffset(bufferOffset)
+                                  .setBufferRowLength(bufferRowLength)
+                                  .setBufferImageHeight(bufferImageHeight);
+
+        cmd.copyBufferToImage(*buffer.data, *image.data, vk::ImageLayout::eTransferDstOptimal, { region });
+
+        EndSingleTimeCommands(cmd, graphicsQueue);
+    }
+
+    void CopyBufferToImage(const GPUResources& gpu, const Buffer& buffer, const TextureImage& image, const vk::Extent3D extent, const vk::ImageSubresourceLayers& subresourceLayers = {vk::ImageAspectFlagBits::eColor,0,0,1}, const vk::Offset3D& offset = {0,0,0},
+        vk::DeviceSize bufferOffset = 0, const uint32_t& bufferRowLength = 0, const uint32_t& bufferImageHeight = 0) {
+        CopyBufferToImage(*gpu.device, *gpu.commandPool, *gpu.graphicsQueue, buffer, image, extent, subresourceLayers, offset, bufferOffset, bufferRowLength, bufferImageHeight);
+    }
+
+
+    void SetImageLayout(vk::raii::CommandBuffer const & commandBuffer, const TextureImage& image, const vk::Format& format, vk::ImageLayout oldImageLayout, vk::ImageLayout newImageLayout )
+      {
+        vk::AccessFlags sourceAccessMask;
+        switch ( oldImageLayout )
+        {
+          case vk::ImageLayout::eTransferDstOptimal: sourceAccessMask = vk::AccessFlagBits::eTransferWrite; break;
+          case vk::ImageLayout::ePreinitialized    : sourceAccessMask = vk::AccessFlagBits::eHostWrite; break;
+          case vk::ImageLayout::eGeneral           :  // sourceAccessMask is empty
+          case vk::ImageLayout::eUndefined         : break;
+          default                                  : assert( false ); break;
+        }
+
+        vk::PipelineStageFlags sourceStage;
+        switch ( oldImageLayout )
+        {
+          case vk::ImageLayout::eGeneral:
+          case vk::ImageLayout::ePreinitialized    : sourceStage = vk::PipelineStageFlagBits::eHost; break;
+          case vk::ImageLayout::eTransferDstOptimal: sourceStage = vk::PipelineStageFlagBits::eTransfer; break;
+          case vk::ImageLayout::eUndefined         : sourceStage = vk::PipelineStageFlagBits::eTopOfPipe; break;
+          default                                  : assert( false ); break;
+        }
+
+        vk::AccessFlags destinationAccessMask;
+        switch ( newImageLayout )
+        {
+          case vk::ImageLayout::eColorAttachmentOptimal: destinationAccessMask = vk::AccessFlagBits::eColorAttachmentWrite; break;
+          case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            destinationAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+            break;
+          case vk::ImageLayout::eGeneral:  // empty destinationAccessMask
+          case vk::ImageLayout::ePresentSrcKHR        : break;
+          case vk::ImageLayout::eShaderReadOnlyOptimal: destinationAccessMask = vk::AccessFlagBits::eShaderRead; break;
+          case vk::ImageLayout::eTransferSrcOptimal   : destinationAccessMask = vk::AccessFlagBits::eTransferRead; break;
+          case vk::ImageLayout::eTransferDstOptimal   : destinationAccessMask = vk::AccessFlagBits::eTransferWrite; break;
+          default                                     : assert( false ); break;
+        }
+
+        vk::PipelineStageFlags destinationStage;
+        switch ( newImageLayout )
+        {
+          case vk::ImageLayout::eColorAttachmentOptimal       : destinationStage = vk::PipelineStageFlagBits::eColorAttachmentOutput; break;
+          case vk::ImageLayout::eDepthStencilAttachmentOptimal: destinationStage = vk::PipelineStageFlagBits::eEarlyFragmentTests; break;
+          case vk::ImageLayout::eGeneral                      : destinationStage = vk::PipelineStageFlagBits::eHost; break;
+          case vk::ImageLayout::ePresentSrcKHR                : destinationStage = vk::PipelineStageFlagBits::eBottomOfPipe; break;
+          case vk::ImageLayout::eShaderReadOnlyOptimal        : destinationStage = vk::PipelineStageFlagBits::eFragmentShader; break;
+          case vk::ImageLayout::eTransferDstOptimal           :
+          case vk::ImageLayout::eTransferSrcOptimal           : destinationStage = vk::PipelineStageFlagBits::eTransfer; break;
+          default                                             : assert( false ); break;
+        }
+
+        vk::ImageAspectFlags aspectMask;
+        if ( newImageLayout == vk::ImageLayout::eDepthStencilAttachmentOptimal )
+        {
+          aspectMask = vk::ImageAspectFlagBits::eDepth;
+          if ( format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint )
+          {
+            aspectMask |= vk::ImageAspectFlagBits::eStencil;
+          }
+        }
+        else
+        {
+          aspectMask = vk::ImageAspectFlagBits::eColor;
+        }
+
+        vk::ImageSubresourceRange   imageSubresourceRange{};
+                                    imageSubresourceRange
+                                        .setAspectMask(aspectMask)
+                                        .setBaseMipLevel(0)
+                                        .setLevelCount(1)
+                                        .setBaseArrayLayer(0)
+                                        .setLayerCount(1);
+
+        vk::ImageMemoryBarrier      imageMemoryBarrier{};
+                                    imageMemoryBarrier
+                                        .setSrcAccessMask( sourceAccessMask )
+                                        .setDstAccessMask( destinationAccessMask )
+                                        .setOldLayout( oldImageLayout )
+                                        .setNewLayout( newImageLayout )
+                                        .setSrcQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
+                                        .setDstQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
+                                        .setImage( *image.data )
+                                        .setSubresourceRange( imageSubresourceRange );
+
+        return commandBuffer.pipelineBarrier( sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier );
+      }
 
 }

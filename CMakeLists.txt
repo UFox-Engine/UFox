@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.31)
-project(UFoxEngine LANGUAGES CXX)
+project(UFoxEngine LANGUAGES CXX C)
 
 # Use C++23 without compiler-specific extensions
 set(CMAKE_CXX_STANDARD 23)
@@ -43,6 +43,17 @@ CPMAddPackage(NAME SDL3 GITHUB_REPOSITORY libsdl-org/SDL GIT_TAG release-3.2.24 
 CPMAddPackage(NAME glfw GITHUB_REPOSITORY glfw/glfw GIT_TAG 3.4 OPTIONS "GLFW_BUILD_TESTS OFF" "GLFW_BUILD_EXAMPLES OFF" "GLFW_BUILD_DOCS OFF")
 CPMAddPackage(NAME Vulkan-Headers GITHUB_REPOSITORY KhronosGroup/Vulkan-Headers GIT_TAG v1.4.328)
 CPMAddPackage(NAME glm GITHUB_REPOSITORY g-truc/glm GIT_TAG 1.0.1)
+CPMAddPackage(NAME ktx GITHUB_REPOSITORY KhronosGroup/KTX-Software GIT_TAG v4.4.2 OPTIONS "KTX_FEATURE_TOOLS OFF" "KTX_FEATURE_TESTS OFF")
+CPMAddPackage(NAME nlohmann_json VERSION 3.12.0
+        # the git repo is incredibly large, so we download the archived include directory
+        URL https://github.com/nlohmann/json/releases/download/v3.12.0/include.zip
+        URL_HASH SHA256=b8cb0ef2dd7f57f18933997c9934bb1fa962594f701cd5a8d3c2c80541559372
+)
+
+if (nlohmann_json_ADDED)
+    add_library(nlohmann_json INTERFACE IMPORTED)
+    target_include_directories(nlohmann_json INTERFACE ${nlohmann_json_SOURCE_DIR}/include)
+endif()
 
 #target_compile_definitions(Vulkan-Headers INTERFACE
         #"VULKAN_HPP_ENABLE_DYNAMIC_LOADER_TOOL=OFF"
@@ -51,7 +62,8 @@ CPMAddPackage(NAME glm GITHUB_REPOSITORY g-truc/glm GIT_TAG 1.0.1)
 find_package(Freetype REQUIRED)
 
 # Enable USE_SDL define
-option(USE_SDL "Enable SDL3 support" OFF)
+option(USE_SDL "Enable SDL3 support" ON)
+
 
 
 add_library(glm-module)
@@ -69,7 +81,7 @@ target_link_libraries(glm-module
 )
 
 set(LIBS)
-list(APPEND LIBS SDL3::SDL3 glfw Vulkan-Headers glm-module Freetype::Freetype)
+list(APPEND LIBS SDL3::SDL3 glfw Vulkan-Headers glm-module Freetype::Freetype ktx nlohmann_json)
 
 
 add_executable(UFoxEngine)
@@ -84,6 +96,7 @@ target_sources(UFoxEngine
 # Add USE_SDL define if enabled
 if(USE_SDL)
     target_compile_definitions(UFoxEngine PRIVATE USE_SDL=1)
+    message(STATUS "Enable SDL3 support")
 endif()
 
 # Explicitly declare module interface files
@@ -93,8 +106,10 @@ target_sources(UFoxEngine
         src/hello_world.cppm
         src/ufox_Lib.cppm
         src/ufox_graphic_device.cppm
+        src/ufox_input.cppm
+        src/ufox_renderer.cppm
+        src/ufox_resource_manager.cppm
         src/ufox_gui_renderer.cppm
-        src/ufox_windowing.cppm
         src/ufox_engine.cppm
 )
 

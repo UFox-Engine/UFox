@@ -1,10 +1,12 @@
 module;
+
 #include <vulkan/vulkan_raii.hpp>
 #include <functional>
 #include <string>
 #include <vector>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <ktx.h>
 
 export module ufox_gui_renderer;
 
@@ -61,7 +63,7 @@ export namespace ufox::gui {
 
             UniformBufferObject ubo{};
 
-            ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(5, 5, 0.0f)) *
+            ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(50, 50, 0.0f)) *
                    glm::scale(glm::mat4(1.0f), glm::vec3(500, 500, 1.0f));
             ubo.view = glm::mat4(1.0f);
             ubo.proj = glm::ortho(0.0f, static_cast<float>(extent.width),0.0f, static_cast<float>(extent.height), -1.0f, 1.0f);
@@ -264,13 +266,63 @@ export namespace ufox::gui {
             uniformBuffers.reserve(minImageCount);
 
             for (size_t i = 0; i < minImageCount; i++) {
-                gpu::vulkan::RemapableBuffer ubo{};
+                gpu::vulkan::RemappableBuffer ubo{};
 
                 vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
                 ubo.buffer.emplace(gpu, bufferSize, vk::BufferUsageFlagBits::eUniformBuffer);
                 ubo.mapped.emplace(ubo.buffer->memory->mapMemory(0, bufferSize));
                 uniformBuffers.emplace_back(std::move(ubo));
             }
+        }
+
+
+
+        // void CreateTextureImage(const vk::raii::CommandBuffer& cmb) {
+        //     // Load KTX2 texture instead of using stb_image
+        //     ktxTexture* kTexture;
+        //     KTX_error_code result = ktxTexture_CreateFromNamedFile(
+        //         "res/textures/rgb.png",
+        //         KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+        //         &kTexture);
+        //
+        //     if (result != KTX_SUCCESS) {
+        //         throw std::runtime_error("failed to load ktx texture image!");
+        //     }
+        //
+        //     // Get texture dimensions and data
+        //     uint32_t texWidth = kTexture->baseWidth;
+        //     uint32_t texHeight = kTexture->baseHeight;
+        //     ktx_size_t imageSize = ktxTexture_GetImageSize(kTexture, 0);
+        //     ktx_uint8_t* ktxTextureData = ktxTexture_GetData(kTexture);
+        //
+        //     // Create staging buffer
+        //     gpu::vulkan::Buffer stagingBuffer(gpu, imageSize, vk::BufferUsageFlagBits::eTransferSrc);
+        //
+        //     // Copy texture data to staging buffer
+        //     auto pData = static_cast<uint8_t *>( stagingBuffer.memory->mapMemory( 0, imageSize ) );
+        //     memcpy( pData, ktxTextureData, imageSize );
+        //     stagingBuffer.memory->unmapMemory();
+        //
+        //     // Determine the Vulkan format from KTX format
+        //     vk::Format textureFormat = vk::Format::eR8G8B8A8Srgb; // Default format, should be determined from KTX metadata
+        //
+        //     // Create the texture image
+        //     textureImage.emplace(gpu, vk::Extent3D{texWidth,texHeight,1}, textureFormat, vk::ImageTiling::eOptimal,
+        //         vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal);
+        //
+        //     // Copy data from staging buffer to texture image
+        //     gpu::vulkan::SetImageLayout(cmb, *textureImage, textureFormat, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+        //     gpu::vulkan::CopyBufferToImage(gpu,stagingBuffer, *textureImage, {texWidth, texHeight, 1});
+        //     gpu::vulkan::SetImageLayout(cmb, *textureImage, textureFormat, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+        //
+        //
+        //
+        //     // Cleanup KTX resources
+        //     ktxTexture_Destroy(kTexture);
+        // }
+
+        void CreateTextureImageView() {
+            gpu::vulkan::CreateImageView(gpu, *textureImage);
         }
 
         const gpu::vulkan::GPUResources&                gpu;
@@ -282,8 +334,10 @@ export namespace ufox::gui {
         std::optional<gpu::vulkan::Buffer>              vertexBuffer{};
         std::optional<gpu::vulkan::Buffer>              indexBuffer{};
         std::vector<StyleBuffer>                        styleBuffers{};
-        std::vector<gpu::vulkan::RemapableBuffer>       uniformBuffers{};
+        std::vector<gpu::vulkan::RemappableBuffer>      uniformBuffers{};
         std::optional<vk::raii::DescriptorPool>         descriptorPool{};
         std::vector<vk::raii::DescriptorSet>            descriptorSets{};
+
+        std::optional<gpu::vulkan::TextureImage>        textureImage{};
     };
 }

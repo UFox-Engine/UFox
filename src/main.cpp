@@ -11,7 +11,7 @@ import ufox_engine;
 int main() {
 
     try {
-        ufox::Engine ide;
+        ufox::UFoxEngine ide;
         ide.Init();
         ide.Run();
 

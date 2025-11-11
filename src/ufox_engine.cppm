@@ -5,6 +5,7 @@ module;
 #include <iostream>
 #include <vulkan/vulkan_raii.hpp>
 #include <fstream>
+#include <glm/glm.hpp>
 #ifdef USE_SDL
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -14,7 +15,9 @@ module;
 export module ufox_engine;
 import ufox_lib;
 import ufox_graphic_device;
-import ufox_windowing;
+import ufox_input;
+import ufox_renderer;
+import ufox_resource_manager;
 
 
 
@@ -39,50 +42,428 @@ export namespace ufox {
         return createInfo;
     }
 
-class Engine {
-public:
-    Engine() = default;
+    class UFoxEngine {
+    public:
+        UFoxEngine() = default;
 
-    ~Engine() {
-        // Wait for all GPU operations to complete before destroying resources
-        if (gpuResources.device) {
-            gpuResources.device->waitIdle();
+        ~UFoxEngine() {
+            // Wait for all GPU operations to complete before destroying resources
+            if (gpu.device) {
+                gpu.device->waitIdle();
+            }
+
+            pauseRendering = true;
+            if (windowResource->swapchainResource) {
+                windowResource->swapchainResource->Clear();
+            }
+#ifdef USE_SDL
+            SDL_RemoveEventWatch(framebufferResizeCallback, this);
+#endif
+
         }
 
-    }
+        void Init() {
+            InitializeGPU();
+            viewport.emplace(*windowResource);
+            viewpanel1.emplace(*viewport, *inputResource,
+                    renderer::PanelAlignment::eRow,renderer::PickingMode::eIgnore);
+            viewpanel2.emplace(*viewport, *inputResource);
+            viewpanel2->scaler = 0.3f;
+            viewpanel2->SetBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
+            viewpanel3.emplace( *viewport, *inputResource,renderer::PanelAlignment::eColumn);
+            viewpanel3->scaler = 0.7f;
+            viewpanel4.emplace(*viewport, *inputResource);
+            viewpanel4->scaler = 0.6f;
+            viewpanel4->SetBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
+            viewpanel5.emplace(*viewport, *inputResource, renderer::PanelAlignment::eRow);
+            viewpanel5->scaler = 0.5f;
+            viewpanel5->SetBackgroundColor(vk::ClearColorValue{0.0f, 1.0f, 0.0f, 1.0f});
+            viewpanel6.emplace(*viewport, *inputResource);
+            viewpanel6->scaler = 0.5f;
+            viewpanel6->SetBackgroundColor(vk::ClearColorValue{1.0f, 1.0f, 0.0f, 1.0f});
+            viewpanel7.emplace(*viewport, *inputResource);
+            viewpanel7->scaler = 0.3f;
+            viewpanel7->SetBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 1.0f, 1.0f});
+            viewpanel8.emplace(*viewport, *inputResource);
+            viewpanel8->scaler = 0.6f;
+            viewpanel8->SetBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.5f, 1.0f});
+            viewpanel9.emplace(*viewport, *inputResource);
+            viewpanel9->scaler = 0.5f;
+            viewpanel9->SetBackgroundColor(vk::ClearColorValue{0.5f, 0.7f, 0.5f, 1.0f});
 
-    void Init() {
-        InitializeGPU();
-    }
 
-    void Run() {
-        window->Draw();
-    }
+            viewport->panel = &*viewpanel1;
+            viewpanel1->scaler =0;
+            viewpanel1->add(&*viewpanel2);
+            viewpanel1->add(&*viewpanel3);
+            viewpanel1->add(&*viewpanel4);
+            viewpanel3->add(&*viewpanel5);
+            viewpanel3->add(&*viewpanel6);
+            viewpanel5->add(&*viewpanel7);
+            viewpanel5->add(&*viewpanel8);
+            viewpanel5->add(&*viewpanel9);
 
-private:
-    void InitializeGPU() {
-        gpuCreateInfo = CreateGraphicDeviceInfo();
 
-        gpuResources.context.emplace();
-        gpuResources.instance.emplace(gpu::vulkan::MakeInstance(gpuResources, gpuCreateInfo));
-        gpuResources.physicalDevice.emplace(gpu::vulkan::PickBestPhysicalDevice(gpuResources));
+#ifdef USE_SDL
+            //SDL_SetWindowMinimumSize(windowResource->getHandle(),viewpanel3->getMinWidth(),viewpanel3->getMinHeight());
+#else
+            //glfwSetWindowSizeLimits(windowResource->getHandle(),testViewpanel->getMinWidth(),testViewpanel->getMinHeight(), GLFW_DONT_CARE, GLFW_DONT_CARE);
+#endif
 
-        window.emplace(gpuResources, "UFox", vk::Extent2D{800, 800});
+            int width = 0, height = 0;
+            windowResource->getExtent(width, height);
+            viewport->onResize(width, height);
+        }
 
-        gpuResources.queueFamilyIndices.emplace(window->getQueueFamilyIndices());
-        gpuResources.device.emplace(gpu::vulkan::MakeDevice(gpuResources, gpuCreateInfo));
-        gpuResources.commandPool.emplace(gpu::vulkan::MakeCommandPool(gpuResources));
+        void Run() {
+#ifdef USE_SDL
+            bool running = true;
+            SDL_Event event;
+            while (running) {
+                sdlPollEvents(event, running);
+                beginUpdate();
+                update();
+                lateUpdate();
+                render();
+            }
+#else
+            while (!glfwWindowShouldClose(windowResource->getHandle())) {
+                glfwPollEvents();
+                beginUpdate();
+                update();
+                lateUpdate();
+                render();
+            }
+#endif
+        }
 
-        gpuResources.graphicsQueue.emplace(gpu::vulkan::MakeGraphicsQueue(gpuResources));
-        gpuResources.presentQueue.emplace(gpu::vulkan::MakePresentQueue(gpuResources));
+    private:
+        void beginUpdate() {
+            input::RefreshResources(*inputResource);
+            input::UpdateGlobalMousePosition(*windowResource, *inputResource);
 
-        window->initResources();
+        }
 
-    }
+        void update() {
 
-    gpu::vulkan::GraphicDeviceCreateInfo        gpuCreateInfo{};
-    gpu::vulkan::GPUResources                   gpuResources{};
-    std::optional<windowing::UFoxWindow>        window{};
-};
 
+        }
+
+        void lateUpdate() {
+
+        }
+
+        void render() {
+            drawFrame();
+        }
+
+
+        void IniInitializeWindow() {
+            windowResource.emplace(windowing::CreateWindow(*gpu.instance, "UFox", vk::Extent2D{800, 800}));
+#ifdef USE_SDL
+            SDL_AddEventWatch(framebufferResizeCallback, this);
+
+#else
+            glfwSetWindowUserPointer(windowResource->getHandle(), this);
+            glfwSetFramebufferSizeCallback(windowResource->getHandle(), framebufferResizeCallback);
+            glfwSetWindowIconifyCallback(windowResource->getHandle(), windowIconifyCallback);
+            glfwSetWindowPosCallback(windowResource->getHandle(), windowMoveCallback);
+            glfwSetMouseButtonCallback(windowResource->getHandle(), mouse_button_callback);
+
+#endif
+        }
+
+        void InitializeGPU() {
+            gpuCreateInfo = CreateGraphicDeviceInfo();
+
+            gpu.context.emplace();
+            gpu.instance.emplace(gpu::vulkan::MakeInstance(gpu, gpuCreateInfo));
+            gpu.physicalDevice.emplace(gpu::vulkan::PickBestPhysicalDevice(gpu));
+
+            IniInitializeWindow();
+
+            gpu.queueFamilyIndices.emplace(getQueueFamilyIndices());
+            gpu.device.emplace(gpu::vulkan::MakeDevice(gpu, gpuCreateInfo));
+            gpu.commandPool.emplace(gpu::vulkan::MakeCommandPool(gpu));
+
+            gpu.graphicsQueue.emplace(gpu::vulkan::MakeGraphicsQueue(gpu));
+            gpu.presentQueue.emplace(gpu::vulkan::MakePresentQueue(gpu));
+
+            windowResource->swapchainResource.emplace(gpu::vulkan::MakeSwapchainResource(gpu, *windowResource, vk::ImageUsageFlagBits::eColorAttachment));
+            frameResource.emplace(gpu::vulkan::MakeFrameResource(gpu, vk::FenceCreateFlagBits::eSignaled));
+
+            //std::vector<char> shaderCode = ReadFile("res/shaders/test.slang.spv");
+
+            inputResource.emplace();
+
+            resourceManager.emplace(gpu);
+            resourceManager->SetRootPath("res/"); // Sets rootPath to "res/textures/"
+            // Scan for PNG and JPEG files
+            std::vector<std::string> extensions = {"png", "jpg", "jpeg"};
+            auto imageFiles = resourceManager->ScanForImageFiles(extensions);
+            for (const auto& file : imageFiles) {
+                std::cout << "Found Image: " << file << std::endl; // e.g., "res/textures/image1.png", "res/textures/subfolder/image2.jpg"
+                TextureImage texture_image {file};
+            }
+        }
+
+        [[nodiscard]] gpu::vulkan::QueueFamilyIndices getQueueFamilyIndices() const {
+            return gpu::vulkan::FindGraphicsAndPresentQueueFamilyIndex(gpu, *windowResource);
+        }
+
+        [[nodiscard]] vk::PipelineRenderingCreateInfo getPipelineRenderingCreateInfo() const {
+            vk::PipelineRenderingCreateInfo renderingInfo{};
+            renderingInfo
+            .setColorAttachmentCount(1)
+            .setPColorAttachmentFormats(&windowResource->swapchainResource->colorFormat);
+
+            return renderingInfo;
+        }
+
+
+        static std::vector<char> ReadFile(const std::string& filename) {
+            std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+            if (!file.is_open()) {
+                throw std::runtime_error("failed to open file!");
+            }
+
+            std::vector<char> buffer(file.tellg());
+
+            file.seekg(0, std::ios::beg);
+            file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+
+            file.close();
+
+            return buffer;
+        }
+
+        void recreateSwapchain() {
+            // Handle window minimization
+            int width = 0, height = 0;
+            pauseRendering = windowResource->getExtent(width, height);
+
+            if (pauseRendering) return;
+
+            gpu.device->waitIdle();
+            windowResource->extent = vk::Extent2D{static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+            windowResource->swapchainResource->Clear();
+            gpu::vulkan::ReMakeSwapchainResource(*windowResource->swapchainResource, gpu, *windowResource, vk::ImageUsageFlagBits::eColorAttachment);
+        }
+
+        void recreateSwapchain(int width, int height) {
+
+            pauseRendering = width == 0 || height == 0;
+
+            if (pauseRendering) return;
+
+            gpu.device->waitIdle();
+            windowResource->extent = vk::Extent2D{static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+            windowResource->swapchainResource->Clear();
+            gpu::vulkan::ReMakeSwapchainResource(*windowResource->swapchainResource, gpu, *windowResource, vk::ImageUsageFlagBits::eColorAttachment);
+        }
+
+        void drawFrame() {
+            while ( vk::Result::eTimeout == gpu.device->waitForFences( *frameResource->getCurrentDrawFence(), vk::True, UINT64_MAX ) )
+                ;
+
+            if (pauseRendering) {return;}
+
+            auto [result, imageIndex] = windowResource->swapchainResource->swapChain->acquireNextImage(UINT64_MAX, frameResource->getCurrentPresentCompleteSemaphore(), nullptr);
+            windowResource->swapchainResource->currentImageIndex = imageIndex;
+            gpu.device->resetFences(*frameResource->getCurrentDrawFence());
+            if (result == vk::Result::eErrorOutOfDateKHR) {
+                debug::log(debug::LogLevel::eInfo, "Recreating swapchain due to acquireNextImage failure");
+                recreateSwapchain();
+                return;
+            }
+            if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
+                throw std::runtime_error("Failed to acquire swapchain image");
+            }
+            const vk::raii::CommandBuffer& cmb = frameResource->getCurrentCommandBuffer();
+            cmb.reset();
+            recordCommandBuffer(cmb);
+
+
+            vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+            vk::SubmitInfo submitInfo{};
+            submitInfo.setWaitSemaphoreCount(1)
+                      .setPWaitSemaphores(&*frameResource->getCurrentPresentCompleteSemaphore())
+                      .setPWaitDstStageMask(&waitDestinationStageMask)
+                      .setCommandBufferCount(1)
+                      .setPCommandBuffers(&*cmb)
+                      .setSignalSemaphoreCount(1)
+                      .setPSignalSemaphores(&*windowResource->swapchainResource->getCurrentRenderFinishedSemaphore());
+            gpu.graphicsQueue->submit(submitInfo, frameResource->getCurrentDrawFence());
+            vk::PresentInfoKHR presentInfo{};
+            presentInfo.setWaitSemaphoreCount(1)
+                       .setPWaitSemaphores(&*windowResource->swapchainResource->getCurrentRenderFinishedSemaphore())
+                       .setSwapchainCount(1)
+                       .setPSwapchains(&**windowResource->swapchainResource->swapChain)
+                       .setPImageIndices(&windowResource->swapchainResource->currentImageIndex);
+
+            result = gpu.presentQueue->presentKHR(presentInfo);
+            if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR || framebufferResized) {
+                framebufferResized = false;
+                recreateSwapchain();
+                return;
+            }
+            if (result != vk::Result::eSuccess) {
+                throw std::runtime_error("Failed to present swapchain image");
+            }
+            frameResource->ContinueNextFrame();
+        }
+
+
+        void recordCommandBuffer(const vk::raii::CommandBuffer& cmb) const {
+            std::array<vk::ClearValue, 2> clearValues{};
+            clearValues[0].color        = vk::ClearColorValue{0.2f, 0.2f, 0.2f,1.0f};
+            clearValues[1].depthStencil = vk::ClearDepthStencilValue{0.0f, 0};
+            vk::Extent2D extent = windowResource->extent;
+            cmb.begin({});
+            vk::ImageSubresourceRange range{};
+            range.aspectMask     = vk::ImageAspectFlagBits::eColor;
+            range.baseMipLevel   = 0;
+            range.levelCount     = VK_REMAINING_MIP_LEVELS;
+            range.baseArrayLayer = 0;
+            range.layerCount     = VK_REMAINING_ARRAY_LAYERS;
+            gpu::vulkan::TransitionImageLayout(
+                cmb, windowResource->swapchainResource->getCurrentImage(),
+                vk::PipelineStageFlagBits2::eTopOfPipe,
+                vk::PipelineStageFlagBits2::eColorAttachmentOutput ,
+                {},
+                vk::AccessFlagBits2::eColorAttachmentWrite,
+                vk::ImageLayout::eUndefined,
+                vk::ImageLayout::eColorAttachmentOptimal,range
+                );
+            vk::RenderingAttachmentInfo colorAttachment{};
+            colorAttachment.setImageView(windowResource->swapchainResource->getCurrentImageView())
+                           .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+                           .setLoadOp(vk::AttachmentLoadOp::eClear)
+                           .setStoreOp(vk::AttachmentStoreOp::eStore)
+                           .setClearValue(clearValues[0]);
+            vk::Rect2D renderArea{};
+            renderArea.offset = vk::Offset2D{0, 0};
+            renderArea.extent = extent;
+            vk::RenderingInfo renderingInfo{};
+            renderingInfo.setRenderArea(renderArea)
+                         .setLayerCount(1)
+                         .setColorAttachmentCount(1)
+                         .setPColorAttachments(&colorAttachment);
+            cmb.beginRendering(renderingInfo);
+
+
+            cmb.endRendering();
+            viewpanel4->onProcessingRendering(cmb, *windowResource);
+
+            viewpanel2->onProcessingRendering(cmb, *windowResource);
+
+
+            viewpanel6->onProcessingRendering(cmb, *windowResource);
+            viewpanel7->onProcessingRendering(cmb, *windowResource);
+            viewpanel8->onProcessingRendering(cmb, *windowResource);
+            viewpanel9->onProcessingRendering(cmb, *windowResource);
+
+
+            gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(),
+                vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR, range);
+            cmb.end();
+        }
+
+#ifdef USE_SDL
+        static bool framebufferResizeCallback(void* userData, SDL_Event* event) {
+            if (event->type == SDL_EVENT_WINDOW_RESIZED) {
+                SDL_Window* win = SDL_GetWindowFromID(event->window.windowID);
+                auto* app = static_cast<UFoxEngine*>(userData);
+                int width, height;
+                SDL_GetWindowSize(win, &width, &height);
+                app->framebufferResized = true;
+                app->recreateSwapchain(width, height);
+                app->viewport->onResize(width, height);
+                app->drawFrame();
+            }
+            return true;
+        }
+
+        void sdlPollEvents(SDL_Event& event , bool& running) {
+            while (SDL_PollEvent(&event)) {
+                switch (event.type) {
+                    case SDL_EVENT_QUIT: {
+                        running = false;
+                        break;
+                    }
+                    case SDL_EVENT_WINDOW_MOVED: {
+                        windowResource->position = vk::Offset2D{event.window.data1,event.window.data2};
+                        break;
+                    }
+                    case SDL_EVENT_WINDOW_MINIMIZED: {
+                        pauseRendering = true;
+
+                        break;
+                    }
+                    case SDL_EVENT_WINDOW_RESTORED: {
+                        if (pauseRendering)
+                            pauseRendering = false;
+
+                        break;
+                    }
+
+                    default: {}
+                }
+            }
+        }
+
+#else
+        static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+            auto app = static_cast<UFoxEngine*>(glfwGetWindowUserPointer(window));
+            app->framebufferResized = true;
+            app->recreateSwapchain(width, height);
+            app->testViewpanel->onProcessingResize(width, height);
+            app->drawFrame();
+        }
+
+        static void windowIconifyCallback(GLFWwindow* window, int iconified) {
+            auto app = static_cast<UFoxEngine*>(glfwGetWindowUserPointer(window));
+            app->pauseRendering = iconified != GLFW_FALSE;
+        }
+
+        static void windowMoveCallback(GLFWwindow* window, int x, int y) {
+            auto app = static_cast<UFoxEngine*>(glfwGetWindowUserPointer(window));
+            app->windowResource->position = vk::Offset2D{x,y};
+
+        }
+
+
+        static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
+        {
+            auto app = static_cast<UFoxEngine*>(glfwGetWindowUserPointer(window));
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+                app->inputResource->mouseLeftButton = true;
+            }
+            else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+                app->inputResource->mouseLeftButton = false;
+            }
+        }
+#endif
+
+        gpu::vulkan::GraphicDeviceCreateInfo        gpuCreateInfo{};
+        gpu::vulkan::GPUResources                   gpu{};
+        std::optional<windowing::WindowResource>    windowResource{};
+        std::optional<gpu::vulkan::FrameResource>   frameResource{};
+        std::optional<input::InputResource>         inputResource{};
+        std::optional<ResourceManager>              resourceManager{};
+        std::optional<renderer::Viewport>           viewport{};
+        std::optional<renderer::Viewpanel>          viewpanel1{};
+        std::optional<renderer::Viewpanel>          viewpanel2{};
+        std::optional<renderer::Viewpanel>          viewpanel3{};
+        std::optional<renderer::Viewpanel>          viewpanel4{};
+        std::optional<renderer::Viewpanel>          viewpanel5{};
+        std::optional<renderer::Viewpanel>          viewpanel6{};
+        std::optional<renderer::Viewpanel>          viewpanel7{};
+        std::optional<renderer::Viewpanel>          viewpanel8{};
+        std::optional<renderer::Viewpanel>          viewpanel9{};
+
+        bool framebufferResized = false;
+        bool pauseRendering = false;
+    };
 }
