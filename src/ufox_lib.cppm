@@ -547,7 +547,15 @@ export namespace ufox {
             using DestroyFunc = decltype(&glfwDestroyWindow);
 #endif
 
-            explicit WindowResource(const vk::raii::Instance& instance, WindowHandle* wnd): handle{wnd, DestroyFunc{}}{
+            explicit WindowResource(const vk::raii::Instance& instance, WindowHandle* wnd): handle{wnd,
+#ifdef USE_SDL
+                SDL_DestroyWindow}
+#else
+                glfwDestroyWindow}
+#endif
+{
+
+
                 VkSurfaceKHR _surface;
                 int x = 0, y = 0, width = 0, height = 0;
 #ifdef USE_SDL
@@ -571,6 +579,7 @@ export namespace ufox {
                 position = vk::Offset2D{x, y};
                 surface.emplace(instance, _surface);
             }
+
 
             std::unique_ptr<WindowHandle, DestroyFunc>          handle;
             vk::Offset2D                                        position;
@@ -669,10 +678,8 @@ export namespace ufox {
             eDefault,
             eEWResize,
             eNSResize,
-            eNWResize,
-            eNEResize,
-            eSWResize,
-            eSEResize
+            eNWSEResize,
+            eNESWResize
         };
 
         enum class ActionPhase {
@@ -697,7 +704,33 @@ export namespace ufox {
         };
 
 
+        struct StandardCursorResource {
+#ifdef USE_SDL
+            using CursorHandle = SDL_Cursor;
+            using DestroyFunc = decltype(&SDL_DestroyCursor);
 
+#else
+            using CursorHandle = GLFWcursor;
+            using DestroyFunc = decltype(&glfwDestroyCursor);
+#endif
+
+
+
+            CursorType                                  currentCursor{CursorType::eDefault};
+            std::unique_ptr<CursorHandle, DestroyFunc>  defaultCursor{nullptr,nullptr};
+            std::unique_ptr<CursorHandle, DestroyFunc>  ewResizeCursor{nullptr,nullptr};
+            std::unique_ptr<CursorHandle, DestroyFunc>  nsResizeCursor{nullptr,nullptr};
+            std::unique_ptr<CursorHandle, DestroyFunc>  nwseResizeCursor{nullptr,nullptr};
+            std::unique_ptr<CursorHandle, DestroyFunc>  neswResizeCursor{nullptr,nullptr};
+
+            void ResetAll() {
+                defaultCursor.reset();
+                ewResizeCursor.reset();
+                nsResizeCursor.reset();
+                nwseResizeCursor.reset();
+                neswResizeCursor.reset();
+            }
+        };
 
         struct EventCallbackPool {
 
@@ -792,7 +825,6 @@ export namespace ufox {
                     isStarted = false;
                     isPerformed = false;
                     isEnded = false;
-                    debug::log(debug::LogLevel::eInfo, "InputAction RESET: {} [id: {:#x}]", name, id);
                     triggerCount = 0;
                     phase = ActionPhase::eSleep;
                 }
@@ -828,6 +860,7 @@ export namespace ufox {
         }
 
         struct InputResource {
+
             glm::ivec2 mousePosition{0,0};
             glm::ivec2 mouseDelta{0, 0};
             glm::ivec2 mouseWheel{0,0};
@@ -836,7 +869,6 @@ export namespace ufox {
             Action leftMouseButtonAction{"left-mouse-button", std::chrono::milliseconds{500}};
             Action rightMouseButtonAction{"right-mouse-button", std::chrono::milliseconds{500}};
             Action middleMouseButtonAction{"middle-mouse-button", std::chrono::milliseconds{500}};
-
 
             EventCallbackPool onMouseMoveCallbackPool{};
             EventCallbackPool onMouseStopCallbackPool{};
@@ -847,8 +879,6 @@ export namespace ufox {
             EventCallbackPool onMiddleMouseButtonCallbackPool{};
 
             bool mouseLeftButton{false}, mouseRightButton{false}, mouseMiddleButton{false};
-
-            CursorType currentCursor{CursorType::eDefault};
 
             void refresh() noexcept {
                 mouseWheel = {0,0};
@@ -883,61 +913,6 @@ export namespace ufox {
             void onMouseWheel() {
                 onMouseWheelCallbackPool.invoke(*this);
             }
-
-            void setCursor(const CursorType type) {
-                if (currentCursor != type) {
-                    switch (type) {
-                        case CursorType::eDefault: {
-                            SDL_SetCursor(_defaultCursor.get());
-                            break;
-                        }
-                        case CursorType::eEWResize: {
-                            SDL_SetCursor(_ewResizeCursor.get());
-                            break;
-                        }
-                        case CursorType::eNSResize: {
-                            SDL_SetCursor(_nsResizeCursor.get());
-                            break;
-                        }
-                        case CursorType::eNWResize: {
-                            SDL_SetCursor(_nwResizeCursor.get());
-                            break;
-                        }
-                        case CursorType::eNEResize: {
-                            SDL_SetCursor(_neResizeCursor.get());
-                            break;
-                        }
-                        case CursorType::eSWResize: {
-                            SDL_SetCursor(_swResizeCursor.get());
-                            break;
-                        }
-                        case CursorType::eSEResize: {
-                            SDL_SetCursor(_seResizeCursor.get());
-                            break;
-                        }
-                        default: {
-                            currentCursor = CursorType::eDefault;
-                            SDL_SetCursor(_defaultCursor.get());
-                            break;
-                        }
-                    }
-
-                    currentCursor = type;
-                }
-            }
-
-
-        private:
-#ifdef USE_SDL
-            std::unique_ptr<SDL_Cursor, decltype(&SDL_DestroyCursor)> _defaultCursor ={SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT), SDL_DestroyCursor};
-            std::unique_ptr<SDL_Cursor, decltype(&SDL_DestroyCursor)> _ewResizeCursor ={SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE), SDL_DestroyCursor};
-            std::unique_ptr<SDL_Cursor, decltype(&SDL_DestroyCursor)> _nsResizeCursor ={SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NS_RESIZE), SDL_DestroyCursor};
-            std::unique_ptr<SDL_Cursor, decltype(&SDL_DestroyCursor)> _nwResizeCursor ={SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NW_RESIZE), SDL_DestroyCursor};
-            std::unique_ptr<SDL_Cursor, decltype(&SDL_DestroyCursor)> _neResizeCursor ={SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NE_RESIZE), SDL_DestroyCursor};
-            std::unique_ptr<SDL_Cursor, decltype(&SDL_DestroyCursor)> _swResizeCursor ={SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SW_RESIZE), SDL_DestroyCursor};
-            std::unique_ptr<SDL_Cursor, decltype(&SDL_DestroyCursor)> _seResizeCursor ={SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SE_RESIZE), SDL_DestroyCursor};
-#endif
-
         };
     }
 
@@ -950,6 +925,17 @@ namespace geometry {
         constexpr uint32_t RESIZER_THICKNESS = 12;
         constexpr int32_t RESIZER_OFFSET = 6;
 
+        struct Viewpanel;
+
+        struct SplitterContext {
+            size_t      index = 0;
+            float       minScale = 0.05f;
+            float       maxScale = 0.95f;
+            bool        isActive = false;
+            Viewpanel*  targetPanel = nullptr;
+            float       startScale = 0.0f;
+        };
+
         struct Viewpanel {
             explicit Viewpanel(PanelAlignment align = PanelAlignment::eColumn,PickingMode picking = PickingMode::ePosition,ScalingMode scaling = ScalingMode::eFlex):alignment(align), pickingMode(picking), scalingMode(scaling) {}
             ~Viewpanel() = default;
@@ -957,6 +943,9 @@ namespace geometry {
 
             vk::Rect2D              rect{{0,0},{0,0}};
             vk::Rect2D              scalerZone{{0,0},{0,0}};
+
+            uint32_t                minWidth{100};
+            uint32_t                minHeight{100};
 
             Viewpanel*              parent{nullptr};
             std::vector<Viewpanel*> children;
@@ -1022,76 +1011,79 @@ namespace geometry {
                     clearColor = color;
                 }
 
+            [[nodiscard]] auto getMinSize() const -> std::pair<uint32_t, uint32_t>
+            {
+                if (isChildrenEmpty()) {
+                    return { minWidth, minHeight };
+                }
+
+                uint32_t childW = 0;
+                uint32_t childH = 0;
+
+                if (isRow()) {
+                    for (size_t i = 0; i < getChildrenSize(); ++i) {
+                        auto [w, h] = getChild(i)->getMinSize();
+                        childW += w;
+                        if (h > childH) childH = h;
+                    }
+                }
+                else {
+                    for (size_t i = 0; i < getChildrenSize(); ++i) {
+                        auto [w, h] = getChild(i)->getMinSize();
+                        childH += h;
+                        if (w > childW) childW = w;
+                    }
+                }
+
+                uint32_t finalW = childW > minWidth ? childW : minWidth;
+                uint32_t finalH = childH > minHeight ? childH : minHeight;
+
+                return { finalW, finalH };
+            }
+
         };
 
         struct Viewport {
+            explicit Viewport(const windowing::WindowResource& window) : window(window) {}
+            ~Viewport() = default;
+
+            const windowing::WindowResource&                    window;
             vk::Extent2D                                        extent{};
             Viewpanel*                                          panel = nullptr;
             Viewpanel*                                          hoveredPanel = nullptr;
             Viewpanel*                                          focusedPanel = nullptr;
-            Viewpanel*                                          scaler = nullptr;
+            SplitterContext                                     splitterContext{};
             std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
             std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
         };
     }
 
     namespace gui {
-
         struct Vertex {
-
             glm::vec2 position;
-
             glm::vec2 uv;
-
             glm::vec4 color;
 
-
-
             static constexpr  vk::VertexInputBindingDescription getBindingDescription(uint32_t binding) {
-
                 vk::VertexInputBindingDescription bindingDescription{};
-
                 bindingDescription.setBinding(binding).setStride(sizeof(Vertex)).setInputRate(vk::VertexInputRate::eVertex);
-
                 return bindingDescription;
-
             }
-
-
 
             static constexpr  std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions(uint32_t binding) {
-
                 std::array<vk::VertexInputAttributeDescription, 3> attributeDescriptions{};
-
                 attributeDescriptions[0].setBinding(binding).setLocation(0).setFormat(vk::Format::eR32G32Sfloat).setOffset(0);
-
                 attributeDescriptions[1].setBinding(binding).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
-
                 attributeDescriptions[2].setBinding(binding).setLocation(2).setFormat(vk::Format::eR32G32B32A32Sfloat).setOffset(offsetof(Vertex, color));
-
                 return attributeDescriptions;
-
             }
-
         };
-
-
-
-
-
-
 
         struct UniformBufferObject {
-
             glm::mat4 model;
-
             glm::mat4 view;
-
             glm::mat4 proj;
-
         };
-
-
 
         constexpr Vertex Geometries[] {
 

@@ -14,6 +14,7 @@ module;
 export module ufox_geometry;
 
 import ufox_lib;  // GPUResources, SwapchainResource, FrameResource
+import ufox_input;
 
 export namespace ufox::geometry {
 
@@ -69,16 +70,22 @@ export namespace ufox::geometry {
         }
     }
 
-    void PollInputForPanel(
-        Viewport& viewport,
-        Viewpanel& viewpanel,
-        input::InputResource& input)
+    void PollInputForPanel(Viewport& viewport, Viewpanel& viewpanel, input::InputResource& input, input::StandardCursorResource& cursor, const size_t childIndex)
     {
-        if (viewpanel.pickingMode == PickingMode::eIgnore)
-            return;
+        if (!viewpanel.parent) return;
 
         const auto mx = input.mousePosition.x;
         const auto my = input.mousePosition.y;
+
+        if (viewport.splitterContext.isActive) {
+            return;
+        }
+
+        const bool overSplitter =
+            mx > viewpanel.scalerZone.offset.x &&
+            my > viewpanel.scalerZone.offset.y &&
+            mx < viewpanel.scalerZone.offset.x + static_cast<int32_t>(viewpanel.scalerZone.extent.width) &&
+            my < viewpanel.scalerZone.offset.y + static_cast<int32_t>(viewpanel.scalerZone.extent.height);
 
         const bool isHovered =
             mx >= viewpanel.rect.offset.x &&
@@ -86,6 +93,29 @@ export namespace ufox::geometry {
             mx <  viewpanel.rect.offset.x + static_cast<int32_t>(viewpanel.rect.extent.width) &&
             my <  viewpanel.rect.offset.y + static_cast<int32_t>(viewpanel.rect.extent.height);
 
+        if (overSplitter)
+        {
+            if (viewport.splitterContext.targetPanel != &viewpanel) {
+                viewport.splitterContext.targetPanel = &viewpanel;
+#ifdef USE_SDL
+                input::SetStandardCursor(cursor, viewpanel.parent->isColumn() ?input::CursorType::eNSResize :input::CursorType::eEWResize);
+#else
+                input::SetStandardCursor(cursor, viewpanel.parent->isColumn() ?input::CursorType::eNSResize :input::CursorType::eEWResize, viewport.window);
+#endif
+
+                viewport.splitterContext.index = childIndex;
+            }
+        }
+        else if (viewport.splitterContext.targetPanel == &viewpanel)
+        {
+#ifdef USE_SDL
+            input::SetStandardCursor(cursor, input::CursorType::eDefault);
+#else
+            input::SetStandardCursor(cursor, input::CursorType::eDefault, viewport.window);
+#endif
+            viewport.splitterContext.targetPanel = nullptr;
+            viewport.splitterContext.index = 0;
+        }
 
         if (isHovered) {
             if (viewport.hoveredPanel != &viewpanel)
@@ -94,55 +124,59 @@ export namespace ufox::geometry {
         else if (viewport.hoveredPanel == &viewpanel) {
             viewport.hoveredPanel = nullptr;
         }
-
-        if (!viewpanel.parent) return;
-
-        const bool overResizer =
-            mx > viewpanel.scalerZone.offset.x &&
-            my > viewpanel.scalerZone.offset.y &&
-            mx < viewpanel.scalerZone.offset.x + static_cast<int32_t>(viewpanel.scalerZone.extent.width) &&
-            my < viewpanel.scalerZone.offset.y + static_cast<int32_t>(viewpanel.scalerZone.extent.height);
-
-        if (overResizer)
-        {
-            if (viewport.scaler != &viewpanel) {
-                viewport.scaler = &viewpanel;
-                input.setCursor(viewpanel.parent->isColumn() ?
-                input::CursorType::eNSResize :
-                input::CursorType::eEWResize);
-            }
-        }
-        else if (viewport.scaler == &viewpanel)
-        {
-            input.setCursor(input::CursorType::eDefault);
-            viewport.scaler = nullptr;
-        }
     }
 
-    void BindEvents(Viewport& viewport, input::InputResource& input)
-    {
+    void BindEvents(Viewport& viewport, input::InputResource& input, input::StandardCursorResource& cursor) {
         if (!viewport.panel) return;
 
-        viewport.mouseMoveEventHandle.emplace(input.onMouseMoveCallbackPool.bind([&viewport](input::InputResource& i) {
-
-                            auto allPanels = viewport.panel->GetAllPanels();
-
-                            for (Viewpanel* panel : allPanels){
-                                if (panel->pickingMode == PickingMode::ePosition){
-                                    PollInputForPanel(viewport, *panel, i);
-                                }
-                            }
+        viewport.mouseMoveEventHandle.emplace(input.onMouseMoveCallbackPool.bind([&viewport, &cursor](input::InputResource& i) {
+            auto allPanels = viewport.panel->GetAllPanels();
+            for (size_t idx = 0; idx < allPanels.size(); ++idx) {
+                    Viewpanel* panel = allPanels[idx];
+                    if (panel->pickingMode == PickingMode::ePosition) {
+                    PollInputForPanel(viewport, *panel, i, cursor, idx);
+                }
+            }
         }));
 
-        viewport.leftClickEventHandle.emplace(input.onLeftMouseButtonCallbackPool.bind([&viewport](input::InputResource& i) {
-            if (i.leftMouseButtonAction.phase == input::ActionPhase::eStart) {
-                //prepare resizer context
-            }
-            else if (i.leftMouseButtonAction.phase == input::ActionPhase::ePerform) {
-                //resizing logic
-            }
-            else if (i.leftMouseButtonAction.phase == input::ActionPhase::eEnd) {
-                //finalize resize and reset context
+        viewport.leftClickEventHandle.emplace(input.onLeftMouseButtonCallbackPool.bind([&viewport](input::InputResource& inputResource){
+                if (inputResource.leftMouseButtonAction.phase == input::ActionPhase::eStart && viewport.splitterContext.targetPanel) {
+                const Viewpanel* target = viewport.splitterContext.targetPanel;
+                const Viewpanel* parent = target->parent;
+                if (!parent) return;
+
+                const size_t splitterIndex = viewport.splitterContext.index;
+
+                const bool isRow = parent->isRow();
+                uint32_t rawMinValue = 0;
+                uint32_t rawMaxValue = 0;
+
+                for (size_t i = 0; i < parent->getChildrenSize(); ++i) {
+                    auto [minW, minH] = parent->getChild(i)->getMinSize();
+                    const uint32_t childMin = isRow ? minW : minH;
+                    if (i < splitterIndex) rawMinValue += childMin;
+                    else if (i > splitterIndex) rawMaxValue += childMin;
+                }
+
+                const uint32_t parentTotal = isRow ? parent->rect.extent.width : parent->rect.extent.height;
+                if (parentTotal == 0) return;
+
+                viewport.splitterContext.minScale = static_cast<float>(rawMinValue) / static_cast<float>(parentTotal);
+                viewport.splitterContext.maxScale = 1.0f - static_cast<float>(rawMaxValue) / static_cast<float>(parentTotal);
+
+                viewport.splitterContext.minScale = std::max(0.0f, viewport.splitterContext.minScale);
+                viewport.splitterContext.maxScale = std::min(1.0f, viewport.splitterContext.maxScale);
+
+                if (viewport.splitterContext.minScale > viewport.splitterContext.maxScale) {
+                    viewport.splitterContext.minScale = viewport.splitterContext.maxScale = 0.5f;
+        }
+
+        viewport.splitterContext.startScale = target->scaleValue;
+        viewport.splitterContext.isActive = true;
+            }else if (inputResource.leftMouseButtonAction.phase == input::ActionPhase::eEnd) {
+                viewport.splitterContext.isActive = false;
+                viewport.splitterContext.targetPanel = nullptr;
+                viewport.splitterContext.index = 0;
             }
         }));
     }

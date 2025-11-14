@@ -54,24 +54,11 @@ export namespace ufox {
             }
 
             pauseRendering = true;
-            if (windowResource->swapchainResource) {
-                windowResource->swapchainResource->Clear();
-            }
-
-            if (viewport && inputResource) {
-                geometry::UnbindEvents(*viewport,*inputResource);
-            }
-
-
-#ifdef USE_SDL
-            SDL_RemoveEventWatch(framebufferResizeCallback, this);
-#endif
-
         }
 
         void Init() {
             InitializeGPU();
-            viewport.emplace();
+            viewport.emplace(*windowResource);
             viewpanel1.emplace(geometry::PanelAlignment::eRow,geometry::PickingMode::eIgnore);
             viewpanel2.emplace();
             viewpanel2->scaleValue = 0.3f;
@@ -119,7 +106,7 @@ export namespace ufox {
             int width = 0, height = 0;
             windowResource->getExtent(width, height);
             geometry::ResizingViewport(*viewport, width, height);
-            geometry::BindEvents(*viewport,*inputResource);
+            geometry::BindEvents(*viewport,*inputResource, *standardCursorResource);
 
 
         }
@@ -204,6 +191,7 @@ export namespace ufox {
             //std::vector<char> shaderCode = ReadFile("res/shaders/test.slang.spv");
 
             inputResource.emplace();
+            standardCursorResource.emplace(input::CreateStandardMouseCursor());
 
             resourceManager.emplace(gpu);
             resourceManager->SetRootPath("res/"); // Sets rootPath to "res/textures/"
@@ -403,7 +391,18 @@ export namespace ufox {
             while (SDL_PollEvent(&event)) {
                 switch (event.type) {
                     case SDL_EVENT_QUIT: {
+                        if (gpu.device) {
+                            gpu.device->waitIdle();
+                        }
+                        pauseRendering = true;
+                        // if (windowResource->swapchainResource) {
+                        //     windowResource->swapchainResource->Clear();
+                        // }
+                        // if (viewport && inputResource) {
+                        //     geometry::UnbindEvents(*viewport,*inputResource);
+                        // }
                         running = false;
+                        SDL_RemoveEventWatch(framebufferResizeCallback, this);
                         break;
                     }
                     case SDL_EVENT_WINDOW_MOVED: {
@@ -456,7 +455,7 @@ export namespace ufox {
             auto app = static_cast<UFoxEngine*>(glfwGetWindowUserPointer(window));
             app->framebufferResized = true;
             app->recreateSwapchain(width, height);
-            app->testViewpanel->onProcessingResize(width, height);
+            geometry::ResizingViewport(*app->viewport, width, height);
             app->drawFrame();
         }
 
@@ -475,12 +474,20 @@ export namespace ufox {
         static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         {
             auto app = static_cast<UFoxEngine*>(glfwGetWindowUserPointer(window));
-            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-                app->inputResource->mouseLeftButton = true;
-            }
-            else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
-                app->inputResource->mouseLeftButton = false;
-            }
+
+            input::MouseButton buttonType = input::MouseButton::eNone;
+            input::ActionPhase phase = input::ActionPhase::eSleep;
+
+            if (button == GLFW_MOUSE_BUTTON_LEFT) {buttonType = input::MouseButton::eLeft;}
+            else if (button == GLFW_MOUSE_BUTTON_RIGHT) {buttonType = input::MouseButton::eRight;}
+            else if (button == GLFW_MOUSE_BUTTON_MIDDLE) {buttonType = input::MouseButton::eMiddle;}
+
+            if (action == GLFW_PRESS) {phase = input::ActionPhase::eStart;}
+            else if (action == GLFW_RELEASE) {phase = input::ActionPhase::eEnd;}
+
+
+            input::CatchMouseButton(app->inputResource.value(), buttonType, phase, 1,0);
+
         }
 #endif
 
@@ -489,6 +496,7 @@ export namespace ufox {
         std::optional<windowing::WindowResource>    windowResource{};
         std::optional<gpu::vulkan::FrameResource>   frameResource{};
         std::optional<input::InputResource>         inputResource{};
+        std::optional<input::StandardCursorResource>standardCursorResource{};
         std::optional<ResourceManager>              resourceManager{};
         std::optional<geometry::Viewport>           viewport{};
         std::optional<geometry::Viewpanel>          viewpanel1{};
@@ -500,7 +508,7 @@ export namespace ufox {
         std::optional<geometry::Viewpanel>          viewpanel7{};
         std::optional<geometry::Viewpanel>          viewpanel8{};
         std::optional<geometry::Viewpanel>          viewpanel9{};
-        std::optional<input::EventCallbackPool::Handler> mouseButtonHandler{};
+
 
         bool framebufferResized = false;
         bool pauseRendering = false;

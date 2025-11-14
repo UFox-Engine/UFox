@@ -16,7 +16,6 @@ export module ufox_input;
 import ufox_lib;  // For GenerateUniqueID
 
 export  namespace ufox::input {
-
     void RefreshResources(InputResource& res) {
         res.refresh();
     }
@@ -87,7 +86,98 @@ export  namespace ufox::input {
         }
     }
 
+
+
+#ifdef USE_SDL
+    StandardCursorResource CreateStandardMouseCursor() {
+        StandardCursorResource resource{};
+
+        resource.defaultCursor      = {SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT), SDL_DestroyCursor};
+        resource.ewResizeCursor     = {SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_EW_RESIZE), SDL_DestroyCursor};
+        resource.nsResizeCursor     = {SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NS_RESIZE), SDL_DestroyCursor};
+        resource.neswResizeCursor   = {SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NESW_RESIZE), SDL_DestroyCursor};
+        resource.nwseResizeCursor   = {SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_NWSE_RESIZE), SDL_DestroyCursor};
+
+        return resource;
     }
+    void SetStandardCursor(StandardCursorResource& resource, const CursorType& type) {
+        resource.currentCursor = type;
+
+        switch (type) {
+            case CursorType::eDefault: {
+                SDL_SetCursor(resource.defaultCursor.get());
+                break;
+            }
+            case CursorType::eEWResize: {
+                SDL_SetCursor(resource.ewResizeCursor.get());
+                break;
+            }
+            case CursorType::eNSResize: {
+                SDL_SetCursor(resource.nsResizeCursor.get());
+                break;
+            }
+            case CursorType::eNESWResize: {
+                SDL_SetCursor(resource.neswResizeCursor.get());
+                break;
+            }
+            case CursorType::eNWSEResize: {
+                SDL_SetCursor(resource.nwseResizeCursor.get());
+                break;
+            }
+            default:{
+                resource.currentCursor = CursorType::eDefault;
+                SDL_SetCursor(resource.defaultCursor.get());
+                break;
+            }
+        }
+    }
+#else
+    StandardCursorResource CreateStandardMouseCursor() {
+        StandardCursorResource resource{};
+
+        resource.defaultCursor      = {glfwCreateStandardCursor(GLFW_ARROW_CURSOR), glfwDestroyCursor};
+        resource.ewResizeCursor     = {glfwCreateStandardCursor(GLFW_RESIZE_EW_CURSOR), glfwDestroyCursor};
+        resource.nsResizeCursor     = {glfwCreateStandardCursor(GLFW_RESIZE_NS_CURSOR), glfwDestroyCursor};
+        resource.neswResizeCursor   = {glfwCreateStandardCursor(GLFW_RESIZE_NWSE_CURSOR), glfwDestroyCursor};
+        resource.nwseResizeCursor   = {glfwCreateStandardCursor(GLFW_RESIZE_NESW_CURSOR), glfwDestroyCursor};
+
+        return resource;
+    }
+
+    void SetStandardCursor(StandardCursorResource& resource, const CursorType& type, const windowing::WindowResource& window) {
+        resource.currentCursor = type;
+
+        switch (type) {
+            case CursorType::eDefault: {
+                glfwSetCursor(window.getHandle(),resource.defaultCursor.get());
+                break;
+            }
+            case CursorType::eEWResize: {
+                glfwSetCursor(window.getHandle(),resource.ewResizeCursor.get());
+                break;
+            }
+            case CursorType::eNSResize: {
+                glfwSetCursor(window.getHandle(),resource.nsResizeCursor.get());
+                break;
+            }
+            case CursorType::eNESWResize: {
+                glfwSetCursor(window.getHandle(),resource.neswResizeCursor.get());
+                break;
+            }
+            case CursorType::eNWSEResize: {
+                glfwSetCursor(window.getHandle(),resource.nwseResizeCursor.get());
+                break;
+            }
+            default:{
+                resource.currentCursor = CursorType::eDefault;
+                glfwSetCursor(window.getHandle(),resource.defaultCursor.get());
+                break;
+            }
+        }
+    }
+
+#endif
+}
 
 
 
