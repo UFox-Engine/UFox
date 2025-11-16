@@ -905,12 +905,13 @@ namespace geometry {
 
         constexpr uint32_t RESIZER_THICKNESS = 12;
         constexpr int32_t RESIZER_OFFSET = 6;
+        constexpr int RESIZER_SNAP_GRID = 4;
 
         struct Viewpanel;
 
-        struct SplitterContext {
-            SplitterContext() = default;
-            ~SplitterContext() = default;
+        struct ViewpanelResizerContext {
+            ViewpanelResizerContext() = default;
+            ~ViewpanelResizerContext() = default;
 
             Viewpanel*              targetPanel= nullptr;
 
@@ -984,9 +985,6 @@ namespace geometry {
                 }
             }
 
-            [[nodiscard]] int getAlignmentOffset() const noexcept { return isRow() ? static_cast<int>(rect.offset.x) : static_cast<int>(rect.offset.y); }
-            [[nodiscard]] int getAlignmentExtent() const noexcept { return isRow() ? static_cast<int>(rect.extent.width) : static_cast<int>(rect.extent.height); }
-
             [[nodiscard]] std::vector<Viewpanel*> getAllPanels() const &
             {
                 std::vector<Viewpanel*> result;
@@ -1054,7 +1052,7 @@ namespace geometry {
             Viewpanel*                                          panel = nullptr;
             Viewpanel*                                          hoveredPanel = nullptr;
             Viewpanel*                                          focusedPanel = nullptr;
-            SplitterContext                                     splitterContext{};
+            ViewpanelResizerContext                                     resizerContext{};
             std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
             std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
         };

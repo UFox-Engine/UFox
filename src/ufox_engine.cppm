@@ -69,12 +69,12 @@ export namespace ufox {
             viewport.emplace(*windowResource);
             viewpanel1.emplace(geometry::PanelAlignment::eRow,geometry::PickingMode::eIgnore);
             viewpanel2.emplace();
-            viewpanel2->resizerValue = 0.3f;
+            viewpanel2->resizerValue = 0.25f;
             viewpanel2->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
             viewpanel3.emplace(geometry::PanelAlignment::eColumn);
-            viewpanel3->resizerValue = 0.6f;
+            viewpanel3->resizerValue = 0.50f;
             viewpanel4.emplace();
-            viewpanel4->resizerValue = 0.8f;
+            viewpanel4->resizerValue = 0.75f;
             viewpanel4->setBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
             viewpanel5.emplace(geometry::PanelAlignment::eRow);
             viewpanel5->resizerValue = 0.5f;
@@ -109,17 +109,21 @@ export namespace ufox {
             viewpanel5->add(&*viewpanel9);
 
 
-#ifdef USE_SDL
-            //SDL_SetWindowMinimumSize(windowResource->getHandle(),viewpanel3->getMinWidth(),viewpanel3->getMinHeight());
-#else
-            //glfwSetWindowSizeLimits(windowResource->getHandle(),testViewpanel->getMinWidth(),testViewpanel->getMinHeight(), GLFW_DONT_CARE, GLFW_DONT_CARE);
-#endif
+
 
             int width = 0, height = 0;
             windowResource->getExtent(width, height);
             geometry::ResizingViewport(*viewport, width, height);
             geometry::BindEvents(*viewport,*inputResource, *standardCursorResource);
 
+            auto minExtent = viewport->panel->getTotalMinExtent();
+
+
+#ifdef USE_SDL
+            //SDL_SetWindowMinimumSize(windowResource->getHandle(),viewpanel3->getMinWidth(),viewpanel3->getMinHeight());
+#else
+            glfwSetWindowSizeLimits(windowResource->getHandle(),minExtent.first,minExtent.second, GLFW_DONT_CARE, GLFW_DONT_CARE);
+#endif
 
         }
 

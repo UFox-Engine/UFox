@@ -27,6 +27,10 @@ export namespace ufox::geometry {
         return row ? panel.getPositionX() : panel.getPositionY();
     }
 
+    [[nodiscard]] int GetPanelExtent1D(const bool& row, const Viewpanel& panel) noexcept {
+        return row ? panel.getExtentX() : panel.getExtentY();
+    }
+
     [[nodiscard]] int GetResizerPushLeftThreshold(const bool& row, const Viewpanel& panel, const int& minExtent) noexcept {
         return GetPanelPosition1D(row, panel) + minExtent;
     }
@@ -35,26 +39,36 @@ export namespace ufox::geometry {
         return panel.getExtentToViewportSpace(row) - GetPanelMinExtent1D(row, panel);
     }
 
-    void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& posY, const uint32_t& width, const uint32_t& height) {
+float ClampPanelResizerValue(const bool& isRow, const Viewpanel& panel, const float& offset, const float& length) noexcept {
+        const float minValue = static_cast<float>(GetPanelMinExtent1D(isRow, panel)) / length;
+        const float posValue = (static_cast<float>(GetPanelPosition1D(isRow, panel)) - offset) / length;
+
+        return glm::clamp(panel.resizerValue, posValue + minValue, 1.0f);
+}
+
+void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& posY, const uint32_t& width, const uint32_t& height) {
         // Update current panel dimensions
         viewpanel.rect.offset.x = posX;
         viewpanel.rect.offset.y = posY;
         viewpanel.rect.extent.width = width;
         viewpanel.rect.extent.height = height;
 
+
         if (viewpanel.isChildrenEmpty()) return;
 
         int32_t x = posX;
         int32_t y = posY;
 
+        const bool isRow = viewpanel.isRow();
         const size_t lastChildIndex = viewpanel.getLastChildIndex();
 
         for (size_t i = 0; i < viewpanel.getChildrenSize(); ++i) {
-            Viewpanel* child = viewpanel.getChild(i);
-            float ratio = glm::clamp(child->resizerValue, 0.0f, 1.0f);
+            Viewpanel *child = viewpanel.getChild(i);
+
             uint32_t sizeValue;
 
-            if (viewpanel.isRow()) {
+            if (isRow) {
+                const float ratio = ClampPanelResizerValue(isRow, *child, posX, width);
                 sizeValue = i < lastChildIndex ?
                     static_cast<uint32_t>(static_cast<float>(width) * ratio) :
                     width;
@@ -64,6 +78,7 @@ export namespace ufox::geometry {
                     vk::Rect2D{vk::Offset2D{x - RESIZER_OFFSET, y}, vk::Extent2D{RESIZER_THICKNESS, height}} :
                     vk::Rect2D{{0,0}, {0,0}};
             } else {
+                const float ratio = ClampPanelResizerValue(isRow, *child, posY, height);
                 sizeValue = i < lastChildIndex ?
                     static_cast<uint32_t>(static_cast<float>(height) * ratio) :
                     height;
@@ -81,15 +96,14 @@ export namespace ufox::geometry {
         viewport.extent.width  = static_cast<uint32_t>(width);
         viewport.extent.height = static_cast<uint32_t>(height);
 
-        if (viewport.panel)
-        {
+        if (viewport.panel){
             BuildPanelLayout(*viewport.panel, 0, 0, viewport.extent.width, viewport.extent.height);
         }
     }
 
     void EnabledViewportResizer(Viewport& viewport, const input::InputResource& input, const bool& state){
         if (state) {
-            SplitterContext& ctx            = viewport.splitterContext;
+            ViewpanelResizerContext& ctx            = viewport.resizerContext;
 
             if (!ctx.targetPanel)           return;
             Viewpanel* target               = ctx.targetPanel;
@@ -97,11 +111,12 @@ export namespace ufox::geometry {
             if (!target->parent)            return;
 
             Viewpanel* parent               = target->parent;
-            const int parentPos             = parent->getAlignmentOffset();
-            const int parentExtent          = parent->getAlignmentExtent();
+            const bool isRow                = parent->isRow();
+            const int parentPos             = GetPanelPosition1D(isRow, *parent);
+            const int parentExtent          = GetPanelExtent1D(isRow, *parent);
             const size_t panelsCount        = parent->getChildrenSize();
             const size_t index              = utilities::Index_Of(std::span{parent->children}, target).value_or(static_cast<size_t>(-1));
-            const bool isRow                = parent->isRow();
+
             const int mousePos              = isRow? input.mousePosition.x : input.mousePosition.y;
             const int zonePos               = (isRow? target->resizerZone.offset.x  : target->resizerZone.offset.y) + RESIZER_OFFSET;
             const int clickOffset           = mousePos - zonePos;
@@ -118,19 +133,19 @@ export namespace ufox::geometry {
             ctx.isActive                    = true;
         }
         else {
-            viewport.splitterContext.isActive = false;
+            viewport.resizerContext.isActive = false;
         }
     }
 
     void DisableViewportResizer(Viewport& viewport) {
-        viewport.splitterContext.isActive = false;
+        viewport.resizerContext.isActive = false;
     }
 
-    void HandleTargetPanelResizerPush(SplitterContext& ctx);
-    void HandlePanelResizerRightPush(SplitterContext& ctx);
-    void HandlePanelResizerLeftPush(SplitterContext& ctx);
+    void HandleTargetPanelResizerPush(ViewpanelResizerContext& ctx);
+    void HandlePanelResizerRightPush(ViewpanelResizerContext& ctx);
+    void HandlePanelResizerLeftPush(ViewpanelResizerContext& ctx);
 
-    void TranslatePanelResizer(SplitterContext& ctx) {
+    void TranslatePanelResizer(ViewpanelResizerContext& ctx) {
         if (ctx.pushIndex >= ctx.panelsCount) {
             ctx.isActive = false;
             return;
@@ -149,12 +164,12 @@ export namespace ufox::geometry {
         panel.resizerValue = static_cast<float>(value - valueOffset - minValue) / static_cast<float>(parentExtent);
     }
 
-    void ResetViewResizerPushContext(SplitterContext& ctx) {
+    void ResetViewResizerPushContext(ViewpanelResizerContext& ctx) {
         ctx.valueOffset = 0;
         ctx.pushIndex = ctx.index;
     }
 
-    void HandleTargetPanelResizerPush(SplitterContext& ctx) {
+    void HandleTargetPanelResizerPush(ViewpanelResizerContext& ctx) {
         const int minLeftValue = GetPanelMinExtent1D(ctx.isRow, *ctx.targetPanel);
         const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *ctx.targetPanel, minLeftValue) + ctx.valueOffset;
 
@@ -189,7 +204,7 @@ export namespace ufox::geometry {
         UpdatePanelResizerValue(*ctx.targetPanel, ctx.currentValue, ctx.valueOffset, ctx.min, ctx.parentExtent);
     }
 
-    void HandlePanelResizerRightPush(SplitterContext& ctx) {
+    void HandlePanelResizerRightPush(ViewpanelResizerContext& ctx) {
         Viewpanel* pushPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex);
         const Viewpanel* nextPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex + 1);
         const int minValue = GetPanelMinExtent1D(ctx.isRow, *nextPanel);
@@ -211,7 +226,7 @@ export namespace ufox::geometry {
         }
     }
 
-    void HandlePanelResizerLeftPush(SplitterContext& ctx) {
+    void HandlePanelResizerLeftPush(ViewpanelResizerContext& ctx) {
         Viewpanel* pushPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex);
         const int minValue = GetPanelMinExtent1D(ctx.isRow, *pushPanel);
         const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *pushPanel, minValue) + ctx.valueOffset;
@@ -239,11 +254,12 @@ export namespace ufox::geometry {
         const auto mx = input.mousePosition.x;
         const auto my = input.mousePosition.y;
 
-        if (viewport.splitterContext.isActive) {
-            SplitterContext& ctx = viewport.splitterContext;
+        if (viewport.resizerContext.isActive) {
+            ViewpanelResizerContext& ctx = viewport.resizerContext;
             const int mouse = ctx.isRow ? mx : my;
             ctx.currentValue = mouse - ctx.clickOffset;
             ctx.currentValue = std::clamp(ctx.currentValue, ctx.min, ctx.max);
+            ctx.currentValue = static_cast<int>(std::round(ctx.currentValue / RESIZER_SNAP_GRID) * RESIZER_SNAP_GRID);
 
             TranslatePanelResizer(ctx);
             BuildPanelLayout(*viewport.panel, 0, 0, viewport.extent.width, viewport.extent.height);
@@ -265,8 +281,8 @@ export namespace ufox::geometry {
 
         if (overSplitter)
         {
-            if (viewport.splitterContext.targetPanel != &viewpanel) {
-                viewport.splitterContext.targetPanel = &viewpanel;
+            if (viewport.resizerContext.targetPanel != &viewpanel) {
+                viewport.resizerContext.targetPanel = &viewpanel;
 #ifdef USE_SDL
                 input::SetStandardCursor(cursor, viewpanel.parent->isColumn() ?input::CursorType::eNSResize :input::CursorType::eEWResize);
 #else
@@ -275,14 +291,14 @@ export namespace ufox::geometry {
 
             }
         }
-        else if (viewport.splitterContext.targetPanel == &viewpanel)
+        else if (viewport.resizerContext.targetPanel == &viewpanel)
         {
 #ifdef USE_SDL
             input::SetStandardCursor(cursor, input::CursorType::eDefault);
 #else
             input::SetStandardCursor(cursor, input::CursorType::eDefault, viewport.window);
 #endif
-            viewport.splitterContext.targetPanel = nullptr;
+            viewport.resizerContext.targetPanel = nullptr;
         }
 
         if (isHovered) {
@@ -307,7 +323,7 @@ export namespace ufox::geometry {
         }));
 
         viewport.leftClickEventHandle.emplace(input.onLeftMouseButtonCallbackPool.bind([&viewport](const input::InputResource& inputResource){
-            if (inputResource.leftMouseButtonAction.phase == input::ActionPhase::eStart && viewport.splitterContext.targetPanel){
+            if (inputResource.leftMouseButtonAction.phase == input::ActionPhase::eStart && viewport.resizerContext.targetPanel){
                 EnabledViewportResizer(viewport, inputResource, true);
             }else if (inputResource.leftMouseButtonAction.phase == input::ActionPhase::eEnd){
                 EnabledViewportResizer(viewport, inputResource, false);
