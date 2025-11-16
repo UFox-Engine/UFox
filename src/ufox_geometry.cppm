@@ -104,7 +104,7 @@ export namespace ufox::geometry {
 
     void EnabledViewportResizer(Viewport& viewport, const input::InputResource& input, const bool& state){
         if (state) {
-            ViewpanelResizerContext& ctx            = viewport.resizerContext;
+            ViewpanelResizerContext& ctx    = viewport.resizerContext;
 
             if (!ctx.targetPanel)           return;
             Viewpanel* target               = ctx.targetPanel;
@@ -117,10 +117,7 @@ export namespace ufox::geometry {
             const int parentExtent          = GetPanelExtent1D(isRow, *parent);
             const size_t panelsCount        = parent->getChildrenSize();
             const size_t index              = utilities::Index_Of(std::span{parent->children}, target).value_or(static_cast<size_t>(-1));
-
-            const int mousePos              = isRow? input.mousePosition.x : input.mousePosition.y;
-            const int zonePos               = (isRow? target->resizerZone.offset.x  : target->resizerZone.offset.y) + RESIZER_OFFSET;
-            const int clickOffset           = mousePos - zonePos;
+            const int clickOffset           = (isRow? input.mousePosition.x - target->resizerZone.offset.x : input.mousePosition.y - target->resizerZone.offset.y) - RESIZER_OFFSET;
 
             ctx.index                       = index;
             ctx.isRow                       = isRow;
@@ -130,7 +127,6 @@ export namespace ufox::geometry {
             ctx.min                         = parentPos;
             ctx.max                         = parentPos + parentExtent;
             ctx.clickOffset                 = clickOffset;
-            ctx.currentValue                = std::clamp(mousePos - clickOffset, ctx.min, ctx.max);
             ctx.isActive                    = true;
         }
         else {
