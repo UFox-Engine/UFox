@@ -6,10 +6,11 @@ module;
 #else
 #include <GLFW/glfw3.h>
 #endif
-#include <vector>
+#include <chrono>
+#include <glm/glm.hpp>
 #include <optional>
 #include <set>
-#include <glm/glm.hpp>
+#include <vector>
 
 export module ufox_geometry;
 
@@ -18,78 +19,78 @@ import ufox_input;
 
 export namespace ufox::geometry {
 
-    [[nodiscard]] int GetPanelMinExtent1D(const bool& row, const Viewpanel& panel) noexcept {
+    constexpr int GetPanelMinExtent1D(const bool& row, const Viewpanel& panel) noexcept {
         auto [w, h] = panel.getTotalMinExtent();
         return static_cast<int>(row? w:h);
     }
 
-    [[nodiscard]] int GetPanelPosition1D(const bool& row, const Viewpanel& panel) noexcept {
+    constexpr int GetPanelPosition1D(const bool& row, const Viewpanel& panel) noexcept {
         return row ? panel.getPositionX() : panel.getPositionY();
     }
 
-    [[nodiscard]] int GetPanelExtent1D(const bool& row, const Viewpanel& panel) noexcept {
+    constexpr int GetPanelExtent1D(const bool& row, const Viewpanel& panel) noexcept {
         return row ? panel.getExtentX() : panel.getExtentY();
     }
 
-    [[nodiscard]] int GetResizerPushLeftThreshold(const bool& row, const Viewpanel& panel, const int& minExtent) noexcept {
+    constexpr int GetResizerPushLeftThreshold(const bool& row, const Viewpanel& panel, const int& minExtent) noexcept {
         return GetPanelPosition1D(row, panel) + minExtent;
     }
 
-    [[nodiscard]] int GetResizerPushRightThreshold(const bool& row, const Viewpanel& panel ) noexcept {
+    constexpr int GetResizerPushRightThreshold(const bool& row, const Viewpanel& panel ) noexcept {
         return panel.getExtentToViewportSpace(row) - GetPanelMinExtent1D(row, panel);
     }
 
-float ClampPanelResizerValue(const bool& isRow, const Viewpanel& panel, const float& offset, const float& length) noexcept {
-        const float minValue = static_cast<float>(GetPanelMinExtent1D(isRow, panel)) / length;
-        const float posValue = (static_cast<float>(GetPanelPosition1D(isRow, panel)) - offset) / length;
+    constexpr float ClampPanelResizerValue(const bool& isRow, const Viewpanel& panel, const float& offset, const float& length) noexcept {
+            const float minValue = static_cast<float>(GetPanelMinExtent1D(isRow, panel)) / length;
+            const float posValue = (static_cast<float>(GetPanelPosition1D(isRow, panel)) - offset) / length;
 
-        return glm::clamp(panel.resizerValue, posValue + minValue, 1.0f);
-}
+            return glm::clamp(panel.resizerValue, posValue + minValue, 1.0f);
+    }
 
-void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& posY, const uint32_t& width, const uint32_t& height) {
-        // Update current panel dimensions
-        viewpanel.rect.offset.x = posX;
-        viewpanel.rect.offset.y = posY;
-        viewpanel.rect.extent.width = width;
-        viewpanel.rect.extent.height = height;
+    void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& posY, const uint32_t& width, const uint32_t& height) {
+            // Update current panel dimensions
+            viewpanel.rect.offset.x = posX;
+            viewpanel.rect.offset.y = posY;
+            viewpanel.rect.extent.width = width;
+            viewpanel.rect.extent.height = height;
 
 
-        if (viewpanel.isChildrenEmpty()) return;
+            if (viewpanel.isChildrenEmpty()) return;
 
-        int32_t x = posX;
-        int32_t y = posY;
+            int32_t x = posX;
+            int32_t y = posY;
 
-        const bool isRow = viewpanel.isRow();
-        const size_t lastChildIndex = viewpanel.getLastChildIndex();
+            const bool isRow = viewpanel.isRow();
+            const size_t lastChildIndex = viewpanel.getLastChildIndex();
 
-        for (size_t i = 0; i < viewpanel.getChildrenSize(); ++i) {
-            Viewpanel *child = viewpanel.getChild(i);
+            for (size_t i = 0; i < viewpanel.getChildrenSize(); ++i) {
+                Viewpanel *child = viewpanel.getChild(i);
 
-            uint32_t sizeValue;
+                uint32_t sizeValue;
 
-            if (isRow) {
-                const float ratio = ClampPanelResizerValue(isRow, *child, posX, width);
-                sizeValue = i < lastChildIndex ?
-                    static_cast<uint32_t>(static_cast<float>(width) * ratio) :
-                    width;
-                BuildPanelLayout(*child, x, y, sizeValue - x + posX, height);
-                x = static_cast<int32_t>(sizeValue) + posX;
-                child->resizerZone = i < lastChildIndex ?
-                    vk::Rect2D{vk::Offset2D{x - RESIZER_OFFSET, y}, vk::Extent2D{RESIZER_THICKNESS, height}} :
-                    vk::Rect2D{{0,0}, {0,0}};
-            } else {
-                const float ratio = ClampPanelResizerValue(isRow, *child, posY, height);
-                sizeValue = i < lastChildIndex ?
-                    static_cast<uint32_t>(static_cast<float>(height) * ratio) :
-                    height;
-                BuildPanelLayout(*child, x, y, width, sizeValue - y + posY);
-                y = static_cast<int32_t>(sizeValue) + posY;
-                child->resizerZone = i < lastChildIndex ?
-                    vk::Rect2D{vk::Offset2D{x, y - RESIZER_OFFSET}, vk::Extent2D{width, RESIZER_THICKNESS}} :
-                    vk::Rect2D{{0,0}, {0,0}};
+                if (isRow) {
+                    const float ratio = ClampPanelResizerValue(isRow, *child, posX, width);
+                    sizeValue = i < lastChildIndex ?
+                        static_cast<uint32_t>(static_cast<float>(width) * ratio) :
+                        width;
+                    BuildPanelLayout(*child, x, y, sizeValue - x + posX, height);
+                    x = static_cast<int32_t>(sizeValue) + posX;
+                    child->resizerZone = i < lastChildIndex ?
+                        vk::Rect2D{vk::Offset2D{x - RESIZER_OFFSET, y}, vk::Extent2D{RESIZER_THICKNESS, height}} :
+                        vk::Rect2D{{0,0}, {0,0}};
+                } else {
+                    const float ratio = ClampPanelResizerValue(isRow, *child, posY, height);
+                    sizeValue = i < lastChildIndex ?
+                        static_cast<uint32_t>(static_cast<float>(height) * ratio) :
+                        height;
+                    BuildPanelLayout(*child, x, y, width, sizeValue - y + posY);
+                    y = static_cast<int32_t>(sizeValue) + posY;
+                    child->resizerZone = i < lastChildIndex ?
+                        vk::Rect2D{vk::Offset2D{x, y - RESIZER_OFFSET}, vk::Extent2D{width, RESIZER_THICKNESS}} :
+                        vk::Rect2D{{0,0}, {0,0}};
+                }
             }
         }
-    }
 
     void ResizingViewport(Viewport& viewport, int width, int height)
     {
@@ -249,6 +250,7 @@ void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& p
 
     void ViewpanelPollEvent(Viewport& viewport, Viewpanel& viewpanel, input::InputResource& input, input::StandardCursorResource& cursor)
     {
+        //auto start = std::chrono::high_resolution_clock::now();
         if (!viewpanel.parent) return;
 
         const auto mx = input.mousePosition.x;
@@ -264,6 +266,10 @@ void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& p
             TranslatePanelResizer(ctx);
             BuildPanelLayout(*viewport.panel, 0, 0, viewport.extent.width, viewport.extent.height);
 
+            // auto end = std::chrono::high_resolution_clock::now();
+            // float ms = std::chrono::duration<float, std::milli>(end - start).count();
+            //
+            // debug::log(debug::LogLevel::eInfo, "UI Frame: {:.3f} ms", ms);
             return;
         }
 

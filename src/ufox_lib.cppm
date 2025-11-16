@@ -136,74 +136,7 @@ export namespace ufox {
 
     }
 
-//     template <typename BitType>
-// struct Flags {
-//         using Enum = BitType;
-//         using underlying_type = std::underlying_type_t<Enum>;
-//
-//         // --- Data ---
-//         constexpr Flags() noexcept = default;
-//         constexpr Flags(Enum bit) noexcept : value(static_cast<underlying_type>(bit)) {}
-//         explicit constexpr Flags(underlying_type v) noexcept : value(v) {}
-//
-//         // --- Conversion ---
-//         explicit constexpr operator underlying_type() const noexcept { return value; }
-//         explicit constexpr operator bool() const noexcept { return value != 0; }
-//
-//         // --- Bitwise Operations (all constexpr) ---
-//         constexpr Flags operator|(Flags other) const noexcept {
-//             return Flags(value | other.value);
-//         }
-//         constexpr Flags operator&(Flags other) const noexcept {
-//             return Flags(value & other.value);
-//         }
-//         constexpr Flags operator^(Flags other) const noexcept {
-//             return Flags(value ^ other.value);
-//         }
-//         constexpr Flags operator~() const noexcept {
-//             return Flags(~value);
-//         }
-//
-//         constexpr Flags& operator|=(Flags other) noexcept {
-//             value |= other.value;
-//             return *this;
-//         }
-//         constexpr Flags& operator&=(Flags other) noexcept {
-//             value &= other.value;
-//             return *this;
-//         }
-//
-//         // --- Query ---
-//         constexpr bool has(Enum bit) const noexcept {
-//             return (value & static_cast<underlying_type>(bit)) != 0;
-//         }
-//         [[nodiscard]] constexpr bool any() const noexcept { return value != 0; }
-//         [[nodiscard]] constexpr bool none() const noexcept { return value == 0; }
-//
-//         // --- Equality ---
-//         constexpr bool operator==(const Flags& other) const noexcept = default;
-//         constexpr bool operator!=(const Flags& other) const noexcept = default;
-//
-//         underlying_type value = 0;
-//     };
-//
-//     // --- Free-function operators (for Enum | Enum) ---
-//     template <typename BitType>
-//     constexpr Flags<BitType> operator|(BitType lhs, BitType rhs) noexcept {
-//         return Flags<BitType>(lhs) | Flags<BitType>(rhs);
-//     }
-//
-//     template <typename BitType>
-//     constexpr Flags<BitType> operator&(BitType lhs, BitType rhs) noexcept {
-//         return Flags<BitType>(lhs) & Flags<BitType>(rhs);
-//     }
-
-
-
-
-
     namespace gpu::vulkan {
-
         uint32_t FindMemoryType(const vk::PhysicalDeviceMemoryProperties &memoryProperties, uint32_t typeBits,
                vk::MemoryPropertyFlags requirementsMask){
 
@@ -649,9 +582,7 @@ export namespace ufox {
         }
     }
 
-
     namespace input {
-
         struct InputResource;
         struct EventCallbackPool;
 
@@ -897,8 +828,7 @@ export namespace ufox {
         };
     }
 
-
-namespace geometry {
+    namespace geometry {
         enum class PanelAlignment { eRow, eColumn };
         enum class PickingMode    { ePosition, eIgnore };
         enum class ScalingMode    { eFlex, eFixed };
@@ -906,6 +836,12 @@ namespace geometry {
         constexpr uint32_t RESIZER_THICKNESS = 12;
         constexpr int32_t RESIZER_OFFSET = 6;
         constexpr int RESIZER_SNAP_GRID = 4;
+
+        struct UniformBufferObject {
+            glm::mat4           model{};
+            glm::mat4           view{};
+            glm::mat4           proj{};
+        };
 
         struct Viewpanel;
 
@@ -1005,8 +941,8 @@ namespace geometry {
             }
 
             void setBackgroundColor(const vk::ClearColorValue& color) {
-                    clearColor = color;
-                }
+                clearColor = color;
+            }
 
             [[nodiscard]] std::pair<uint32_t, uint32_t> getTotalMinExtent() const noexcept {
                 if (isChildrenEmpty()) {
@@ -1044,93 +980,103 @@ namespace geometry {
         };
 
         struct Viewport {
-            explicit Viewport(const windowing::WindowResource& window) : window(window) {}
-            ~Viewport() = default;
+                explicit Viewport(const windowing::WindowResource& window) : window(window) {}
+                ~Viewport() = default;
 
-            const windowing::WindowResource&                    window;
-            vk::Extent2D                                        extent{};
-            Viewpanel*                                          panel = nullptr;
-            Viewpanel*                                          hoveredPanel = nullptr;
-            Viewpanel*                                          focusedPanel = nullptr;
-            ViewpanelResizerContext                                     resizerContext{};
-            std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
-            std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
-        };
-    }
+                const windowing::WindowResource&                    window;
+                vk::Extent2D                                        extent{};
+                Viewpanel*                                          panel = nullptr;
+                Viewpanel*                                          hoveredPanel = nullptr;
+                Viewpanel*                                          focusedPanel = nullptr;
+                ViewpanelResizerContext                                     resizerContext{};
+                std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
+                std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
+            };
 
-    namespace gui {
         struct Vertex {
             glm::vec2 position;
             glm::vec2 uv;
             glm::vec4 color;
 
-            static constexpr  vk::VertexInputBindingDescription getBindingDescription(uint32_t binding) {
-                vk::VertexInputBindingDescription bindingDescription{};
-                bindingDescription.setBinding(binding).setStride(sizeof(Vertex)).setInputRate(vk::VertexInputRate::eVertex);
-                return bindingDescription;
+            static constexpr vk::VertexInputBindingDescription
+            getBindingDescription(uint32_t binding) {
+                vk::VertexInputBindingDescription d{};
+                d.setBinding(binding)
+                 .setStride(sizeof(Vertex))
+                 .setInputRate(vk::VertexInputRate::eVertex);
+                return d;
             }
 
-            static constexpr  std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions(uint32_t binding) {
-                std::array<vk::VertexInputAttributeDescription, 3> attributeDescriptions{};
-                attributeDescriptions[0].setBinding(binding).setLocation(0).setFormat(vk::Format::eR32G32Sfloat).setOffset(0);
-                attributeDescriptions[1].setBinding(binding).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
-                attributeDescriptions[2].setBinding(binding).setLocation(2).setFormat(vk::Format::eR32G32B32A32Sfloat).setOffset(offsetof(Vertex, color));
-                return attributeDescriptions;
+            static constexpr std::array<vk::VertexInputAttributeDescription, 3>
+            getAttributeDescriptions(uint32_t binding) {
+                std::array<vk::VertexInputAttributeDescription, 3> a{};
+                a[0].setBinding(binding).setLocation(0)
+                     .setFormat(vk::Format::eR32G32Sfloat).setOffset(0);
+                a[1].setBinding(binding).setLocation(1)
+                     .setFormat(vk::Format::eR32G32Sfloat)
+                     .setOffset(offsetof(Vertex, uv));
+                a[2].setBinding(binding).setLocation(2)
+                     .setFormat(vk::Format::eR32G32B32A32Sfloat)
+                     .setOffset(offsetof(Vertex, color));
+                return a;
             }
         };
 
-        struct UniformBufferObject {
-            glm::mat4 model;
-            glm::mat4 view;
-            glm::mat4 proj;
+        constexpr std::array<Vertex, 4> QuadVertices{{
+            {{0.f, 0.f}, {0.f, 0.f}, {1.f,1.f,1.f,1.f}}, // TL
+            {{1.f, 0.f}, {1.f, 0.f}, {1.f,1.f,1.f,1.f}}, // TR
+            {{1.f, 1.f}, {1.f, 1.f}, {1.f,1.f,1.f,1.f}}, // BR
+            {{0.f, 1.f}, {0.f, 1.f}, {1.f,1.f,1.f,1.f}}, // BL
+        }};
+
+        constexpr std::array<uint16_t, 6> QuadIndices{{
+            0, 1, 2, 2, 3, 0
+        }};
+
+        constexpr vk::DeviceSize GUI_VERTEX_BUFFER_SIZE         = sizeof(Vertex);
+        constexpr vk::DeviceSize GUI_RECT_MESH_BUFFER_SIZE      = sizeof(QuadVertices);
+        constexpr vk::DeviceSize GUI_INDEX_BUFFER_SIZE          = sizeof(QuadIndices);
+
+
+        struct MeshResource {
+            std::string name;
+            size_t      id{0};
+
+            std::vector<Vertex>   vertices;
+            std::vector<uint16_t> indices;
+
+            gpu::vulkan::Buffer   vertexBuffer;
+            gpu::vulkan::Buffer   indexBuffer;
+
+            explicit MeshResource(const std::string_view name_ = {}): name(name_) , id(utilities::GenerateUniqueID(name_)) {}
         };
 
-        constexpr Vertex Geometries[] {
-            {{0.0f, 0.0f,}, {0.0f, 0.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Top-left
-            {{1.0f, 0.0f},  {1.0f, 0.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Top-right
-            {{1.0f, 1.0f},  {1.0f, 1.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Bottom-right
-            {{0.0f, 1.0f}, {0.0f, 1.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Bottom-left
-        };
+        constexpr MeshResource MakeQuadMesh() {
+            MeshResource m{"default_quad_mesh"};
+            m.vertices.assign(QuadVertices.begin(), QuadVertices.end());
+            m.indices.assign (QuadIndices.begin(),  QuadIndices.end());
+            return m;
+        }
+    }
 
-        constexpr uint16_t Indices[] {
-            0, 1, 2, 2, 3, 0,
-        };
-
-
-        // GUIStyle: Visual properties for GUI elements
-
+    namespace gui {
         struct Style {
-            glm::vec4 backgroundColor = {0.5f, 0.5f, 0.5f, 1.0f};
-            glm::vec4 borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4 borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4 borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4 borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4 borderThickness = {1.0f, 1.0f, 1.0f, 1.0f}; // Top, right, bottom, left
-            glm::vec4 cornerRadius = {10.0f, 10.0f, 10.0f, 10.0f}; // Top-left, top-right, bottom-left, bottom-right
-
-            [[nodiscard]] size_t generateUniqueID() const {
-                return utilities::GenerateUniqueID({
-                    backgroundColor,
-                    borderTopColor,
-                    borderRightColor,
-                    borderBottomColor,
-                    borderLeftColor,
-                    borderThickness,
-                    cornerRadius
-                });
-            }
+            glm::vec4               backgroundColor = {0.5f, 0.5f, 0.5f, 1.0f};
+            glm::vec4               borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            glm::vec4               borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            glm::vec4               borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            glm::vec4               borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            glm::vec4               borderThickness = {1.0f, 1.0f, 1.0f, 1.0f}; // Top, right, bottom, left
+            glm::vec4               cornerRadius = {10.0f, 10.0f, 10.0f, 10.0f}; // Top-left, top-right, bottom-left, bottom-right
         };
 
-        struct StyleBuffer {
-            size_t                  hashUID;
+        struct StyleResource {
+            std::string             name;
+            size_t                  id{0};
             Style                   content;
             gpu::vulkan::Buffer     buffer{};
         };
 
-        constexpr vk::DeviceSize GUI_VERTEX_BUFFER_SIZE = sizeof(Vertex);
-        //constexpr vk::DeviceSize GUI_TRANSFORM_MATRIX_SIZE = sizeof(GUITransformMatrix);
-        constexpr vk::DeviceSize GUI_RECT_MESH_BUFFER_SIZE = sizeof(Geometries);
-        constexpr vk::DeviceSize GUI_INDEX_BUFFER_SIZE = sizeof(Indices);
         constexpr vk::DeviceSize GUI_STYLE_BUFFER_SIZE = sizeof(Style);
     }
 }
