@@ -18,18 +18,17 @@ import ufox_lib;  // GPUResources, SwapchainResource, FrameResource
 import ufox_input;
 
 export namespace ufox::geometry {
-
-    constexpr int GetPanelMinExtent1D(const bool& row, const Viewpanel& panel) noexcept {
-        auto [w, h] = panel.getTotalMinExtent();
-        return static_cast<int>(row? w:h);
-    }
-
     constexpr int GetPanelPosition1D(const bool& row, const Viewpanel& panel) noexcept {
         return row ? panel.getPositionX() : panel.getPositionY();
     }
 
     constexpr int GetPanelExtent1D(const bool& row, const Viewpanel& panel) noexcept {
         return row ? panel.getExtentX() : panel.getExtentY();
+    }
+
+    constexpr int GetPanelMinExtent1D(const bool& row, const Viewpanel& panel) noexcept {
+        auto [w, h] = panel.getTotalMinExtent();
+        return row ? static_cast<int>(w) : static_cast<int>(h);
     }
 
     constexpr int GetResizerPushLeftThreshold(const bool& row, const Viewpanel& panel, const int& minExtent) noexcept {
@@ -47,7 +46,7 @@ export namespace ufox::geometry {
             return glm::clamp(panel.resizerValue, posValue + minValue, 1.0f);
     }
 
-    void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& posY, const uint32_t& width, const uint32_t& height) {
+    constexpr void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& posY, const uint32_t& width, const uint32_t& height) {
             // Update current panel dimensions
             viewpanel.rect.offset.x = posX;
             viewpanel.rect.offset.y = posY;
@@ -92,7 +91,7 @@ export namespace ufox::geometry {
             }
         }
 
-    void ResizingViewport(Viewport& viewport, int width, int height)
+    constexpr void ResizingViewport(Viewport& viewport, const int& width, const int& height)
     {
         viewport.extent.width  = static_cast<uint32_t>(width);
         viewport.extent.height = static_cast<uint32_t>(height);
@@ -102,7 +101,7 @@ export namespace ufox::geometry {
         }
     }
 
-    void EnabledViewportResizer(Viewport& viewport, const input::InputResource& input, const bool& state){
+    constexpr void EnabledViewportResizer(Viewport& viewport, const input::InputResource& input, const bool& state){
         if (state) {
             ViewpanelResizerContext& ctx    = viewport.resizerContext;
 
@@ -134,15 +133,15 @@ export namespace ufox::geometry {
         }
     }
 
-    void DisableViewportResizer(Viewport& viewport) {
+    constexpr void DisableViewportResizer(Viewport& viewport) {
         viewport.resizerContext.isActive = false;
     }
 
-    void HandleTargetPanelResizerPush(ViewpanelResizerContext& ctx);
-    void HandlePanelResizerRightPush(ViewpanelResizerContext& ctx);
-    void HandlePanelResizerLeftPush(ViewpanelResizerContext& ctx);
+    constexpr void HandleTargetPanelResizerPush(ViewpanelResizerContext& ctx);
+    constexpr void HandlePanelResizerRightPush(ViewpanelResizerContext& ctx);
+    constexpr void HandlePanelResizerLeftPush(ViewpanelResizerContext& ctx);
 
-    void TranslatePanelResizer(ViewpanelResizerContext& ctx) {
+    constexpr void TranslatePanelResizer(ViewpanelResizerContext& ctx) {
         if (ctx.pushIndex >= ctx.panelsCount) {
             ctx.isActive = false;
             return;
@@ -157,16 +156,16 @@ export namespace ufox::geometry {
         }
     }
 
-    void UpdatePanelResizerValue(Viewpanel& panel, const int& value, const int& valueOffset, const int& minValue, const int& parentExtent) {
+    constexpr void UpdatePanelResizerValue(Viewpanel& panel, const int& value, const int& valueOffset, const int& minValue, const int& parentExtent) {
         panel.resizerValue = static_cast<float>(value - valueOffset - minValue) / static_cast<float>(parentExtent);
     }
 
-    void ResetViewResizerPushContext(ViewpanelResizerContext& ctx) {
+    constexpr void ResetViewResizerPushContext(ViewpanelResizerContext& ctx) {
         ctx.valueOffset = 0;
         ctx.pushIndex = ctx.index;
     }
 
-    void HandleTargetPanelResizerPush(ViewpanelResizerContext& ctx) {
+    constexpr void HandleTargetPanelResizerPush(ViewpanelResizerContext& ctx) {
         const int minLeftValue = GetPanelMinExtent1D(ctx.isRow, *ctx.targetPanel);
         const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *ctx.targetPanel, minLeftValue) + ctx.valueOffset;
 
@@ -201,7 +200,7 @@ export namespace ufox::geometry {
         UpdatePanelResizerValue(*ctx.targetPanel, ctx.currentValue, ctx.valueOffset, ctx.min, ctx.parentExtent);
     }
 
-    void HandlePanelResizerRightPush(ViewpanelResizerContext& ctx) {
+    constexpr void HandlePanelResizerRightPush(ViewpanelResizerContext& ctx) {
         Viewpanel* pushPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex);
         const Viewpanel* nextPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex + 1);
         const int minValue = GetPanelMinExtent1D(ctx.isRow, *nextPanel);
@@ -223,7 +222,7 @@ export namespace ufox::geometry {
         }
     }
 
-    void HandlePanelResizerLeftPush(ViewpanelResizerContext& ctx) {
+    constexpr void HandlePanelResizerLeftPush(ViewpanelResizerContext& ctx) {
         Viewpanel* pushPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex);
         const int minValue = GetPanelMinExtent1D(ctx.isRow, *pushPanel);
         const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *pushPanel, minValue) + ctx.valueOffset;
@@ -244,9 +243,9 @@ export namespace ufox::geometry {
         }
     }
 
-    void ViewpanelPollEvent(Viewport& viewport, Viewpanel& viewpanel, input::InputResource& input, input::StandardCursorResource& cursor)
+    constexpr void ViewpanelPollEvent(Viewport& viewport, Viewpanel& viewpanel, input::InputResource& input, input::StandardCursorResource& cursor)
     {
-        //auto start = std::chrono::high_resolution_clock::now();
+        // auto start = std::chrono::high_resolution_clock::now();
         if (!viewpanel.parent) return;
 
         const auto mx = input.mousePosition.x;
@@ -312,7 +311,7 @@ export namespace ufox::geometry {
         }
     }
 
-    void BindEvents(Viewport& viewport, input::InputResource& input, input::StandardCursorResource& cursor) {
+    constexpr void BindEvents(Viewport& viewport, input::InputResource& input, input::StandardCursorResource& cursor) {
         if (!viewport.panel) return;
 
         viewport.mouseMoveEventHandle.emplace(input.onMouseMoveCallbackPool.bind([&viewport, &cursor](input::InputResource& i) {
@@ -333,7 +332,7 @@ export namespace ufox::geometry {
         }));
     }
 
-    void UnbindEvents(Viewport& viewport, input::InputResource& input)
+    constexpr void UnbindEvents(Viewport& viewport, input::InputResource& input)
     {
         if (!viewport.mouseMoveEventHandle.has_value()) return;
         input.onMouseMoveCallbackPool.unbind(viewport.mouseMoveEventHandle->index);

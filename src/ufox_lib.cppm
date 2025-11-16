@@ -1061,22 +1061,30 @@ export namespace ufox {
 
     namespace gui {
         struct Style {
-            glm::vec4               backgroundColor = {0.5f, 0.5f, 0.5f, 1.0f};
-            glm::vec4               borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4               borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4               borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4               borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4               borderThickness = {1.0f, 1.0f, 1.0f, 1.0f}; // Top, right, bottom, left
-            glm::vec4               cornerRadius = {10.0f, 10.0f, 10.0f, 10.0f}; // Top-left, top-right, bottom-left, bottom-right
+            glm::vec4                                       backgroundColor = {0.5f, 0.5f, 0.5f, 1.0f};
+            glm::vec4                                       borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            glm::vec4                                       borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            glm::vec4                                       borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            glm::vec4                                       borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            glm::vec4                                       borderThickness = {1.0f, 1.0f, 1.0f, 1.0f}; // Top, right, bottom, left
+            glm::vec4                                       cornerRadius = {10.0f, 10.0f, 10.0f, 10.0f}; // Top-left, top-right, bottom-left, bottom-right
         };
 
         struct StyleResource {
-            std::string             name;
-            size_t                  id{0};
-            Style                   content;
-            gpu::vulkan::Buffer     buffer{};
+            std::string                                     name;
+            size_t                                          id{0};
+            Style                                           content;
+            gpu::vulkan::Buffer                             buffer{};
         };
 
         constexpr vk::DeviceSize GUI_STYLE_BUFFER_SIZE = sizeof(Style);
+
+        struct GUIResource {
+            std::vector<StyleResource>                      styles{};
+            std::optional<vk::raii::PipelineCache>          pipelineCache{};
+            std::optional<vk::raii::Pipeline>               pipeline{};
+            std::optional<gpu::vulkan::Buffer>              vertexBuffer{};
+            std::optional<gpu::vulkan::Buffer>              indexBuffer{};
+        };
     }
 }
