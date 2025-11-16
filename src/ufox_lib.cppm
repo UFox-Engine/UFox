@@ -102,6 +102,15 @@ export namespace ufox {
             return GenerateUniqueID(std::string_view(str));
         }
 
+        template <typename T>
+        [[nodiscard]] constexpr std::optional<std::size_t> Index_Of(std::span<T> container, const T& value) noexcept
+        {
+            auto it = std::ranges::find(container, value);
+            if (it == container.end())
+                return std::nullopt;
+
+            return static_cast<std::size_t>(std::ranges::distance(container.begin(), it));
+        }
     }
 
     namespace debug {
@@ -373,15 +382,10 @@ export namespace ufox {
 
 
         struct Buffer {
-
             Buffer( vk::raii::PhysicalDevice const & physicalDevice,
-
                                 vk::raii::Device const &         device,
-
                                 vk::DeviceSize                   size,
-
                                 vk::BufferUsageFlags             usage,
-
                                 vk::MemoryPropertyFlags          propertyFlags = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent ) {
 
                 vk::BufferCreateInfo bufferInfo{};
@@ -437,47 +441,25 @@ export namespace ufox {
 
 
         struct TextureImage {
-
             TextureImage(vk::raii::PhysicalDevice const &  physicalDevice,
-
                   vk::raii::Device const &          device,
-
                   uint32_t width, uint32_t          height,
-
                   vk::Format format, vk::ImageTiling tiling,
-
                   vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties, vk::SharingMode shareMode = vk::SharingMode::eExclusive) {
 
-
-
-
-
                 vk::ImageCreateInfo imageInfo{};
-
                 imageInfo
-
                     .setImageType(vk::ImageType::e2D)
-
                     .setFormat(format)
-
                     .setExtent({ width, height, 1 })
-
                     .setMipLevels(1)
-
                     .setArrayLayers(1)
-
                     .setSamples(vk::SampleCountFlagBits::e1)
-
                     .setTiling(tiling)
-
                     .setUsage(usage)
-
                     .setSharingMode(shareMode);
 
-
-
                 data.emplace(device, imageInfo);
-
 
 
                 vk::MemoryRequirements memoryRequirements = data->getMemoryRequirements();
@@ -493,7 +475,6 @@ export namespace ufox {
                 memory.emplace(device, allocInfo);
 
                 data->bindMemory(*memory, 0);
-
             }
 
 
@@ -519,7 +500,7 @@ export namespace ufox {
             std::optional<vk::raii::ImageView>          view{};
             vk::Format                                  format{ vk::Format::eUndefined};
             vk::Extent2D                                extent{ 0, 0 };
-            vk::ImageViewType                               viewType{ vk::ImageViewType::e2D };
+            vk::ImageViewType                           viewType{ vk::ImageViewType::e2D };
             vk::ImageSubresourceRange                   subresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
 
@@ -928,12 +909,24 @@ namespace geometry {
         struct Viewpanel;
 
         struct SplitterContext {
-            size_t      index = 0;
-            float       minScale = 0.05f;
-            float       maxScale = 0.95f;
-            bool        isActive = false;
-            Viewpanel*  targetPanel = nullptr;
-            float       startScale = 0.0f;
+            SplitterContext() = default;
+            ~SplitterContext() = default;
+
+            Viewpanel*              targetPanel= nullptr;
+
+            bool                    isActive= false;
+            bool                    isRow= true;
+
+            size_t                  index= 0;
+            size_t                  pushIndex= 0;
+            size_t                  panelsCount= 0;
+
+            int                     clickOffset= 0;
+            int                     valueOffset= 0;
+            int                     currentValue= 0;
+            int                     min= 0;
+            int                     max= 0;
+            int                     parentExtent = 0;
         };
 
         struct Viewpanel {
@@ -942,7 +935,7 @@ namespace geometry {
 
 
             vk::Rect2D              rect{{0,0},{0,0}};
-            vk::Rect2D              scalerZone{{0,0},{0,0}};
+            vk::Rect2D              resizerZone{{0,0},{0,0}};
 
             uint32_t                minWidth{100};
             uint32_t                minHeight{100};
@@ -957,8 +950,7 @@ namespace geometry {
             vk::ClearColorValue     clearColor{0.5f, 0.5f, 0.5f, 1.0f};
             vk::ClearColorValue     clearColor2{0.8f, 0.8f, 0.8f, 1.0f};
 
-            float                   scaleValue{0.0f};
-
+            float                   resizerValue{0.0f};
 
             [[nodiscard]] bool isChildrenEmpty() const noexcept { return children.empty(); }
             [[nodiscard]] size_t getChildrenSize() const noexcept { return children.size(); }
@@ -966,6 +958,10 @@ namespace geometry {
             [[nodiscard]] size_t getLastChildIndex() const noexcept { return children.size() - 1; }
             [[nodiscard]] bool isRow() const noexcept { return alignment == PanelAlignment::eRow; }
             [[nodiscard]] bool isColumn() const noexcept { return alignment == PanelAlignment::eColumn; }
+            [[nodiscard]] int getPositionX() const noexcept { return rect.offset.x; }
+            [[nodiscard]] int getPositionY() const noexcept { return rect.offset.y; }
+            [[nodiscard]] int getExtentX() const noexcept { return static_cast<int>(rect.extent.width); }
+            [[nodiscard]] int getExtentY() const noexcept { return static_cast<int>(rect.extent.height); }
 
             void add(Viewpanel* child)
             {
@@ -988,7 +984,10 @@ namespace geometry {
                 }
             }
 
-            [[nodiscard]] std::vector<Viewpanel*> GetAllPanels() const &
+            [[nodiscard]] int getAlignmentOffset() const noexcept { return isRow() ? static_cast<int>(rect.offset.x) : static_cast<int>(rect.offset.y); }
+            [[nodiscard]] int getAlignmentExtent() const noexcept { return isRow() ? static_cast<int>(rect.extent.width) : static_cast<int>(rect.extent.height); }
+
+            [[nodiscard]] std::vector<Viewpanel*> getAllPanels() const &
             {
                 std::vector<Viewpanel*> result;
                 result.push_back(const_cast<Viewpanel*>(this));
@@ -1007,12 +1006,11 @@ namespace geometry {
                 return result;
             }
 
-            void SetBackgroundColor(const vk::ClearColorValue& color) {
+            void setBackgroundColor(const vk::ClearColorValue& color) {
                     clearColor = color;
                 }
 
-            [[nodiscard]] auto getMinSize() const -> std::pair<uint32_t, uint32_t>
-            {
+            [[nodiscard]] std::pair<uint32_t, uint32_t> getTotalMinExtent() const noexcept {
                 if (isChildrenEmpty()) {
                     return { minWidth, minHeight };
                 }
@@ -1022,14 +1020,14 @@ namespace geometry {
 
                 if (isRow()) {
                     for (size_t i = 0; i < getChildrenSize(); ++i) {
-                        auto [w, h] = getChild(i)->getMinSize();
+                        auto [w, h] = getChild(i)->getTotalMinExtent();
                         childW += w;
                         if (h > childH) childH = h;
                     }
                 }
                 else {
                     for (size_t i = 0; i < getChildrenSize(); ++i) {
-                        auto [w, h] = getChild(i)->getMinSize();
+                        auto [w, h] = getChild(i)->getTotalMinExtent();
                         childH += h;
                         if (w > childW) childW = w;
                     }
@@ -1041,6 +1039,10 @@ namespace geometry {
                 return { finalW, finalH };
             }
 
+
+            [[nodiscard]] int getExtentToViewportSpace(const bool& isRow) const {
+                return static_cast<int>(isRow ? rect.offset.x + rect.extent.width : rect.offset.y + rect.extent.height);
+            }
         };
 
         struct Viewport {
@@ -1086,60 +1088,37 @@ namespace geometry {
         };
 
         constexpr Vertex Geometries[] {
-
             {{0.0f, 0.0f,}, {0.0f, 0.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Top-left
-
-             {{1.0f, 0.0f},  {1.0f, 0.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Top-right
-
-             {{1.0f, 1.0f},  {1.0f, 1.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Bottom-right
-
-             {{0.0f, 1.0f}, {0.0f, 1.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Bottom-left
-
-    };
+            {{1.0f, 0.0f},  {1.0f, 0.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Top-right
+            {{1.0f, 1.0f},  {1.0f, 1.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Bottom-right
+            {{0.0f, 1.0f}, {0.0f, 1.0f}, {1.0f, 1.0f, 1.0f,1.0f}}, // Bottom-left
+        };
 
         constexpr uint16_t Indices[] {
             0, 1, 2, 2, 3, 0,
-    };
+        };
 
 
         // GUIStyle: Visual properties for GUI elements
 
         struct Style {
-
             glm::vec4 backgroundColor = {0.5f, 0.5f, 0.5f, 1.0f};
-
             glm::vec4 borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
-
             glm::vec4 borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
-
             glm::vec4 borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
-
             glm::vec4 borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
-
             glm::vec4 borderThickness = {1.0f, 1.0f, 1.0f, 1.0f}; // Top, right, bottom, left
-
             glm::vec4 cornerRadius = {10.0f, 10.0f, 10.0f, 10.0f}; // Top-left, top-right, bottom-left, bottom-right
 
-
-
             [[nodiscard]] size_t generateUniqueID() const {
-
-                return ufox::utilities::GenerateUniqueID({
-
+                return utilities::GenerateUniqueID({
                     backgroundColor,
-
                     borderTopColor,
-
                     borderRightColor,
-
                     borderBottomColor,
-
                     borderLeftColor,
-
                     borderThickness,
-
                     cornerRadius
-
                 });
             }
         };
@@ -1155,6 +1134,5 @@ namespace geometry {
         constexpr vk::DeviceSize GUI_RECT_MESH_BUFFER_SIZE = sizeof(Geometries);
         constexpr vk::DeviceSize GUI_INDEX_BUFFER_SIZE = sizeof(Indices);
         constexpr vk::DeviceSize GUI_STYLE_BUFFER_SIZE = sizeof(Style);
-
     }
 }

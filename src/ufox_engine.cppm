@@ -54,6 +54,14 @@ export namespace ufox {
             }
 
             pauseRendering = true;
+
+            if (windowResource->swapchainResource) {
+                windowResource->swapchainResource->Clear();
+            }
+            if (viewport && inputResource) {
+                geometry::UnbindEvents(*viewport,*inputResource);
+            }
+
         }
 
         void Init() {
@@ -61,35 +69,39 @@ export namespace ufox {
             viewport.emplace(*windowResource);
             viewpanel1.emplace(geometry::PanelAlignment::eRow,geometry::PickingMode::eIgnore);
             viewpanel2.emplace();
-            viewpanel2->scaleValue = 0.3f;
-            viewpanel2->SetBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
+            viewpanel2->resizerValue = 0.3f;
+            viewpanel2->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
             viewpanel3.emplace(geometry::PanelAlignment::eColumn);
-            viewpanel3->scaleValue = 0.7f;
+            viewpanel3->resizerValue = 0.6f;
             viewpanel4.emplace();
-            viewpanel4->scaleValue = 0.6f;
-            viewpanel4->SetBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
+            viewpanel4->resizerValue = 0.8f;
+            viewpanel4->setBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
             viewpanel5.emplace(geometry::PanelAlignment::eRow);
-            viewpanel5->scaleValue = 0.5f;
-            viewpanel5->SetBackgroundColor(vk::ClearColorValue{0.0f, 1.0f, 0.0f, 1.0f});
+            viewpanel5->resizerValue = 0.5f;
+            viewpanel5->setBackgroundColor(vk::ClearColorValue{0.0f, 1.0f, 0.0f, 1.0f});
             viewpanel6.emplace();
-            viewpanel6->scaleValue = 0.5f;
-            viewpanel6->SetBackgroundColor(vk::ClearColorValue{1.0f, 1.0f, 0.0f, 1.0f});
+            viewpanel6->resizerValue = 0.5f;
+            viewpanel6->setBackgroundColor(vk::ClearColorValue{1.0f, 1.0f, 0.0f, 1.0f});
             viewpanel7.emplace();
-            viewpanel7->scaleValue = 0.3f;
-            viewpanel7->SetBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 1.0f, 1.0f});
+            viewpanel7->resizerValue = 0.3f;
+            viewpanel7->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 1.0f, 1.0f});
             viewpanel8.emplace();
-            viewpanel8->scaleValue = 0.6f;
-            viewpanel8->SetBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.5f, 1.0f});
+            viewpanel8->resizerValue = 0.6f;
+            viewpanel8->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.5f, 1.0f});
             viewpanel9.emplace();
-            viewpanel9->scaleValue = 0.5f;
-            viewpanel9->SetBackgroundColor(vk::ClearColorValue{0.5f, 0.7f, 0.5f, 1.0f});
+            viewpanel9->resizerValue = 0.5f;
+            viewpanel9->setBackgroundColor(vk::ClearColorValue{0.5f, 0.7f, 0.5f, 1.0f});
+            viewpanel10.emplace();
+            viewpanel10->resizerValue = 0.1f;
+            viewpanel10->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.7f, 1.0f});
 
 
             viewport->panel = &*viewpanel1;
-            viewpanel1->scaleValue =0;
+            viewpanel1->resizerValue =0;
             viewpanel1->add(&*viewpanel2);
             viewpanel1->add(&*viewpanel3);
             viewpanel1->add(&*viewpanel4);
+            viewpanel1->add(&*viewpanel10);
             viewpanel3->add(&*viewpanel5);
             viewpanel3->add(&*viewpanel6);
             viewpanel5->add(&*viewpanel7);
@@ -358,12 +370,14 @@ export namespace ufox {
             vk::ClearColorValue c7 = viewport->hoveredPanel == &viewpanel7.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel7->clearColor;
             vk::ClearColorValue c8 = viewport->hoveredPanel == &viewpanel8.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel8->clearColor;
             vk::ClearColorValue c9 = viewport->hoveredPanel == &viewpanel9.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel9->clearColor;
+            vk::ClearColorValue c10 = viewport->hoveredPanel == &viewpanel10.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel10->clearColor;
             render::RenderArea(cmb, *windowResource, viewpanel4->rect, c4);
             render::RenderArea(cmb, *windowResource, viewpanel2->rect, c2);
             render::RenderArea(cmb, *windowResource, viewpanel6->rect, c6);
             render::RenderArea(cmb, *windowResource, viewpanel7->rect, c7);
             render::RenderArea(cmb, *windowResource, viewpanel8->rect, c8);
             render::RenderArea(cmb, *windowResource, viewpanel9->rect, c9);
+            render::RenderArea(cmb, *windowResource, viewpanel10->rect, c10);
 
 
             gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(),
@@ -395,12 +409,12 @@ export namespace ufox {
                             gpu.device->waitIdle();
                         }
                         pauseRendering = true;
-                        // if (windowResource->swapchainResource) {
-                        //     windowResource->swapchainResource->Clear();
-                        // }
-                        // if (viewport && inputResource) {
-                        //     geometry::UnbindEvents(*viewport,*inputResource);
-                        // }
+                        if (windowResource->swapchainResource) {
+                            windowResource->swapchainResource->Clear();
+                        }
+                        if (viewport && inputResource) {
+                            geometry::UnbindEvents(*viewport,*inputResource);
+                        }
                         running = false;
                         SDL_RemoveEventWatch(framebufferResizeCallback, this);
                         break;
@@ -508,6 +522,7 @@ export namespace ufox {
         std::optional<geometry::Viewpanel>          viewpanel7{};
         std::optional<geometry::Viewpanel>          viewpanel8{};
         std::optional<geometry::Viewpanel>          viewpanel9{};
+        std::optional<geometry::Viewpanel>          viewpanel10{};
 
 
         bool framebufferResized = false;
