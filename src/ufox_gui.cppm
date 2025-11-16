@@ -8,12 +8,207 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <ktx.h>
 
-export module ufox_gui_renderer;
+export module ufox_gui;
 
 import ufox_lib;
 import ufox_graphic_device;
 
+export namespace ufox::gui {
 
+
+    void MakeDescriptorPool(const gpu::vulkan::GPUResources& gpu, const uint32_t& minImageCount, GUIResource& guiResource) {
+        vk::DescriptorPoolSize poolSize{};
+        poolSize
+            .setType(vk::DescriptorType::eUniformBuffer)
+            .setDescriptorCount(minImageCount);
+
+        vk::DescriptorPoolCreateInfo poolInfo{};
+        poolInfo
+            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+            .setMaxSets(minImageCount)
+            .setPoolSizeCount(1)
+            .setPPoolSizes(&poolSize);
+
+        guiResource.descriptorPool.emplace(*gpu.device, poolInfo);
+    }
+
+    // void MakeDescriptorSets(const gpu::vulkan::GPUResources& gpu, const uint32_t& minImageCount, GUIResource& guiResource) {
+    //   std::vector<vk::DescriptorSetLayout> layouts(minImageCount, *guiResource.descriptorSetLayout);
+    //   vk::DescriptorSetAllocateInfo allocInfo{};
+    //   allocInfo
+    //       .setDescriptorPool( *guiResource.descriptorPool )
+    //       .setDescriptorSetCount( static_cast<uint32_t>( layouts.size() ) )
+    //       .setPSetLayouts( layouts.data() );
+    //
+    //   guiResource.descriptorSets.clear();
+    //   guiResource.descriptorSets = gpu.device->allocateDescriptorSets(allocInfo);
+    //
+    //   for (size_t i = 0; i < minImageCount; i++) {
+    //       vk::DescriptorBufferInfo bufferInfo{};
+    //       bufferInfo
+    //           .setBuffer(*guiResource.uniformBuffers[i].buffer->data)
+    //           .setOffset(0)
+    //           .setRange(sizeof(guiResource.UniformBufferObject));
+    //
+    //       vk::WriteDescriptorSet write{};
+    //       write.setDstSet(guiResource.descriptorSets[i])
+    //               .setDstBinding(0)
+    //               .setDstArrayElement(0)
+    //               .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+    //               .setDescriptorCount(1)
+    //               .setPBufferInfo(&bufferInfo);
+    //
+    //       gpu.device->updateDescriptorSets(write, nullptr);
+    //   }
+    // }
+
+    void CreateDescriptorSetLayout(const gpu::vulkan::GPUResources& gpu, GUIResource& guiResource) {
+        vk::DescriptorSetLayoutBinding vertexLayoutBinding{};
+        vertexLayoutBinding
+            .setBinding(0)
+            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+            .setPImmutableSamplers(nullptr);
+
+        // vk::DescriptorSetLayoutBinding samplerLayoutBinding{};
+        // samplerLayoutBinding.setBinding(1)
+        //                     .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        //                     .setDescriptorCount(1)
+        //                     .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        //                     .setPImmutableSamplers(nullptr);
+        //
+        // vk::DescriptorSetLayoutBinding guiStyleLayoutBinding{};
+        // guiStyleLayoutBinding.setBinding(2)
+        //                           .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+        //                           .setDescriptorCount(1)
+        //                           .setStageFlags(vk::ShaderStageFlagBits::eFragment)
+        //                           .setPImmutableSamplers(nullptr);
+
+        std::array bindings = { vertexLayoutBinding };
+
+        vk::DescriptorSetLayoutCreateInfo layoutInfo{};
+        layoutInfo
+            .setBindingCount( bindings.size())
+            .setPBindings(bindings.data());
+
+        guiResource.descriptorSetLayout.emplace(*gpu.device, layoutInfo);
+    }
+
+    void CreatePipelineLayout(const gpu::vulkan::GPUResources& gpu, GUIResource& guiResource) {
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo
+          .setSetLayoutCount(1)
+          .setPSetLayouts(&*guiResource.descriptorSetLayout.value());
+
+        guiResource.pipelineLayout.emplace(*gpu.device, pipelineLayoutInfo);
+    }
+
+    void CreatePipeline(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode, GUIResource& guiResource) {
+        vk::raii::ShaderModule shaderModule = gpu::vulkan::CreateShaderModule(gpu ,shaderCode);
+        std::array stages = {
+            vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eVertex, *shaderModule, "vertMain" },
+            vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eFragment, *shaderModule, "fragMain" }
+        };
+
+        std::array bindingDescription{geometry::Vertex::getBindingDescription(0)};
+        auto attributeDescriptions = geometry::Vertex::getAttributeDescriptions(0);
+
+        vk::PipelineVertexInputStateCreateInfo vertexInput = gpu::vulkan::MakePipeVertexInputState(bindingDescription, attributeDescriptions);
+
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly
+            .setTopology(vk::PrimitiveTopology::eTriangleList)
+            .setPrimitiveRestartEnable(false);
+
+        vk::PipelineViewportStateCreateInfo viewportState{};
+        viewportState
+            .setViewportCount(1)
+            .setScissorCount(1);
+
+        vk::PipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer
+            .setPolygonMode(vk::PolygonMode::eFill)
+            .setDepthBiasEnable(false)
+            .setDepthClampEnable(false)
+            .setRasterizerDiscardEnable(false)
+            .setLineWidth(1.0f);
+
+        vk::PipelineMultisampleStateCreateInfo multisample{};
+        multisample
+            .setRasterizationSamples(vk::SampleCountFlagBits::e1);
+
+        vk::PipelineColorBlendAttachmentState blendAttachment{};
+        blendAttachment
+            .setBlendEnable(true)
+            .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha) // Use alpha for color
+            .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha) // 1 - alpha for background
+            .setColorBlendOp(vk::BlendOp::eAdd) // Add blended colors
+            .setSrcAlphaBlendFactor(vk::BlendFactor::eOne) // Preserve alpha
+            .setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+            .setAlphaBlendOp(vk::BlendOp::eAdd)
+            .setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
+
+        vk::PipelineColorBlendStateCreateInfo blendState{};
+        blendState
+            .setAttachmentCount(1)
+            .setPAttachments(&blendAttachment);
+
+        std::array dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor, vk::DynamicState::eCullMode,
+                                     vk::DynamicState::eFrontFace, vk::DynamicState::ePrimitiveTopology };
+        vk::PipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState
+            .setDynamicStateCount(dynamicStates.size())
+            .setPDynamicStates(dynamicStates.data());
+
+        vk::PipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil
+            .setDepthTestEnable(false)
+            .setDepthWriteEnable(false)
+            .setDepthCompareOp(vk::CompareOp::eNever)
+            .setDepthBoundsTestEnable(false)
+            .setStencilTestEnable(false);
+
+        vk::PipelineRenderingCreateInfo renderingInfo{};
+        renderingInfo
+        .setColorAttachmentCount(1)
+        .setPColorAttachmentFormats(&swapchain.colorFormat);
+
+        vk::GraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo
+            .setStageCount(stages.size())
+            .setPStages(stages.data())
+            .setPVertexInputState(&vertexInput)
+            .setPInputAssemblyState(&inputAssembly)
+            .setPViewportState(&viewportState)
+            .setPRasterizationState(&rasterizer)
+            .setPMultisampleState(&multisample)
+            .setPColorBlendState(&blendState)
+            .setPDynamicState(&dynamicState)
+            .setPDepthStencilState(&depthStencil)
+            .setLayout(*guiResource.pipelineLayout.value())
+            .setRenderPass(nullptr)
+            .setSubpass(0)
+            .setPNext(&renderingInfo);
+
+        guiResource.pipelineCache.emplace(*gpu.device, vk::PipelineCacheCreateInfo());
+        guiResource.pipeline.emplace(*gpu.device, *guiResource.pipelineCache, pipelineInfo);
+    }
+
+    GUIResource MakeGuiResource(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode) {
+        GUIResource guiResource{};
+
+        CreateDescriptorSetLayout(gpu, guiResource);
+        CreatePipelineLayout(gpu, guiResource);
+        CreatePipeline(gpu, swapchain, shaderCode, guiResource);
+        gpu::vulkan::CreateAndCopyBuffer(gpu, geometry::QuadVertices, geometry::QUAD_VERTICES_BUFFER_SIZE, guiResource.vertexBuffer);
+        gpu::vulkan::CreateAndCopyBuffer(gpu, geometry::QuadIndices, geometry::QUAD_INDICES_BUFFER_SIZE, guiResource.indexBuffer);
+
+        return guiResource;
+    }
+}
+
+//legacy
 // export namespace ufox::gui {
 //
 //

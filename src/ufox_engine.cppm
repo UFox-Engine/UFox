@@ -18,6 +18,7 @@ import ufox_graphic_device;
 import ufox_input;
 import ufox_geometry;
 import ufox_render;
+import ufox_gui;
 import ufox_resource_manager;
 
 
@@ -204,10 +205,13 @@ export namespace ufox {
             windowResource->swapchainResource.emplace(gpu::vulkan::MakeSwapchainResource(gpu, *windowResource, vk::ImageUsageFlagBits::eColorAttachment));
             frameResource.emplace(gpu::vulkan::MakeFrameResource(gpu, vk::FenceCreateFlagBits::eSignaled));
 
-            //std::vector<char> shaderCode = ReadFile("res/shaders/test.slang.spv");
+
 
             inputResource.emplace();
             standardCursorResource.emplace(input::CreateStandardMouseCursor());
+
+            std::vector<char> shaderCode = ReadFile("res/shaders/test.slang.spv");
+            guiResource.emplace(gui::MakeGuiResource(gpu, *windowResource->swapchainResource, shaderCode));
 
             resourceManager.emplace(gpu);
             resourceManager->SetRootPath("res/"); // Sets rootPath to "res/textures/"
@@ -509,24 +513,25 @@ export namespace ufox {
         }
 #endif
 
-        gpu::vulkan::GraphicDeviceCreateInfo        gpuCreateInfo{};
-        gpu::vulkan::GPUResources                   gpu{};
-        std::optional<windowing::WindowResource>    windowResource{};
-        std::optional<gpu::vulkan::FrameResource>   frameResource{};
-        std::optional<input::InputResource>         inputResource{};
-        std::optional<input::StandardCursorResource>standardCursorResource{};
-        std::optional<ResourceManager>              resourceManager{};
-        std::optional<geometry::Viewport>           viewport{};
-        std::optional<geometry::Viewpanel>          viewpanel1{};
-        std::optional<geometry::Viewpanel>          viewpanel2{};
-        std::optional<geometry::Viewpanel>          viewpanel3{};
-        std::optional<geometry::Viewpanel>          viewpanel4{};
-        std::optional<geometry::Viewpanel>          viewpanel5{};
-        std::optional<geometry::Viewpanel>          viewpanel6{};
-        std::optional<geometry::Viewpanel>          viewpanel7{};
-        std::optional<geometry::Viewpanel>          viewpanel8{};
-        std::optional<geometry::Viewpanel>          viewpanel9{};
-        std::optional<geometry::Viewpanel>          viewpanel10{};
+        gpu::vulkan::GraphicDeviceCreateInfo            gpuCreateInfo{};
+        gpu::vulkan::GPUResources                       gpu{};
+        std::optional<windowing::WindowResource>        windowResource{};
+        std::optional<gpu::vulkan::FrameResource>       frameResource{};
+        std::optional<input::InputResource>             inputResource{};
+        std::optional<input::StandardCursorResource>    standardCursorResource{};
+        std::optional<gui::GUIResource>                 guiResource{};
+        std::optional<ResourceManager>                  resourceManager{};
+        std::optional<geometry::Viewport>               viewport{};
+        std::optional<geometry::Viewpanel>              viewpanel1{};
+        std::optional<geometry::Viewpanel>              viewpanel2{};
+        std::optional<geometry::Viewpanel>              viewpanel3{};
+        std::optional<geometry::Viewpanel>              viewpanel4{};
+        std::optional<geometry::Viewpanel>              viewpanel5{};
+        std::optional<geometry::Viewpanel>              viewpanel6{};
+        std::optional<geometry::Viewpanel>              viewpanel7{};
+        std::optional<geometry::Viewpanel>              viewpanel8{};
+        std::optional<geometry::Viewpanel>              viewpanel9{};
+        std::optional<geometry::Viewpanel>              viewpanel10{};
 
 
         bool framebufferResized = false;

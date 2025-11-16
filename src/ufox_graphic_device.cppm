@@ -830,4 +830,20 @@ export namespace ufox::gpu::vulkan {
         return commandBuffer.pipelineBarrier( sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier );
       }
 
+
+    template<typename BufferData, size_t Size>
+    void CreateAndCopyBuffer(const GPUResources& gpu, const BufferData(&data)[Size], vk::DeviceSize bufferSize, std::optional<Buffer>& vertexBuffer) {
+        const Buffer stagingBuffer(gpu, bufferSize, vk::BufferUsageFlagBits::eTransferSrc);
+
+        const auto pData = static_cast<uint8_t*>(stagingBuffer.memory->mapMemory(0, bufferSize));
+        memcpy(pData, data, bufferSize);
+        stagingBuffer.memory->unmapMemory();
+
+        vertexBuffer.emplace(gpu, bufferSize,
+            vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+            vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+        CopyBuffer(gpu, stagingBuffer, *vertexBuffer, bufferSize);
+    }
+
 }

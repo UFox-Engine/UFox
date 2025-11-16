@@ -645,7 +645,6 @@ export namespace ufox {
         };
 
         struct EventCallbackPool {
-
             struct Handler {
                 Handler(const Handler&) = delete;
                 Handler(EventCallbackPool* p, std::size_t i) : pool(p), index(i) {}
@@ -988,7 +987,7 @@ export namespace ufox {
                 Viewpanel*                                          panel = nullptr;
                 Viewpanel*                                          hoveredPanel = nullptr;
                 Viewpanel*                                          focusedPanel = nullptr;
-                ViewpanelResizerContext                                     resizerContext{};
+                ViewpanelResizerContext                             resizerContext{};
                 std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
                 std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
             };
@@ -1022,21 +1021,23 @@ export namespace ufox {
             }
         };
 
-        constexpr std::array<Vertex, 4> QuadVertices{{
+        constexpr Vertex QuadVertices[]{
             {{0.f, 0.f}, {0.f, 0.f}, {1.f,1.f,1.f,1.f}}, // TL
             {{1.f, 0.f}, {1.f, 0.f}, {1.f,1.f,1.f,1.f}}, // TR
             {{1.f, 1.f}, {1.f, 1.f}, {1.f,1.f,1.f,1.f}}, // BR
             {{0.f, 1.f}, {0.f, 1.f}, {1.f,1.f,1.f,1.f}}, // BL
-        }};
+        };
 
-        constexpr std::array<uint16_t, 6> QuadIndices{{
+        constexpr uint16_t QuadIndices[]{
             0, 1, 2, 2, 3, 0
-        }};
+        };
 
-        constexpr vk::DeviceSize GUI_VERTEX_BUFFER_SIZE         = sizeof(Vertex);
-        constexpr vk::DeviceSize GUI_RECT_MESH_BUFFER_SIZE      = sizeof(QuadVertices);
-        constexpr vk::DeviceSize GUI_INDEX_BUFFER_SIZE          = sizeof(QuadIndices);
-
+        constexpr vk::DeviceSize VERTEX_BUFFER_SIZE         = sizeof(Vertex);
+        constexpr vk::DeviceSize QUAD_VERTICES_BUFFER_SIZE      = sizeof(QuadVertices);
+        constexpr vk::DeviceSize QUAD_INDICES_BUFFER_SIZE          = sizeof(QuadIndices);
+        constexpr auto DEFAULT_QUAD_MESH_NAME = "default_quad_mesh";
+        constexpr auto QUAD_VERTEX_COUNT = std::size(QuadVertices);
+        constexpr auto QUAD_INDEX_COUNT = std::size(QuadIndices);
 
         struct MeshResource {
             std::string name;
@@ -1051,11 +1052,15 @@ export namespace ufox {
             explicit MeshResource(const std::string_view name_ = {}): name(name_) , id(utilities::GenerateUniqueID(name_)) {}
         };
 
-        constexpr MeshResource MakeQuadMesh() {
-            MeshResource m{"default_quad_mesh"};
-            m.vertices.assign(QuadVertices.begin(), QuadVertices.end());
-            m.indices.assign (QuadIndices.begin(),  QuadIndices.end());
-            return m;
+        constexpr MeshResource CreateDefaultQuadMesh() {
+            MeshResource quadMesh{DEFAULT_QUAD_MESH_NAME};
+            quadMesh.vertices.reserve(QUAD_VERTEX_COUNT);
+            quadMesh.indices.reserve(QUAD_INDEX_COUNT);
+
+            quadMesh.vertices.assign(std::begin(QuadVertices), std::end(QuadVertices));
+            quadMesh.indices.assign(std::begin(QuadIndices), std::end(QuadIndices));
+
+            return quadMesh;
         }
     }
 
@@ -1083,8 +1088,12 @@ export namespace ufox {
             std::vector<StyleResource>                      styles{};
             std::optional<vk::raii::PipelineCache>          pipelineCache{};
             std::optional<vk::raii::Pipeline>               pipeline{};
+            std::optional<vk::raii::DescriptorSetLayout>    descriptorSetLayout{};
+            std::optional<vk::raii::PipelineLayout>         pipelineLayout{};
             std::optional<gpu::vulkan::Buffer>              vertexBuffer{};
             std::optional<gpu::vulkan::Buffer>              indexBuffer{};
+            std::optional<vk::raii::DescriptorPool>         descriptorPool{};
+            std::vector<vk::raii::DescriptorSet>            descriptorSets{};
         };
     }
 }

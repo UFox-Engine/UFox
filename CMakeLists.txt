@@ -110,7 +110,7 @@ target_sources(UFoxEngine
         src/ufox_geometry.cppm
         src/ufox_render.cppm
         src/ufox_resource_manager.cppm
-        src/ufox_gui_renderer.cppm
+        src/ufox_gui.cppm
         src/ufox_engine.cppm
 )
 
