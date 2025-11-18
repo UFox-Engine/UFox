@@ -16,6 +16,7 @@ export module ufox_geometry;
 
 import ufox_lib;  // GPUResources, SwapchainResource, FrameResource
 import ufox_input;
+import ufox_graphic_device;
 
 export namespace ufox::geometry {
     constexpr int GetPanelPosition1D(const bool& row, const Viewpanel& panel) noexcept {
@@ -340,5 +341,19 @@ export namespace ufox::geometry {
         if (!viewport.leftClickEventHandle.has_value()) return;
         input.onLeftMouseButtonCallbackPool.unbind(viewport.leftClickEventHandle->index);
         viewport.leftClickEventHandle.reset();
+    }
+
+    constexpr MeshResource CreateDefaultQuadMesh(const gpu::vulkan::GPUResources& gpu) {
+        MeshResource quadMesh{DEFAULT_QUAD_MESH_NAME};
+        quadMesh.vertices.reserve(QUAD_VERTEX_COUNT);
+        quadMesh.indices.reserve(QUAD_INDEX_COUNT);
+
+        quadMesh.vertices.assign(std::begin(QuadVertices), std::end(QuadVertices));
+        quadMesh.indices.assign(std::begin(QuadIndices), std::end(QuadIndices));
+
+        gpu::vulkan::CreateAndCopyBuffer(gpu, QuadVertices, QUAD_VERTICES_BUFFER_SIZE, quadMesh.vertexBuffer);
+        gpu::vulkan::CreateAndCopyBuffer(gpu, QuadIndices, QUAD_INDICES_BUFFER_SIZE, quadMesh.indexBuffer);
+
+        return quadMesh;
     }
 }

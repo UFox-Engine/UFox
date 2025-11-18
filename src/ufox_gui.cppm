@@ -12,90 +12,28 @@ export module ufox_gui;
 
 import ufox_lib;
 import ufox_graphic_device;
+import ufox_geometry;
 
 export namespace ufox::gui {
+    constexpr void MakeDescriptorPool(const gpu::vulkan::GPUResources& gpu, const uint32_t& minImageCount, GUIResource& guiResource) {
+        auto pool = gpu::vulkan::MakeDescriptorPool(gpu, {{vk::DescriptorType::eUniformBuffer, minImageCount}});
 
-
-    void MakeDescriptorPool(const gpu::vulkan::GPUResources& gpu, const uint32_t& minImageCount, GUIResource& guiResource) {
-        vk::DescriptorPoolSize poolSize{};
-        poolSize
-            .setType(vk::DescriptorType::eUniformBuffer)
-            .setDescriptorCount(minImageCount);
-
-        vk::DescriptorPoolCreateInfo poolInfo{};
-        poolInfo
-            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-            .setMaxSets(minImageCount)
-            .setPoolSizeCount(1)
-            .setPPoolSizes(&poolSize);
-
-        guiResource.descriptorPool.emplace(*gpu.device, poolInfo);
+        guiResource.descriptorPool.emplace(std::move(pool));
     }
 
-    // void MakeDescriptorSets(const gpu::vulkan::GPUResources& gpu, const uint32_t& minImageCount, GUIResource& guiResource) {
-    //   std::vector<vk::DescriptorSetLayout> layouts(minImageCount, *guiResource.descriptorSetLayout);
-    //   vk::DescriptorSetAllocateInfo allocInfo{};
-    //   allocInfo
-    //       .setDescriptorPool( *guiResource.descriptorPool )
-    //       .setDescriptorSetCount( static_cast<uint32_t>( layouts.size() ) )
-    //       .setPSetLayouts( layouts.data() );
-    //
-    //   guiResource.descriptorSets.clear();
-    //   guiResource.descriptorSets = gpu.device->allocateDescriptorSets(allocInfo);
-    //
-    //   for (size_t i = 0; i < minImageCount; i++) {
-    //       vk::DescriptorBufferInfo bufferInfo{};
-    //       bufferInfo
-    //           .setBuffer(*guiResource.uniformBuffers[i].buffer->data)
-    //           .setOffset(0)
-    //           .setRange(sizeof(guiResource.UniformBufferObject));
-    //
-    //       vk::WriteDescriptorSet write{};
-    //       write.setDstSet(guiResource.descriptorSets[i])
-    //               .setDstBinding(0)
-    //               .setDstArrayElement(0)
-    //               .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-    //               .setDescriptorCount(1)
-    //               .setPBufferInfo(&bufferInfo);
-    //
-    //       gpu.device->updateDescriptorSets(write, nullptr);
-    //   }
-    // }
+    constexpr void MakeDescriptorSetLayout(const gpu::vulkan::GPUResources& gpu, GUIResource& guiResource) {
+        auto descriptorLayout = gpu::vulkan::MakeDescriptorSetLayout(gpu,
+        {{
+            vk::DescriptorType::eUniformBuffer,
+            1,
+            vk::ShaderStageFlagBits::eVertex,
+            nullptr
+        }});
 
-    void CreateDescriptorSetLayout(const gpu::vulkan::GPUResources& gpu, GUIResource& guiResource) {
-        vk::DescriptorSetLayoutBinding vertexLayoutBinding{};
-        vertexLayoutBinding
-            .setBinding(0)
-            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eVertex)
-            .setPImmutableSamplers(nullptr);
-
-        // vk::DescriptorSetLayoutBinding samplerLayoutBinding{};
-        // samplerLayoutBinding.setBinding(1)
-        //                     .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        //                     .setDescriptorCount(1)
-        //                     .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        //                     .setPImmutableSamplers(nullptr);
-        //
-        // vk::DescriptorSetLayoutBinding guiStyleLayoutBinding{};
-        // guiStyleLayoutBinding.setBinding(2)
-        //                           .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-        //                           .setDescriptorCount(1)
-        //                           .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        //                           .setPImmutableSamplers(nullptr);
-
-        std::array bindings = { vertexLayoutBinding };
-
-        vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo
-            .setBindingCount( bindings.size())
-            .setPBindings(bindings.data());
-
-        guiResource.descriptorSetLayout.emplace(*gpu.device, layoutInfo);
+        guiResource.descriptorSetLayout.emplace(std::move(descriptorLayout));
     }
 
-    void CreatePipelineLayout(const gpu::vulkan::GPUResources& gpu, GUIResource& guiResource) {
+    constexpr void MakePipelineLayout(const gpu::vulkan::GPUResources& gpu, GUIResource& guiResource) {
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo
           .setSetLayoutCount(1)
@@ -104,7 +42,7 @@ export namespace ufox::gui {
         guiResource.pipelineLayout.emplace(*gpu.device, pipelineLayoutInfo);
     }
 
-    void CreatePipeline(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode, GUIResource& guiResource) {
+    void MakePipeline(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode, GUIResource& guiResource) {
         vk::raii::ShaderModule shaderModule = gpu::vulkan::CreateShaderModule(gpu ,shaderCode);
         std::array stages = {
             vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eVertex, *shaderModule, "vertMain" },
@@ -195,14 +133,61 @@ export namespace ufox::gui {
         guiResource.pipeline.emplace(*gpu.device, *guiResource.pipelineCache, pipelineInfo);
     }
 
-    GUIResource MakeGuiResource(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode) {
+    constexpr GUIElement MakeGUIElement(const gpu::vulkan::GPUResources& gpu, const GUIResource& guiResource, const uint32_t& minImageCount) {
+        GUIElement guiElement{};
+
+        guiElement.uniformBuffers.clear();
+        guiElement.uniformBuffersMapped.clear();
+
+        guiElement.uniformBuffers.reserve(minImageCount);
+        guiElement.uniformBuffersMapped.reserve(minImageCount);
+
+        guiElement.descriptorSets.clear();
+
+        const std::vector<vk::DescriptorSetLayout> layouts(minImageCount, *guiResource.descriptorSetLayout);
+        vk::DescriptorSetAllocateInfo allocInfo{};
+        allocInfo
+            .setDescriptorPool( *guiResource.descriptorPool )
+            .setDescriptorSetCount( static_cast<uint32_t>( layouts.size() ) )
+            .setPSetLayouts( layouts.data() );
+
+        guiElement.descriptorSets = gpu.device->allocateDescriptorSets(allocInfo);
+
+        for (size_t i = 0; i < minImageCount; i++) {
+            guiElement.uniformBuffers.push_back(gpu::vulkan::MakeBuffer(gpu, gpu::vulkan::UBO_BUFFER_SIZE, vk::BufferUsageFlagBits::eUniformBuffer
+                                                        , vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent));
+            guiElement.uniformBuffersMapped.push_back( guiElement.uniformBuffers[i].memory->mapMemory(0, gpu::vulkan::UBO_BUFFER_SIZE));
+
+            vk::DescriptorBufferInfo bufferInfo{};
+            bufferInfo
+                .setBuffer(*guiElement.uniformBuffers[i].data)
+                .setOffset(0)
+                .setRange(gpu::vulkan::UBO_BUFFER_SIZE);
+
+            vk::WriteDescriptorSet write{};
+            write.setDstSet(guiElement.descriptorSets[i])
+                    .setDstBinding(0)
+                    .setDstArrayElement(0)
+                    .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+                    .setDescriptorCount(1)
+                    .setPBufferInfo(&bufferInfo);
+
+            gpu.device->updateDescriptorSets(write, nullptr);
+        }
+
+        return guiElement;
+    }
+
+    constexpr GUIResource MakeGuiResource(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode) {
         GUIResource guiResource{};
 
-        CreateDescriptorSetLayout(gpu, guiResource);
-        CreatePipelineLayout(gpu, guiResource);
-        CreatePipeline(gpu, swapchain, shaderCode, guiResource);
-        gpu::vulkan::CreateAndCopyBuffer(gpu, geometry::QuadVertices, geometry::QUAD_VERTICES_BUFFER_SIZE, guiResource.vertexBuffer);
-        gpu::vulkan::CreateAndCopyBuffer(gpu, geometry::QuadIndices, geometry::QUAD_INDICES_BUFFER_SIZE, guiResource.indexBuffer);
+        MakeDescriptorSetLayout(gpu, guiResource);
+        MakePipelineLayout(gpu, guiResource);
+        MakePipeline(gpu, swapchain, shaderCode, guiResource);
+        guiResource.meshResource.emplace(geometry::CreateDefaultQuadMesh(gpu));
+        MakeDescriptorPool(gpu, swapchain.getImageCount(), guiResource);
+        guiResource.elements.emplace(MakeGUIElement(gpu, guiResource, swapchain.getImageCount()));
+
 
         return guiResource;
     }

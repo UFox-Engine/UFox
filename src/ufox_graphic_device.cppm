@@ -7,15 +7,16 @@ module;
 #elif defined( __APPLE__ )
 #define VK_USE_PLATFORM_MACOS_MVK
 #endif
-#include <iostream>
-#include <vulkan/vulkan_raii.hpp>
-#include <vector>
-#include <string>
-#include <optional>
-#include <SDL3/SDL_vulkan.h>
-#include <map>
-#include <set>
 #include <GLFW/glfw3.h>
+#include <SDL3/SDL_vulkan.h>
+#include <iostream>
+#include <map>
+#include <numeric>
+#include <optional>
+#include <set>
+#include <string>
+#include <vector>
+#include <vulkan/vulkan_raii.hpp>
 
 export module ufox_graphic_device;
 
@@ -470,19 +471,42 @@ export namespace ufox::gpu::vulkan {
         return MakeFrameResource(*gpu.device, *gpu.commandPool, fenceFlags);
     }
 
-    vk::raii::ShaderModule CreateShaderModule(const vk::raii::Device& device, const std::vector<char>& code) {
+    constexpr vk::raii::DescriptorSetLayout MakeDescriptorSetLayout(const GPUResources& gpu,std::vector<std::tuple<vk::DescriptorType, uint32_t, vk::ShaderStageFlags, vk::Sampler*>> const & bindingData,
+        const vk::DescriptorSetLayoutCreateFlags flags = {} )
+    {
+        std::vector<vk::DescriptorSetLayoutBinding> bindings( bindingData.size() );
+        for ( size_t i = 0; i < bindingData.size(); i++ )
+        {
+            bindings[i] = vk::DescriptorSetLayoutBinding{}
+                .setBinding( utilities::CheckedCast<uint32_t>( i ) )
+                .setDescriptorType( std::get<0>( bindingData[i] ) )
+                .setDescriptorCount( std::get<1>( bindingData[i] ) )
+                .setStageFlags( std::get<2>( bindingData[i] ) )
+                .setPImmutableSamplers( std::get<3>(bindingData[i]) );
+        }
+        vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo( flags, bindings );
+        return {*gpu.device, descriptorSetLayoutCreateInfo };
+    }
+
+    vk::raii::DescriptorPool MakeDescriptorPool( const GPUResources& gpu, std::vector<vk::DescriptorPoolSize> const & poolSizes ) {
+        assert( !poolSizes.empty() );
+        const uint32_t maxSets = std::accumulate(
+          poolSizes.begin(), poolSizes.end(), 0, [](const uint32_t sum, vk::DescriptorPoolSize const & dps ) { return sum + dps.descriptorCount; } );
+        assert( 0 < maxSets );
+
+        vk::DescriptorPoolCreateInfo descriptorPoolCreateInfo( vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet, maxSets, poolSizes );
+        return { *gpu.device, descriptorPoolCreateInfo };
+    }
+
+    constexpr vk::raii::ShaderModule CreateShaderModule(const GPUResources& gpu, const std::vector<char>& code) {
         vk::ShaderModuleCreateInfo createInfo{};
         createInfo
             .setCodeSize(code.size() * sizeof(char))
             .setPCode(reinterpret_cast<const uint32_t*>(code.data()));
 
-        vk::raii::ShaderModule shaderModule{ device, createInfo };
+        vk::raii::ShaderModule shaderModule{ *gpu.device, createInfo };
 
         return shaderModule;
-    }
-
-    vk::raii::ShaderModule CreateShaderModule(const GPUResources& gpu, const std::vector<char>& code) {
-        return CreateShaderModule(*gpu.device, code);
     }
 
     vk::PipelineVertexInputStateCreateInfo MakePipeVertexInputState(
@@ -684,25 +708,21 @@ export namespace ufox::gpu::vulkan {
         image.view.emplace(*gpu.device, createInfo);
     }
 
-    void CreateBuffer(const vk::raii::Device& device, const vk::raii::PhysicalDevice& physicalDevice, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage,
-                                    const vk::MemoryPropertyFlags& properties, Buffer &buffer) {
-
+    constexpr Buffer MakeBuffer(const GPUResources& gpu, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage, const vk::MemoryPropertyFlags& properties) {
+        Buffer buffer{};
         vk::BufferCreateInfo bufferInfo{};
         bufferInfo.setSize(size)
                   .setUsage(usage)
                   .setSharingMode(vk::SharingMode::eExclusive);
 
-        buffer.data.emplace(device, bufferInfo);
+        buffer.data.emplace(*gpu.device, bufferInfo);
 
         vk::MemoryRequirements memoryRequirements = buffer.data->getMemoryRequirements();
-        vk::MemoryAllocateInfo memoryAllocateInfo( memoryRequirements.size, FindMemoryType( physicalDevice.getMemoryProperties(),
+        vk::MemoryAllocateInfo memoryAllocateInfo( memoryRequirements.size, FindMemoryType( *gpu.physicalDevice->getMemoryProperties(),
                                                    memoryRequirements.memoryTypeBits, properties ) );
-        buffer.memory.emplace(device, memoryAllocateInfo);
+        buffer.memory.emplace(*gpu.device, memoryAllocateInfo);
         buffer.data->bindMemory( *buffer.memory, 0 );
-    }
-
-    void CreateBuffer(const GPUResources& gpu, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage, const vk::MemoryPropertyFlags& properties, Buffer &buffer) {
-        CreateBuffer(*gpu.device, *gpu.physicalDevice, size, usage, properties, buffer);
+        return buffer;
     }
 
     void CopyBuffer(const vk::raii::Device& device, const vk::raii::CommandPool& commandPool,const vk::raii::Queue& graphicsQueue , const Buffer& srcBuffer, const Buffer& dstBuffer, const vk::DeviceSize& size) {
@@ -832,18 +852,16 @@ export namespace ufox::gpu::vulkan {
 
 
     template<typename BufferData, size_t Size>
-    void CreateAndCopyBuffer(const GPUResources& gpu, const BufferData(&data)[Size], vk::DeviceSize bufferSize, std::optional<Buffer>& vertexBuffer) {
-        const Buffer stagingBuffer(gpu, bufferSize, vk::BufferUsageFlagBits::eTransferSrc);
+    constexpr void CreateAndCopyBuffer(const GPUResources& gpu, const BufferData(&data)[Size], vk::DeviceSize bufferSize, std::optional<Buffer>& buffer) {
+        const Buffer stagingBuffer = MakeBuffer(gpu, bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
         const auto pData = static_cast<uint8_t*>(stagingBuffer.memory->mapMemory(0, bufferSize));
         memcpy(pData, data, bufferSize);
         stagingBuffer.memory->unmapMemory();
 
-        vertexBuffer.emplace(gpu, bufferSize,
-            vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
-            vk::MemoryPropertyFlagBits::eDeviceLocal);
+        buffer.emplace(MakeBuffer(gpu, bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal));
 
-        CopyBuffer(gpu, stagingBuffer, *vertexBuffer, bufferSize);
+        CopyBuffer(gpu, stagingBuffer, *buffer, bufferSize);
     }
 
 }

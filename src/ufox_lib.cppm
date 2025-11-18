@@ -1,5 +1,6 @@
 module;
 
+#include "glm/ext/matrix_transform.hpp"
 
 #include <chrono>
 #include <utility>
@@ -41,6 +42,17 @@ export module ufox_lib;
 
 export namespace ufox {
     namespace utilities {
+        template <typename TargetType, typename SourceType>
+        constexpr  TargetType CheckedCast( SourceType value ) {
+            static_assert( sizeof( TargetType ) <= sizeof( SourceType ), "No need to cast from smaller to larger type!" );
+            static_assert( std::numeric_limits<SourceType>::is_integer, "Only integer types supported!" );
+            static_assert( !std::numeric_limits<SourceType>::is_signed, "Only unsigned types supported!" );
+            static_assert( std::numeric_limits<TargetType>::is_integer, "Only integer types supported!" );
+            static_assert( !std::numeric_limits<TargetType>::is_signed, "Only unsigned types supported!" );
+            assert( value <= ( std::numeric_limits<TargetType>::max )() );
+            return static_cast<TargetType>( value );
+        }
+
         constexpr size_t GenerateUniqueID(const std::vector<glm::vec4>& fields) {
             std::hash<float> floatHasher;
             size_t hash = 0;
@@ -157,52 +169,28 @@ export namespace ufox {
             return typeIndex;
         }
 
-
         vk::raii::DeviceMemory AllocateDeviceMemory( vk::raii::Device const & device, vk::PhysicalDeviceMemoryProperties const & memoryProperties,
-                                                           vk::MemoryRequirements const &             memoryRequirements,
-                                                           vk::MemoryPropertyFlags                    memoryPropertyFlags )
-
-        {
-
+         vk::MemoryRequirements const &  memoryRequirements, vk::MemoryPropertyFlags memoryPropertyFlags ){
             uint32_t               memoryTypeIndex = FindMemoryType( memoryProperties, memoryRequirements.memoryTypeBits, memoryPropertyFlags );
-
             vk::MemoryAllocateInfo memoryAllocateInfo( memoryRequirements.size, memoryTypeIndex );
-
             return {device, memoryAllocateInfo};
-
         }
 
-
-
         struct PhysicalDeviceRequirements {
-
             static constexpr uint32_t MINIMUM_API_VERSION = vk::ApiVersion14;
-
             static constexpr uint32_t DISCRETE_GPU_SCORE_BONUS = 1000;
-
         };
 
-
-
         struct GraphicDeviceCreateInfo {
-
             vk::ApplicationInfo appInfo{};
-
             std::vector<std::string> instanceExtensions{};
-
             std::vector<std::string> deviceExtensions{};
 
             bool enableDynamicRendering{true};
-
             bool enableExtendedDynamicState{true};
-
             bool enableSynchronization2{true};
 
             vk::CommandPoolCreateFlags commandPoolCreateFlags{};
-
-
-
-            // Getters/Setters
 
             [[nodiscard]] vk::ApplicationInfo getAppInfo() const { return appInfo; }
 
@@ -299,7 +287,13 @@ export namespace ufox {
             uint32_t                                    presentFamily{0};
         };
 
+        struct UniformBufferObject {
+            glm::mat4                                   model;
+            glm::mat4                                   view;
+            glm::mat4                                   proj;
+        };
 
+        constexpr vk::DeviceSize UBO_BUFFER_SIZE = sizeof(UniformBufferObject);
 
         struct GPUResources {
             std::optional<vk::raii::Context>            context{};
@@ -312,66 +306,15 @@ export namespace ufox {
             std::optional<vk::raii::Queue>              presentQueue{};
         };
 
-
-
         struct Buffer {
-            Buffer( vk::raii::PhysicalDevice const & physicalDevice,
-                                vk::raii::Device const &         device,
-                                vk::DeviceSize                   size,
-                                vk::BufferUsageFlags             usage,
-                                vk::MemoryPropertyFlags          propertyFlags = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent ) {
-
-                vk::BufferCreateInfo bufferInfo{};
-
-                bufferInfo
-
-                .setSize( size )
-
-                .setUsage( usage );
-
-                data.emplace(device, bufferInfo);
-
-
-
-                memory = AllocateDeviceMemory( device, physicalDevice.getMemoryProperties(), data->getMemoryRequirements(), propertyFlags );
-
-                data->bindMemory( *memory,0 );
-
-            }
-
-
-
-            Buffer(const GPUResources& gpu, vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags propertyFlags = vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent ) :
-
-                Buffer(gpu.physicalDevice.value(), gpu.device.value(), size, usage, propertyFlags){}
-
-
-
-
-
-            Buffer() = default;
-
-
-
-
-
-            std::optional<vk::raii::DeviceMemory>       memory{nullptr};
-
-            std::optional<vk::raii::Buffer>             data{nullptr};
-
+            std::optional<vk::raii::Buffer>             data{};
+            std::optional<vk::raii::DeviceMemory>       memory{};
         };
-
-
 
         struct RemappableBuffer {
-
             std::optional<Buffer>                       buffer{};
-
             std::optional<void*>                        mapped{nullptr};
-
         };
-
-
 
         struct TextureImage {
             TextureImage(vk::raii::PhysicalDevice const &  physicalDevice,
@@ -410,23 +353,12 @@ export namespace ufox {
                 data->bindMemory(*memory, 0);
             }
 
-
-
             TextureImage(const GPUResources& gpu, uint32_t width, uint32_t height, vk::Format format,
-
                 vk::ImageTiling tiling, vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties,
-
                 vk::SharingMode shareMode = vk::SharingMode::eExclusive) :
-
                 TextureImage(gpu.physicalDevice.value(), gpu.device.value(), width, height, format, tiling, usage, properties, shareMode){}
 
-
-
             ~TextureImage() = default;
-
-
-
-
 
             std::optional<vk::raii::Image>              data{};
             std::optional<vk::raii::DeviceMemory>       memory{};
@@ -436,19 +368,12 @@ export namespace ufox {
             vk::ImageViewType                           viewType{ vk::ImageViewType::e2D };
             vk::ImageSubresourceRange                   subresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
-
             void clear() {
-
                 view.reset();
-
                 data.reset();
-
                 memory.reset();
-
             }
-
         };
-
     }
 
     namespace windowing {
@@ -1040,28 +965,17 @@ export namespace ufox {
         constexpr auto QUAD_INDEX_COUNT = std::size(QuadIndices);
 
         struct MeshResource {
-            std::string name;
-            size_t      id{0};
+            std::string                             name;
+            size_t                                  id{0};
 
-            std::vector<Vertex>   vertices;
-            std::vector<uint16_t> indices;
+            std::vector<Vertex>                     vertices;
+            std::vector<uint16_t>                   indices;
 
-            gpu::vulkan::Buffer   vertexBuffer;
-            gpu::vulkan::Buffer   indexBuffer;
+            std::optional<gpu::vulkan::Buffer>      vertexBuffer;
+            std::optional<gpu::vulkan::Buffer>      indexBuffer;
 
             explicit MeshResource(const std::string_view name_ = {}): name(name_) , id(utilities::GenerateUniqueID(name_)) {}
         };
-
-        constexpr MeshResource CreateDefaultQuadMesh() {
-            MeshResource quadMesh{DEFAULT_QUAD_MESH_NAME};
-            quadMesh.vertices.reserve(QUAD_VERTEX_COUNT);
-            quadMesh.indices.reserve(QUAD_INDEX_COUNT);
-
-            quadMesh.vertices.assign(std::begin(QuadVertices), std::end(QuadVertices));
-            quadMesh.indices.assign(std::begin(QuadIndices), std::end(QuadIndices));
-
-            return quadMesh;
-        }
     }
 
     namespace gui {
@@ -1084,16 +998,37 @@ export namespace ufox {
 
         constexpr vk::DeviceSize GUI_STYLE_BUFFER_SIZE = sizeof(Style);
 
+        struct GUIElement {
+            glm::vec3                                       position = {0.0f, 0.0f, 0.0f};
+            glm::vec3                                       rotation = {0.0f, 0.0f, 0.0f};
+            glm::vec3                                       scale = {1.0f, 1.0f, 1.0f};
+
+            std::vector<gpu::vulkan::Buffer>                uniformBuffers;
+            std::vector<void*>                              uniformBuffersMapped;
+
+            std::vector<vk::raii::DescriptorSet>            descriptorSets;
+
+            [[nodiscard]] glm::mat4 getModelMatrix() const {
+                auto model = glm::mat4(1.0f);
+                model = glm::translate(model, position);
+                model = glm::rotate(model, rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
+                model = glm::rotate(model, rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
+                model = glm::rotate(model, rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+                model = glm::scale(model, scale);
+                return model;
+            }
+        };
+
         struct GUIResource {
             std::vector<StyleResource>                      styles{};
             std::optional<vk::raii::PipelineCache>          pipelineCache{};
             std::optional<vk::raii::Pipeline>               pipeline{};
             std::optional<vk::raii::DescriptorSetLayout>    descriptorSetLayout{};
             std::optional<vk::raii::PipelineLayout>         pipelineLayout{};
-            std::optional<gpu::vulkan::Buffer>              vertexBuffer{};
-            std::optional<gpu::vulkan::Buffer>              indexBuffer{};
+            std::optional<geometry::MeshResource>           meshResource{};
             std::optional<vk::raii::DescriptorPool>         descriptorPool{};
-            std::vector<vk::raii::DescriptorSet>            descriptorSets{};
+
+            std::optional<GUIElement>                       elements{};
         };
     }
 }
