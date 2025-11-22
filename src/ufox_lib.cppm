@@ -123,6 +123,59 @@ export namespace ufox {
 
             return static_cast<std::size_t>(std::ranges::distance(container.begin(), it));
         }
+
+        /**
+             * @brief Constexpr clamp: Restricts value to [min, max] with simple ifs.
+             *        No-op if min > max (invalid range). For numeric T (float/int/etc.).
+             * @tparam T Arithmetic type (compile-checked).
+             * @param value Value to clamp.
+             * @param min Lower bound.
+             * @param max Upper bound.
+             * @return Clamped value.
+             */
+        template <typename T>
+        constexpr T Clamp(T value, T min, T max) noexcept {
+                static_assert(std::is_arithmetic_v<T>, "ufox::utilities::clamp requires arithmetic type (e.g., float, int)");
+                if (min > max) {
+                    return min;
+                }
+                if (value < min) {
+                    return min;
+                }
+                if (value > max) {
+                    return max;
+                }
+                return value;
+            }
+
+        /**
+             * @brief Constexpr value-to-ratio: Normalizes T value in [min, max] to float [0.0f, 1.0f].
+             *        Uses internal clamp for bounds; returns 0.0f if min == max (div-by-zero safe).
+             * @tparam T Arithmetic input type (e.g., int, float).
+             * @param value The value to normalize.
+             * @param min Lower bound.
+             * @param max Upper bound.
+             * @return Normalized float ratio (0.0f <= ratio <= 1.0f).
+             */
+        template <typename T>
+        constexpr float ValueToRatio(T value, T min, T max) noexcept {
+                static_assert(std::is_arithmetic_v<T>, "ufox::utilities::ValueToRatio requires arithmetic type (e.g., float, int)");
+                if constexpr (std::is_floating_point_v<T>) {
+                    // For floats, direct cast/promote to float
+                    const auto f_min = static_cast<float>(min);
+                    const auto f_max = static_cast<float>(max);
+                    const auto f_value = static_cast<float>(value);
+                    if (f_max == f_min) return 0.0f;
+                    return Clamp((f_value - f_min) / (f_max - f_min), 0.0f, 1.0f);
+                } else {
+                    // For ints/uints, static_cast to float early for precision
+                    const auto f_min = static_cast<float>(min);
+                    const auto f_max = static_cast<float>(max);
+                    const auto f_value = static_cast<float>(value);
+                    if (f_max == f_min) return 0.0f;
+                    return Clamp((f_value - f_min) / (f_max - f_min), 0.0f, 1.0f);
+                }
+            }
     }
 
     namespace debug {
@@ -769,37 +822,37 @@ export namespace ufox {
 
         struct Viewpanel;
 
-        struct ViewpanelResizerContext {
-            ViewpanelResizerContext() = default;
-            ~ViewpanelResizerContext() = default;
+    struct ViewpanelResizerContext {
+        ViewpanelResizerContext() = default;
+        ~ViewpanelResizerContext() = default;
 
-            Viewpanel*              targetPanel= nullptr;
+        Viewpanel*              targetPanel= nullptr;
 
-            bool                    isActive= false;
-            bool                    isRow= true;
+        bool                    isActive= false;
+        bool                    isRow= true;
 
-            size_t                  index= 0;
-            size_t                  pushIndex= 0;
-            size_t                  panelsCount= 0;
+        size_t                  index= 0;
+        size_t                  pushIndex= 0;
+        size_t                  panelsCount= 0;
 
-            int                     clickOffset= 0;
-            int                     valueOffset= 0;
-            int                     currentValue= 0;
-            int                     min= 0;
-            int                     max= 0;
-            int                     parentExtent = 0;
-        };
+        int                     clickOffset= 0;
+        int                     valueOffset= 0;
+        int                     currentValue= 0;
+        int                     min= 0;
+        int                     max= 0;
+        int                     parentExtent = 0;
+    };
 
         struct Viewpanel {
             explicit Viewpanel(PanelAlignment align = PanelAlignment::eColumn,PickingMode picking = PickingMode::ePosition,ScalingMode scaling = ScalingMode::eFlex):alignment(align), pickingMode(picking), scalingMode(scaling) {}
             ~Viewpanel() = default;
 
+            std::string             name{"Viewpanel"};
+            vk::Rect2D              rect{{0,0},{100,100}};
+            int                     minWidth{100};
+            int                     minHeight{100};
 
-            vk::Rect2D              rect{{0,0},{0,0}};
             vk::Rect2D              resizerZone{{0,0},{0,0}};
-
-            uint32_t                minWidth{100};
-            uint32_t                minHeight{100};
 
             Viewpanel*              parent{nullptr};
             std::vector<Viewpanel*> children;
@@ -812,17 +865,15 @@ export namespace ufox {
             vk::ClearColorValue     clearColor2{0.8f, 0.8f, 0.8f, 1.0f};
 
             float                   resizerValue{0.0f};
+            float                   flexScale{1.0f};
 
             [[nodiscard]] bool isChildrenEmpty() const noexcept { return children.empty(); }
-            [[nodiscard]] size_t getChildrenSize() const noexcept { return children.size(); }
+            [[nodiscard]] size_t childCount() const noexcept { return children.size(); }
             [[nodiscard]] Viewpanel* getChild(const size_t i) const noexcept { return children[i]; }
             [[nodiscard]] size_t getLastChildIndex() const noexcept { return children.size() - 1; }
             [[nodiscard]] bool isRow() const noexcept { return alignment == PanelAlignment::eRow; }
             [[nodiscard]] bool isColumn() const noexcept { return alignment == PanelAlignment::eColumn; }
-            [[nodiscard]] int getPositionX() const noexcept { return rect.offset.x; }
-            [[nodiscard]] int getPositionY() const noexcept { return rect.offset.y; }
-            [[nodiscard]] int getExtentX() const noexcept { return static_cast<int>(rect.extent.width); }
-            [[nodiscard]] int getExtentY() const noexcept { return static_cast<int>(rect.extent.height); }
+
 
             void add(Viewpanel* child)
             {
@@ -852,7 +903,7 @@ export namespace ufox {
 
                 std::function<void(const Viewpanel&)> collect = [&](const Viewpanel& panel)
                 {
-                    for (size_t i = 0; i < panel.getChildrenSize(); ++i)
+                    for (size_t i = 0; i < panel.childCount(); ++i)
                     {
                         Viewpanel* child = panel.getChild(i);
                         result.push_back(child);
@@ -868,38 +919,8 @@ export namespace ufox {
                 clearColor = color;
             }
 
-            [[nodiscard]] std::pair<uint32_t, uint32_t> getTotalMinExtent() const noexcept {
-                if (isChildrenEmpty()) {
-                    return { minWidth, minHeight };
-                }
-
-                uint32_t childW = 0;
-                uint32_t childH = 0;
-
-                if (isRow()) {
-                    for (size_t i = 0; i < getChildrenSize(); ++i) {
-                        auto [w, h] = getChild(i)->getTotalMinExtent();
-                        childW += w;
-                        if (h > childH) childH = h;
-                    }
-                }
-                else {
-                    for (size_t i = 0; i < getChildrenSize(); ++i) {
-                        auto [w, h] = getChild(i)->getTotalMinExtent();
-                        childH += h;
-                        if (w > childW) childW = w;
-                    }
-                }
-
-                uint32_t finalW = childW > minWidth ? childW : minWidth;
-                uint32_t finalH = childH > minHeight ? childH : minHeight;
-
-                return { finalW, finalH };
-            }
-
-
             [[nodiscard]] int getExtentToViewportSpace(const bool& isRow) const {
-                return static_cast<int>(isRow ? rect.offset.x + rect.extent.width : rect.offset.y + rect.extent.height);
+                return isRow ? rect.offset.x + static_cast<int>(rect.extent.width) : rect.offset.y + static_cast<int>(rect.extent.height);
             }
         };
 

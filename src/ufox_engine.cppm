@@ -69,30 +69,40 @@ export namespace ufox {
             InitializeGPU();
             viewport.emplace(*windowResource);
             viewpanel1.emplace(geometry::PanelAlignment::eRow,geometry::PickingMode::eIgnore);
+            viewpanel1->name = "root";
             viewpanel2.emplace();
+            viewpanel2->name = "child [1]";
             viewpanel2->resizerValue = 0.25f;
             viewpanel2->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
             viewpanel3.emplace(geometry::PanelAlignment::eColumn);
+            viewpanel3->name = "child [2]";
             viewpanel3->resizerValue = 0.50f;
             viewpanel4.emplace();
+            viewpanel4->name = "child [3]";
             viewpanel4->resizerValue = 0.75f;
             viewpanel4->setBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
             viewpanel5.emplace(geometry::PanelAlignment::eRow);
+            viewpanel5->name = "child [2]-[1]";
             viewpanel5->resizerValue = 0.5f;
             viewpanel5->setBackgroundColor(vk::ClearColorValue{0.0f, 1.0f, 0.0f, 1.0f});
             viewpanel6.emplace();
+            viewpanel6->name = "child [2]-[2]";
             viewpanel6->resizerValue = 0.5f;
             viewpanel6->setBackgroundColor(vk::ClearColorValue{1.0f, 1.0f, 0.0f, 1.0f});
             viewpanel7.emplace();
+            viewpanel7->name = "child [2]-[1]-[1]";
             viewpanel7->resizerValue = 0.3f;
             viewpanel7->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 1.0f, 1.0f});
             viewpanel8.emplace();
+            viewpanel8->name = "child [2]-[1]-[2]";
             viewpanel8->resizerValue = 0.6f;
             viewpanel8->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.5f, 1.0f});
             viewpanel9.emplace();
+            viewpanel9->name = "child [2]-[1]-[3]";
             viewpanel9->resizerValue = 0.5f;
             viewpanel9->setBackgroundColor(vk::ClearColorValue{0.5f, 0.7f, 0.5f, 1.0f});
             viewpanel10.emplace();
+            viewpanel10->name = "child [4]";
             viewpanel10->resizerValue = 0.1f;
             viewpanel10->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.7f, 1.0f});
 
@@ -117,13 +127,13 @@ export namespace ufox {
             geometry::ResizingViewport(*viewport, width, height);
             geometry::BindEvents(*viewport,*inputResource, *standardCursorResource);
 
-            auto minExtent = viewport->panel->getTotalMinExtent();
+            auto minExtent = geometry::GetPanelSumsMinSize2D(*viewport->panel);
 
 
 #ifdef USE_SDL
             //SDL_SetWindowMinimumSize(windowResource->getHandle(),viewpanel3->getMinWidth(),viewpanel3->getMinHeight());
 #else
-            glfwSetWindowSizeLimits(windowResource->getHandle(),minExtent.first,minExtent.second, GLFW_DONT_CARE, GLFW_DONT_CARE);
+            glfwSetWindowSizeLimits(windowResource->getHandle(),minExtent.first, minExtent.second, GLFW_DONT_CARE, GLFW_DONT_CARE);
 #endif
 
         }
@@ -379,12 +389,12 @@ export namespace ufox {
             vk::ClearColorValue c8 = viewport->hoveredPanel == &viewpanel8.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel8->clearColor;
             vk::ClearColorValue c9 = viewport->hoveredPanel == &viewpanel9.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel9->clearColor;
             vk::ClearColorValue c10 = viewport->hoveredPanel == &viewpanel10.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel10->clearColor;
-            render::RenderArea(cmb, *windowResource, viewpanel4->rect, c4);
             render::RenderArea(cmb, *windowResource, viewpanel2->rect, c2);
+            render::RenderArea(cmb, *windowResource, viewpanel4->rect, c4);
             render::RenderArea(cmb, *windowResource, viewpanel6->rect, c6);
-            render::RenderArea(cmb, *windowResource, viewpanel7->rect, c7);
-            render::RenderArea(cmb, *windowResource, viewpanel8->rect, c8);
-            render::RenderArea(cmb, *windowResource, viewpanel9->rect, c9);
+             render::RenderArea(cmb, *windowResource, viewpanel7->rect, c7);
+             render::RenderArea(cmb, *windowResource, viewpanel8->rect, c8);
+             render::RenderArea(cmb, *windowResource, viewpanel9->rect, c9);
             render::RenderArea(cmb, *windowResource, viewpanel10->rect, c10);
 
 

@@ -6,6 +6,7 @@ module;
 #else
 #include <GLFW/glfw3.h>
 #endif
+
 #include <chrono>
 #include <glm/glm.hpp>
 #include <optional>
@@ -19,17 +20,134 @@ import ufox_input;
 import ufox_graphic_device;
 
 export namespace ufox::geometry {
+    constexpr std::pair<int,int> GetPanelSumsMinSize2D(const Viewpanel& panel) noexcept {
+        if (panel.isChildrenEmpty()) {
+            return { panel.minWidth, panel.minHeight };
+        }
+
+        int sumsWidth = 0;
+        int sumsHeight = 0;
+
+        if (panel.isRow()) {
+            for (const auto& child : panel.children) {
+                const auto size = GetPanelSumsMinSize2D(*child);
+                sumsWidth += size.first;
+                if (size.second > sumsHeight) sumsHeight = size.second;
+            }
+        }
+        else {
+            for (const auto& child : panel.children) {
+                const auto size = GetPanelSumsMinSize2D(*child);
+                if (size.first > sumsWidth) sumsWidth = size.first;
+                sumsHeight += size.second;
+            }
+        }
+
+        int finalWidth = sumsWidth > panel.minWidth ? sumsWidth : panel.minWidth;
+        int finalHeight = sumsHeight > panel.minHeight ? sumsHeight : panel.minHeight;
+
+        return std::make_pair(finalWidth, finalHeight);
+    }
+
+    constexpr int GetPanelSumsMinSize1D(const bool& isRow,const Viewpanel& panel) noexcept {
+        auto [w, h] = GetPanelSumsMinSize2D(panel);
+        return isRow ? w : h;
+    }
+
     constexpr int GetPanelPosition1D(const bool& row, const Viewpanel& panel) noexcept {
-        return row ? panel.getPositionX() : panel.getPositionY();
+        return row ? panel.rect.offset.x : panel.rect.offset.y;
     }
 
     constexpr int GetPanelExtent1D(const bool& row, const Viewpanel& panel) noexcept {
-        return row ? panel.getExtentX() : panel.getExtentY();
+        return static_cast<int>(row ? panel.rect.extent.width : panel.rect.extent.height);
     }
 
-    constexpr int GetPanelMinExtent1D(const bool& row, const Viewpanel& panel) noexcept {
-        auto [w, h] = panel.getTotalMinExtent();
-        return row ? static_cast<int>(w) : static_cast<int>(h);
+    constexpr int GetParentPanelPosition1D(const bool& row, const Viewpanel& panel) noexcept {
+        return !panel.parent? 0 : row ? panel.parent->rect.offset.x : panel.parent->rect.offset.y;
+    }
+
+    constexpr std::pair<int, int> GetParentPanelPosition2D(const Viewpanel& panel) noexcept {
+        if (!panel.parent) return std::make_pair(0, 0);
+        return std::make_pair(panel.parent->rect.offset.x, panel.parent->rect.offset.y);
+    }
+
+
+    constexpr void SetPanelRect(Viewpanel& panel, const int& localX, const int& localY, const int& width, const int& height) noexcept {
+        int globalX = localX;
+        int globalY = localY;
+        const auto finalWidth = static_cast<uint32_t>(width);
+        const auto finalHeight = static_cast<uint32_t>(height);
+
+        const auto [pWidth, pHeight] = GetParentPanelPosition2D(panel);
+        globalX += pWidth;
+        globalY += pHeight;
+
+        panel.rect = vk::Rect2D{ vk::Offset2D{localX, globalY}, vk::Extent2D{finalWidth, finalHeight}};
+    }
+
+    constexpr void SetPanelResizerRect(Viewpanel& panel, const bool& enable, const bool& isRow, const int& x, const int& y, const int& w, const int& h) noexcept {
+        const int resizerX = enable ? isRow?  x - RESIZER_OFFSET: x:0;
+        const int resizerY = enable? isRow? y:  y - RESIZER_OFFSET:0;
+        const uint32_t resizerWidth = enable ? isRow? RESIZER_THICKNESS: static_cast<uint32_t>(w):0;
+        const uint32_t resizerHeight = enable ? isRow? static_cast<uint32_t>(h): RESIZER_THICKNESS:0;
+
+        panel.resizerZone = vk::Rect2D{vk::Offset2D{resizerX, resizerY}, vk::Extent2D{resizerWidth, resizerHeight}};
+    }
+
+    constexpr int AligningPanels(int& remainMin, const int& localMin, const int& globalPos, const int& globalParentPos, const int & globalLength, const float& globalRatio, const float& flexValue, const bool& debuger = false) noexcept {
+        remainMin -= localMin;
+
+        int maxFlexLength = static_cast<int>(static_cast<float>(globalLength) * globalRatio) - globalPos + globalParentPos;
+        maxFlexLength = utilities::Clamp(maxFlexLength, 0, globalLength);
+
+        int targetFlexLength = static_cast<int>(flexValue * static_cast<float>(maxFlexLength - localMin) + static_cast<float>(localMin));
+        const int remainingSpace  = globalLength - remainMin  - (globalPos + localMin - globalParentPos);
+
+        if (remainingSpace == 0) {
+            targetFlexLength = localMin;
+            return targetFlexLength;
+        }
+
+        const auto limitLength = static_cast<float>(targetFlexLength - localMin);
+        const float limitRatio = utilities::ValueToRatio(limitLength, 0.0f, static_cast<float>(remainingSpace));
+
+        targetFlexLength = static_cast<int>(static_cast<float>(remainingSpace) * limitRatio) + localMin;
+
+        return targetFlexLength;
+    }
+
+    constexpr void MakePanelsLayout(Viewpanel& viewpanel, const int& posX, const int& posY, const int& width, const int& height) {
+        SetPanelRect(viewpanel, posX, posY, width, height);
+
+        if (viewpanel.isChildrenEmpty()) return;
+
+        auto remainMin = GetPanelSumsMinSize2D(viewpanel);
+
+        int globalX = viewpanel.rect.offset.x;
+        int globalY = viewpanel.rect.offset.y;
+
+        const bool isRow = viewpanel.isRow();
+        const size_t lastChildIndex = viewpanel.getLastChildIndex();
+
+        const auto [pX, pY] = GetParentPanelPosition2D(viewpanel);
+
+        for (size_t i = 0; i < viewpanel.childCount(); ++i) {
+            Viewpanel *child = viewpanel.getChild(i);
+            if (!child) continue;
+
+            auto [minWidth, minHeight] = GetPanelSumsMinSize2D(*child);
+            const float ratio = i < lastChildIndex ? child->resizerValue: 1.0f;
+            bool debuger = child->name == "child [2]-[1]-[2]";
+            int targetWidth = isRow? AligningPanels(remainMin.first, minWidth, globalX, pX, width, ratio, 1.0f, debuger): width;
+            int targetHeight = isRow? height: AligningPanels(remainMin.second, minHeight, globalY, pY, height, ratio, 1.0f);
+
+            MakePanelsLayout(*child, globalX, globalY, targetWidth, targetHeight);
+
+            globalX = isRow? globalX + targetWidth: globalX;
+            globalY = isRow? globalY: globalY + targetHeight;
+
+            SetPanelResizerRect(*child,i < lastChildIndex, isRow, globalX, globalY, width, height);
+        }
     }
 
     constexpr int GetResizerPushLeftThreshold(const bool& row, const Viewpanel& panel, const int& minExtent) noexcept {
@@ -37,72 +155,19 @@ export namespace ufox::geometry {
     }
 
     constexpr int GetResizerPushRightThreshold(const bool& row, const Viewpanel& panel ) noexcept {
-        return panel.getExtentToViewportSpace(row) - GetPanelMinExtent1D(row, panel);
+        return panel.getExtentToViewportSpace(row) - GetPanelSumsMinSize1D(row, panel);
     }
 
-    constexpr float ClampPanelResizerValue(const bool& isRow, const Viewpanel& panel, const float& offset, const float& length) noexcept {
-            const float minValue = static_cast<float>(GetPanelMinExtent1D(isRow, panel)) / length;
-            const float posValue = (static_cast<float>(GetPanelPosition1D(isRow, panel)) - offset) / length;
-
-            return glm::clamp(panel.resizerValue, posValue + minValue, 1.0f);
-    }
-
-    constexpr void BuildPanelLayout(Viewpanel& viewpanel,const int32_t& posX, const int32_t& posY, const uint32_t& width, const uint32_t& height) {
-            // Update current panel dimensions
-            viewpanel.rect.offset.x = posX;
-            viewpanel.rect.offset.y = posY;
-            viewpanel.rect.extent.width = width;
-            viewpanel.rect.extent.height = height;
-
-
-            if (viewpanel.isChildrenEmpty()) return;
-
-            int32_t x = posX;
-            int32_t y = posY;
-
-            const bool isRow = viewpanel.isRow();
-            const size_t lastChildIndex = viewpanel.getLastChildIndex();
-
-            for (size_t i = 0; i < viewpanel.getChildrenSize(); ++i) {
-                Viewpanel *child = viewpanel.getChild(i);
-
-                uint32_t sizeValue;
-
-                if (isRow) {
-                    const float ratio = ClampPanelResizerValue(isRow, *child, posX, width);
-                    sizeValue = i < lastChildIndex ?
-                        static_cast<uint32_t>(static_cast<float>(width) * ratio) :
-                        width;
-                    BuildPanelLayout(*child, x, y, sizeValue - x + posX, height);
-                    x = static_cast<int32_t>(sizeValue) + posX;
-                    child->resizerZone = i < lastChildIndex ?
-                        vk::Rect2D{vk::Offset2D{x - RESIZER_OFFSET, y}, vk::Extent2D{RESIZER_THICKNESS, height}} :
-                        vk::Rect2D{{0,0}, {0,0}};
-                } else {
-                    const float ratio = ClampPanelResizerValue(isRow, *child, posY, height);
-                    sizeValue = i < lastChildIndex ?
-                        static_cast<uint32_t>(static_cast<float>(height) * ratio) :
-                        height;
-                    BuildPanelLayout(*child, x, y, width, sizeValue - y + posY);
-                    y = static_cast<int32_t>(sizeValue) + posY;
-                    child->resizerZone = i < lastChildIndex ?
-                        vk::Rect2D{vk::Offset2D{x, y - RESIZER_OFFSET}, vk::Extent2D{width, RESIZER_THICKNESS}} :
-                        vk::Rect2D{{0,0}, {0,0}};
-                }
-            }
-        }
-
-    constexpr void ResizingViewport(Viewport& viewport, const int& width, const int& height)
-    {
+    constexpr void ResizingViewport(Viewport& viewport, const int& width, const int& height) {
         viewport.extent.width  = static_cast<uint32_t>(width);
         viewport.extent.height = static_cast<uint32_t>(height);
 
         if (viewport.panel){
-            BuildPanelLayout(*viewport.panel, 0, 0, viewport.extent.width, viewport.extent.height);
+            MakePanelsLayout(*viewport.panel, 0, 0, static_cast<int>(viewport.extent.width), static_cast<int>(viewport.extent.height));
         }
     }
 
-    constexpr void EnabledViewportResizer(Viewport& viewport, const input::InputResource& input, const bool& state){
+    constexpr void EnabledViewportResizer(Viewport& viewport, const input::InputResource& input, const bool& state) {
         if (state) {
             ViewpanelResizerContext& ctx    = viewport.resizerContext;
 
@@ -115,7 +180,7 @@ export namespace ufox::geometry {
             const bool isRow                = parent->isRow();
             const int parentPos             = GetPanelPosition1D(isRow, *parent);
             const int parentExtent          = GetPanelExtent1D(isRow, *parent);
-            const size_t panelsCount        = parent->getChildrenSize();
+            const size_t panelsCount        = parent->childCount();
             const size_t index              = utilities::Index_Of(std::span{parent->children}, target).value_or(static_cast<size_t>(-1));
             const int clickOffset           = (isRow? input.mousePosition.x - target->resizerZone.offset.x : input.mousePosition.y - target->resizerZone.offset.y) - RESIZER_OFFSET;
 
@@ -158,7 +223,7 @@ export namespace ufox::geometry {
     }
 
     constexpr void UpdatePanelResizerValue(Viewpanel& panel, const int& value, const int& valueOffset, const int& minValue, const int& parentExtent) {
-        panel.resizerValue = static_cast<float>(value - valueOffset - minValue) / static_cast<float>(parentExtent);
+        panel.resizerValue = static_cast<float>(value - valueOffset - minValue ) / static_cast<float>(parentExtent);
     }
 
     constexpr void ResetViewResizerPushContext(ViewpanelResizerContext& ctx) {
@@ -167,7 +232,7 @@ export namespace ufox::geometry {
     }
 
     constexpr void HandleTargetPanelResizerPush(ViewpanelResizerContext& ctx) {
-        const int minLeftValue = GetPanelMinExtent1D(ctx.isRow, *ctx.targetPanel);
+        const int minLeftValue = GetPanelSumsMinSize1D(ctx.isRow, *ctx.targetPanel);
         const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *ctx.targetPanel, minLeftValue) + ctx.valueOffset;
 
         if (ctx.currentValue < pushMinThreshold) {
@@ -183,7 +248,7 @@ export namespace ufox::geometry {
         }
 
         const Viewpanel* nextPanel = ctx.targetPanel->parent->getChild(ctx.index + 1);
-        const int minRightValue = GetPanelMinExtent1D(ctx.isRow, *nextPanel);
+        const int minRightValue = GetPanelSumsMinSize1D(ctx.isRow, *nextPanel);
         const int32_t pushMaxThreshold = GetResizerPushRightThreshold(ctx.isRow, *nextPanel) - ctx.valueOffset;
 
         if (ctx.currentValue > pushMaxThreshold) {
@@ -204,7 +269,7 @@ export namespace ufox::geometry {
     constexpr void HandlePanelResizerRightPush(ViewpanelResizerContext& ctx) {
         Viewpanel* pushPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex);
         const Viewpanel* nextPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex + 1);
-        const int minValue = GetPanelMinExtent1D(ctx.isRow, *nextPanel);
+        const int minValue = GetPanelSumsMinSize1D(ctx.isRow, *nextPanel);
         const int32_t pushMaxThreshold = GetResizerPushRightThreshold(ctx.isRow, *nextPanel) - ctx.valueOffset;
 
         if (ctx.currentValue > pushMaxThreshold) {
@@ -225,7 +290,7 @@ export namespace ufox::geometry {
 
     constexpr void HandlePanelResizerLeftPush(ViewpanelResizerContext& ctx) {
         Viewpanel* pushPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex);
-        const int minValue = GetPanelMinExtent1D(ctx.isRow, *pushPanel);
+        const int minValue = GetPanelSumsMinSize1D(ctx.isRow, *pushPanel);
         const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *pushPanel, minValue) + ctx.valueOffset;
 
         if (ctx.currentValue < pushMinThreshold) {
@@ -260,7 +325,7 @@ export namespace ufox::geometry {
             ctx.currentValue = static_cast<int>(std::round(ctx.currentValue / RESIZER_SNAP_GRID) * RESIZER_SNAP_GRID);
 
             TranslatePanelResizer(ctx);
-            BuildPanelLayout(*viewport.panel, 0, 0, viewport.extent.width, viewport.extent.height);
+            MakePanelsLayout(*viewport.panel, 0, 0, static_cast<int>(viewport.extent.width), static_cast<int>(viewport.extent.height));
 
             // auto end = std::chrono::high_resolution_clock::now();
             // float ms = std::chrono::duration<float, std::milli>(end - start).count();
@@ -285,21 +350,21 @@ export namespace ufox::geometry {
         {
             if (viewport.resizerContext.targetPanel != &viewpanel) {
                 viewport.resizerContext.targetPanel = &viewpanel;
-#ifdef USE_SDL
+    #ifdef USE_SDL
                 input::SetStandardCursor(cursor, viewpanel.parent->isColumn() ?input::CursorType::eNSResize :input::CursorType::eEWResize);
-#else
+    #else
                 input::SetStandardCursor(cursor, viewpanel.parent->isColumn() ?input::CursorType::eNSResize :input::CursorType::eEWResize, viewport.window);
-#endif
+    #endif
 
             }
         }
         else if (viewport.resizerContext.targetPanel == &viewpanel)
         {
-#ifdef USE_SDL
+    #ifdef USE_SDL
             input::SetStandardCursor(cursor, input::CursorType::eDefault);
-#else
+    #else
             input::SetStandardCursor(cursor, input::CursorType::eDefault, viewport.window);
-#endif
+    #endif
             viewport.resizerContext.targetPanel = nullptr;
         }
 
