@@ -94,7 +94,7 @@ export namespace ufox::geometry {
         panel.resizerZone = vk::Rect2D{vk::Offset2D{resizerX, resizerY}, vk::Extent2D{resizerWidth, resizerHeight}};
     }
 
-    constexpr int AligningPanels(int& remainMin, const int& localMin, const int& globalPos, const int& globalParentPos, const int & globalLength, const float& globalRatio, const float& flexValue, const bool& debuger = false) noexcept {
+    constexpr int GetPanelFlexLength(int& remainMin, const int& localMin, const int& globalPos, const int& globalParentPos, const int & globalLength, const float& globalRatio, const float& flexValue, const bool& debuger = false) noexcept {
         remainMin -= localMin;
 
         int maxFlexLength = static_cast<int>(static_cast<float>(globalLength) * globalRatio) - globalPos + globalParentPos;
@@ -138,8 +138,8 @@ export namespace ufox::geometry {
             auto [minWidth, minHeight] = GetPanelSumsMinSize2D(*child);
             const float ratio = i < lastChildIndex ? child->resizerValue: 1.0f;
             bool debuger = child->name == "child [2]-[1]-[2]";
-            int targetWidth = isRow? AligningPanels(remainMin.first, minWidth, globalX, pX, width, ratio, 1.0f, debuger): width;
-            int targetHeight = isRow? height: AligningPanels(remainMin.second, minHeight, globalY, pY, height, ratio, 1.0f);
+            int targetWidth = isRow? GetPanelFlexLength(remainMin.first, minWidth, globalX, pX, width, ratio, 1.0f, debuger): width;
+            int targetHeight = isRow? height: GetPanelFlexLength(remainMin.second, minHeight, globalY, pY, height, ratio, 1.0f);
 
             MakePanelsLayout(*child, globalX, globalY, targetWidth, targetHeight);
 
