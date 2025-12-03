@@ -20,9 +20,55 @@ import ufox_input;
 import ufox_graphic_device;
 
 export namespace ufox::geometry {
+
+    template<typename T>
+        constexpr T ReadLengthValue(const Length& length,const T&  min, const T&  max, const T& autoValue) noexcept requires std::is_arithmetic_v<T> {
+        const T range = max - min;
+
+        if (!length.hasUnit() || range <= T(0)) {
+            return autoValue;
+        }
+
+        if (length.isPixel()) {
+            return std::max(T(0), static_cast<T>(length.value));
+        }
+
+        if (length.isPercent()) {
+            const float percent = mathf::Clamp(length.value, 0.0f, 100.0f) * 0.01f;
+            return min + static_cast<T>(percent * static_cast<float>(range));
+        }
+
+        return max;
+    }
+
+    template<typename T>
+    constexpr T ReadLengthValue(const Length& length, const T& availableSize, const T& autoValue) noexcept requires std::is_arithmetic_v<T> {
+        return ReadLengthValue(length, T(0), availableSize, autoValue);
+    }
+
+    constexpr std::pair<int,int> GetPanelMin(const Viewpanel& panel) {
+        const int pW = static_cast<int>(panel.hasParent()? panel.parent->rect.extent.width : panel.rect.extent.width);
+        const int pH = static_cast<int>(panel.hasParent()? panel.parent->rect.extent.height : panel.rect.extent.height);
+        const int minWidth = ReadLengthValue(panel.minWidth, pW, 0);
+        const int minHeight = ReadLengthValue(panel.minHeight, pH, 0);
+        const int baseWidth = ReadLengthValue(panel.width, pW, 0);
+        const int baseHeight = ReadLengthValue(panel.height, pH, 0);
+        const float invertFlex = mathf::InvertRatio(panel.flexShrink);
+        const int shrinkBaseWidth = mathf::MulToInt(baseWidth, invertFlex);
+        const int shrinkBaseHeight = mathf::MulToInt(baseHeight, invertFlex);
+
+        const int& w = shrinkBaseWidth > minWidth? shrinkBaseWidth: minWidth;
+        const int& h = shrinkBaseHeight > minHeight? shrinkBaseHeight: minHeight;
+
+        return { w, h };
+    }
+
     constexpr std::pair<int,int> GetPanelSumsMinSize2D(const Viewpanel& panel) noexcept {
+
+        const auto [w, h] = GetPanelMin(panel);
+
         if (panel.isChildrenEmpty()) {
-            return { panel.minWidth, panel.minHeight };
+            return { w, h };
         }
 
         int sumsWidth = 0;
@@ -43,8 +89,8 @@ export namespace ufox::geometry {
             }
         }
 
-        int finalWidth = sumsWidth > panel.minWidth ? sumsWidth : panel.minWidth;
-        int finalHeight = sumsHeight > panel.minHeight ? sumsHeight : panel.minHeight;
+        int finalWidth = sumsWidth > w ? sumsWidth : w;
+        int finalHeight = sumsHeight > h ? sumsHeight : h;
 
         return std::make_pair(finalWidth, finalHeight);
     }
@@ -71,8 +117,11 @@ export namespace ufox::geometry {
         return std::make_pair(panel.parent->rect.offset.x, panel.parent->rect.offset.y);
     }
 
+    constexpr int GetPanelGlobalLength(const bool& isRow, const Viewpanel& panel) noexcept {
+        return isRow ? panel.rect.offset.x + static_cast<int>(panel.rect.extent.width) : panel.rect.offset.y + static_cast<int>(panel.rect.extent.height);
+    }
 
-    constexpr void SetPanelRect(Viewpanel& panel, const int& localX, const int& localY, const int& width, const int& height) noexcept {
+    constexpr void SetLocalPanelRect(Viewpanel& panel, const int& localX, const int& localY, const int& width, const int& height) noexcept {
         int globalX = localX;
         int globalY = localY;
         const auto finalWidth = static_cast<uint32_t>(width);
@@ -94,68 +143,107 @@ export namespace ufox::geometry {
         panel.resizerZone = vk::Rect2D{vk::Offset2D{resizerX, resizerY}, vk::Extent2D{resizerWidth, resizerHeight}};
     }
 
-    constexpr int GetPanelFlexLength(int& remainMin, const int& localMin, const int& globalPos, const int& globalParentPos, const int & globalLength, const float& globalRatio, const float& flexValue, const bool& debuger = false) noexcept {
-        remainMin -= localMin;
+    constexpr int GetPanelAlignLength(const Viewpanel& panel) noexcept {
+        return static_cast<int>(panel.isRow()? panel.rect.extent.width: panel.rect.extent.height);
+    }
 
-        int maxFlexLength = static_cast<int>(static_cast<float>(globalLength) * globalRatio) - globalPos + globalParentPos;
-        maxFlexLength = utilities::Clamp(maxFlexLength, 0, globalLength);
+    constexpr int GetPanelAlignOffset(const Viewpanel& panel) noexcept {
+        return panel.isRow()? panel.rect.offset.x: panel.rect.offset.y;
+    }
 
-        int targetFlexLength = static_cast<int>(flexValue * static_cast<float>(maxFlexLength - localMin) + static_cast<float>(localMin));
-        const int remainingSpace  = globalLength - remainMin  - (globalPos + localMin - globalParentPos);
+    constexpr ViewpanelFlexContext MakePanelFlexContext(const Viewpanel& viewpanel) {
+        const int   relativeLength = GetPanelAlignLength(viewpanel);
+        const int   relativeOffset = GetPanelAlignOffset(viewpanel);
+        int         absoluteBaseLength{0};
+        int         shrinkCapacityLength{0};
 
-        if (remainingSpace == 0) {
-            targetFlexLength = localMin;
-            return targetFlexLength;
+
+        float   remainSumsFlexGlow{0.0f};
+
+        for (const auto &child : viewpanel.children) {
+          if (!child)
+            continue;
+
+          const int childLength =
+              viewpanel.isRow()
+                  ? ReadLengthValue(
+                        child->width,
+                        static_cast<int>(viewpanel.rect.extent.width), 0)
+                  : ReadLengthValue(
+                        child->height,
+                        static_cast<int>(viewpanel.rect.extent.height), 0);
+
+          absoluteBaseLength += childLength;
+          shrinkCapacityLength += static_cast<int>(
+              std::round(static_cast<float>(childLength) * child->flexShrink));
+          remainSumsFlexGlow += child->flexGlow;
         }
 
-        const auto limitLength = static_cast<float>(targetFlexLength - localMin);
-        const float limitRatio = utilities::ValueToRatio(limitLength, 0.0f, static_cast<float>(remainingSpace));
+        const int targetShrinkLength = relativeLength - (absoluteBaseLength - shrinkCapacityLength);
+        const int remainFlexLength = std::max(0, relativeLength - absoluteBaseLength);
 
-        targetFlexLength = static_cast<int>(static_cast<float>(remainingSpace) * limitRatio) + localMin;
+        return ViewpanelFlexContext{viewpanel, relativeLength, absoluteBaseLength, shrinkCapacityLength, targetShrinkLength, relativeOffset, remainFlexLength, remainSumsFlexGlow};
+    }
 
-        return targetFlexLength;
+    constexpr int ComputePanelFlexShrinkLength(const float& baseLength, const float& flexShrink, const ViewpanelFlexContext& ctx) noexcept {
+        const float shrinkBaseLength = mathf::MulToFloat(baseLength, flexShrink);
+        const float shrinkRatio = mathf::Normalize(shrinkBaseLength, 0.0f, static_cast<float>(ctx.shrinkCapacityLength));
+        const float projectedShrink = shrinkRatio * static_cast<float>(ctx.targetShrinkLength) + (baseLength - shrinkBaseLength);
+
+        return std::min(0, static_cast<int>(std::lroundf(projectedShrink - baseLength)));
+    }
+
+    constexpr int ComputePanelFlexGlowLength(const float& flexGlow, ViewpanelFlexContext& ctx) noexcept {
+        const int flexLength = ctx.remainFlexLength == 0? 0: mathf::MulToInt(static_cast<float>(ctx.remainFlexLength) / ctx.remainSumsFlexGlow, flexGlow);
+        ctx.remainFlexLength = std::max(0, ctx.remainFlexLength - flexLength);
+        ctx.remainSumsFlexGlow -= flexGlow;
+        return flexLength;
     }
 
     constexpr void MakePanelsLayout(Viewpanel& viewpanel, const int& posX, const int& posY, const int& width, const int& height) {
-        SetPanelRect(viewpanel, posX, posY, width, height);
+        SetLocalPanelRect(viewpanel, posX, posY, width, height);
 
         if (viewpanel.isChildrenEmpty()) return;
 
-        auto remainMin = GetPanelSumsMinSize2D(viewpanel);
+        ViewpanelFlexContext flexCtx = MakePanelFlexContext(viewpanel);
 
-        int globalX = viewpanel.rect.offset.x;
-        int globalY = viewpanel.rect.offset.y;
-
-        const bool isRow = viewpanel.isRow();
-        const size_t lastChildIndex = viewpanel.getLastChildIndex();
-
-        const auto [pX, pY] = GetParentPanelPosition2D(viewpanel);
 
         for (size_t i = 0; i < viewpanel.childCount(); ++i) {
             Viewpanel *child = viewpanel.getChild(i);
             if (!child) continue;
 
-            auto [minWidth, minHeight] = GetPanelSumsMinSize2D(*child);
-            const float ratio = i < lastChildIndex ? child->resizerValue: 1.0f;
-            bool debuger = child->name == "child [2]-[1]-[2]";
-            int targetWidth = isRow? GetPanelFlexLength(remainMin.first, minWidth, globalX, pX, width, ratio, 1.0f, debuger): width;
-            int targetHeight = isRow? height: GetPanelFlexLength(remainMin.second, minHeight, globalY, pY, height, ratio, 1.0f);
+            const Length& length = flexCtx.isRow? child->width: child->height;
+            const Length& min = flexCtx.isRow? child->minWidth: child->minHeight;
+            const float baseLength = static_cast<float>(ReadLengthValue(length, 0, flexCtx.relativeLength, 0));
+            const int minLength = ReadLengthValue(min, 0, flexCtx.relativeLength, 0);
 
-            MakePanelsLayout(*child, globalX, globalY, targetWidth, targetHeight);
+            const int shrinkDelta = ComputePanelFlexShrinkLength(baseLength, child->flexShrink, flexCtx);
+            const int flexDelta = ComputePanelFlexGlowLength(child->flexGlow, flexCtx);
 
-            globalX = isRow? globalX + targetWidth: globalX;
-            globalY = isRow? globalY: globalY + targetHeight;
+            const int currentLength = std::max(0, static_cast<int>(baseLength) + shrinkDelta + flexDelta);
 
-            SetPanelResizerRect(*child,i < lastChildIndex, isRow, globalX, globalY, width, height);
+
+
+            const int targetWidthLength = flexCtx.isRow? currentLength: width;
+            const int targetHeightLength = flexCtx.isRow? height: currentLength;
+
+            const int targetXOffset = flexCtx.isRow? flexCtx.accumulateOffset : viewpanel.rect.offset.x;
+            const int targetYOffset = flexCtx.isRow? viewpanel.rect.offset.y : flexCtx.accumulateOffset;
+
+            MakePanelsLayout(*child, targetXOffset, targetYOffset, targetWidthLength,targetHeightLength);
+
+            flexCtx.accumulateOffset += currentLength;
+
+            SetPanelResizerRect(*child,i < flexCtx.lastIndex, flexCtx.isRow, targetXOffset, targetYOffset, width, height);
         }
     }
 
-    constexpr int GetResizerPushLeftThreshold(const bool& row, const Viewpanel& panel, const int& minExtent) noexcept {
-        return GetPanelPosition1D(row, panel) + minExtent;
+    constexpr int GetResizerPushLeftThreshold(const bool& row, const Viewpanel& panel, const int& minExtent, const int& offset = 0) noexcept {
+        return GetPanelPosition1D(row, panel) + minExtent + offset;
     }
 
-    constexpr int GetResizerPushRightThreshold(const bool& row, const Viewpanel& panel ) noexcept {
-        return panel.getExtentToViewportSpace(row) - GetPanelSumsMinSize1D(row, panel);
+    constexpr int GetResizerPushRightThreshold(const bool& row, const Viewpanel& panel, const int& min, const int& offset = 0 )noexcept {
+        return GetPanelGlobalLength(row, panel) - offset - min;
     }
 
     constexpr void ResizingViewport(Viewport& viewport, const int& width, const int& height) {
@@ -223,7 +311,9 @@ export namespace ufox::geometry {
     }
 
     constexpr void UpdatePanelResizerValue(Viewpanel& panel, const int& value, const int& valueOffset, const int& minValue, const int& parentExtent) {
+        debug::log(debug::LogLevel::eInfo, "panel:{} value {} offset {} min {} extent {}", panel.name, value, valueOffset, minValue, parentExtent);
         panel.resizerValue = static_cast<float>(value - valueOffset - minValue ) / static_cast<float>(parentExtent);
+        debug::log(debug::LogLevel::eInfo, "panel:{} value {}", panel.name, panel.resizerValue);
     }
 
     constexpr void ResetViewResizerPushContext(ViewpanelResizerContext& ctx) {
@@ -233,7 +323,7 @@ export namespace ufox::geometry {
 
     constexpr void HandleTargetPanelResizerPush(ViewpanelResizerContext& ctx) {
         const int minLeftValue = GetPanelSumsMinSize1D(ctx.isRow, *ctx.targetPanel);
-        const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *ctx.targetPanel, minLeftValue) + ctx.valueOffset;
+        const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *ctx.targetPanel, minLeftValue, ctx.valueOffset);
 
         if (ctx.currentValue < pushMinThreshold) {
             if (ctx.pushIndex > 0) {
@@ -249,9 +339,13 @@ export namespace ufox::geometry {
 
         const Viewpanel* nextPanel = ctx.targetPanel->parent->getChild(ctx.index + 1);
         const int minRightValue = GetPanelSumsMinSize1D(ctx.isRow, *nextPanel);
-        const int32_t pushMaxThreshold = GetResizerPushRightThreshold(ctx.isRow, *nextPanel) - ctx.valueOffset;
-
+        const int32_t pushMaxThreshold = GetResizerPushRightThreshold(ctx.isRow, *nextPanel, minRightValue, ctx.valueOffset);
+        debug::log(debug::LogLevel::eInfo, "1 p p {}", GetPanelPosition1D(ctx.isRow, *nextPanel));
+        debug::log(debug::LogLevel::eInfo, "1global length {}", GetPanelGlobalLength(ctx.isRow, *nextPanel));
+        debug::log(debug::LogLevel::eInfo, "1offset {}", ctx.valueOffset);
+        debug::log(debug::LogLevel::eInfo, "1ushMaxThreshold {}", pushMaxThreshold);
         if (ctx.currentValue > pushMaxThreshold) {
+            debug::log(debug::LogLevel::eInfo, "1here");
             if (ctx.pushIndex < ctx.panelsCount - 2) {
                 ctx.pushIndex++;
                 ctx.valueOffset = minRightValue;
@@ -270,19 +364,26 @@ export namespace ufox::geometry {
         Viewpanel* pushPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex);
         const Viewpanel* nextPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex + 1);
         const int minValue = GetPanelSumsMinSize1D(ctx.isRow, *nextPanel);
-        const int32_t pushMaxThreshold = GetResizerPushRightThreshold(ctx.isRow, *nextPanel) - ctx.valueOffset;
-
+        const int pushMaxThreshold = GetResizerPushRightThreshold(ctx.isRow, *nextPanel, minValue, ctx.valueOffset);
+        debug::log(debug::LogLevel::eInfo, "2push p p {}", GetPanelPosition1D(ctx.isRow, *pushPanel));
+        debug::log(debug::LogLevel::eInfo, "2global length {}", GetPanelGlobalLength(ctx.isRow, *nextPanel));
+        debug::log(debug::LogLevel::eInfo, "2offset {}", ctx.valueOffset);
+        debug::log(debug::LogLevel::eInfo, "2ushMaxThreshold {}", pushMaxThreshold);
+        debug::log(debug::LogLevel::eInfo, "2here");
         if (ctx.currentValue > pushMaxThreshold) {
+            debug::log(debug::LogLevel::eInfo, "2here");
             if (ctx.pushIndex < ctx.panelsCount - 2) {
                 ctx.pushIndex++;
                 ctx.valueOffset += minValue;
                 TranslatePanelResizer(ctx);
             } else {
+                debug::log(debug::LogLevel::eInfo, "here4");
                 ctx.currentValue = pushMaxThreshold;
                 UpdatePanelResizerValue(*ctx.targetPanel, ctx.currentValue, ctx.min, 0, ctx.parentExtent);
                 ResetViewResizerPushContext(ctx);
             }
         } else {
+            debug::log(debug::LogLevel::eInfo, "here5");
             UpdatePanelResizerValue(*pushPanel, ctx.currentValue, -ctx.valueOffset, ctx.min, ctx.parentExtent);
             ResetViewResizerPushContext(ctx);
         }
@@ -291,7 +392,7 @@ export namespace ufox::geometry {
     constexpr void HandlePanelResizerLeftPush(ViewpanelResizerContext& ctx) {
         Viewpanel* pushPanel = ctx.targetPanel->parent->getChild(ctx.pushIndex);
         const int minValue = GetPanelSumsMinSize1D(ctx.isRow, *pushPanel);
-        const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *pushPanel, minValue) + ctx.valueOffset;
+        const int32_t pushMinThreshold = GetResizerPushLeftThreshold(ctx.isRow, *pushPanel, minValue, ctx.valueOffset);
 
         if (ctx.currentValue < pushMinThreshold) {
             if (ctx.pushIndex > 0) {

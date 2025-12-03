@@ -115,67 +115,228 @@ export namespace ufox {
         }
 
         template <typename T>
-        [[nodiscard]] constexpr std::optional<std::size_t> Index_Of(std::span<T> container, const T& value) noexcept
-        {
+        [[nodiscard]] constexpr std::optional<std::size_t> Index_Of(std::span<T> container, const T& value) noexcept {
             auto it = std::ranges::find(container, value);
             if (it == container.end())
                 return std::nullopt;
 
             return static_cast<std::size_t>(std::ranges::distance(container.begin(), it));
         }
+    }
 
+    namespace mathf {
         /**
-             * @brief Constexpr clamp: Restricts value to [min, max] with simple ifs.
-             *        No-op if min > max (invalid range). For numeric T (float/int/etc.).
-             * @tparam T Arithmetic type (compile-checked).
-             * @param value Value to clamp.
-             * @param min Lower bound.
-             * @param max Upper bound.
-             * @return Clamped value.
-             */
-        template <typename T>
-        constexpr T Clamp(T value, T min, T max) noexcept {
-                static_assert(std::is_arithmetic_v<T>, "ufox::utilities::clamp requires arithmetic type (e.g., float, int)");
-                if (min > max) {
-                    return min;
-                }
-                if (value < min) {
-                    return min;
-                }
-                if (value > max) {
-                    return max;
-                }
-                return value;
-            }
+     * @brief High-precision value of π (float).
+     *        32-bit float representation of 3.1415926535897932384626433832795.
+     */
+    constexpr float PI = 3.1415926535897932384626433832795f;
 
-        /**
-             * @brief Constexpr value-to-ratio: Normalizes T value in [min, max] to float [0.0f, 1.0f].
-             *        Uses internal clamp for bounds; returns 0.0f if min == max (div-by-zero safe).
-             * @tparam T Arithmetic input type (e.g., int, float).
-             * @param value The value to normalize.
-             * @param min Lower bound.
-             * @param max Upper bound.
-             * @return Normalized float ratio (0.0f <= ratio <= 1.0f).
-             */
-        template <typename T>
-        constexpr float ValueToRatio(T value, T min, T max) noexcept {
-                static_assert(std::is_arithmetic_v<T>, "ufox::utilities::ValueToRatio requires arithmetic type (e.g., float, int)");
-                if constexpr (std::is_floating_point_v<T>) {
-                    // For floats, direct cast/promote to float
-                    const auto f_min = static_cast<float>(min);
-                    const auto f_max = static_cast<float>(max);
-                    const auto f_value = static_cast<float>(value);
-                    if (f_max == f_min) return 0.0f;
-                    return Clamp((f_value - f_min) / (f_max - f_min), 0.0f, 1.0f);
-                } else {
-                    // For ints/uints, static_cast to float early for precision
-                    const auto f_min = static_cast<float>(min);
-                    const auto f_max = static_cast<float>(max);
-                    const auto f_value = static_cast<float>(value);
-                    if (f_max == f_min) return 0.0f;
-                    return Clamp((f_value - f_min) / (f_max - f_min), 0.0f, 1.0f);
-                }
-            }
+    template<typename T>
+    concept Arithmetic = std::is_arithmetic_v<T>;
+
+    /**
+     * @brief Rounds a floating-point value to the nearest integer (half-away-from-zero).
+     * @param v Input value.
+     * @return Nearest integer as long.
+     */
+    constexpr long  RoundToNearest(const float  v) noexcept { return std::lroundf(v); }
+    constexpr long  RoundToNearest(const double v) noexcept { return std::lround(v);  }
+
+    /**
+     * @brief Converts float/double to int using proper rounding (half-away-from-zero).
+     * @param v Input value.
+     * @return Rounded integer.
+     */
+    constexpr int RoundToInt(const float  v) noexcept { return static_cast<int>(std::lroundf(v)); }
+    constexpr int RoundToInt(const double v) noexcept { return static_cast<int>(std::lround(v));  }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Hot-path integer results (pixel-perfect layout)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief int × float → int (rounded). zero short-circuits.
+     */
+    constexpr int MulToInt(const int a, const float b) noexcept
+    {
+        return a == 0 ? 0 : RoundToInt(static_cast<float>(a) * b);
+    }
+
+    /**
+     * @brief float × int → int (rounded). zero short-circuits.
+     */
+    constexpr int MulToInt(const float a, const int b) noexcept
+    {
+        return b == 0 ? 0 : RoundToInt(a * static_cast<float>(b));
+    }
+
+    /**
+     * @brief float × float → int (rounded). zero short-circuits.
+     *        most common in layout: flex factor × parent size.
+     */
+    constexpr int MulToInt(const float a, const float b) noexcept
+    {
+        return a == 0.0f || b == 0.0f ? 0 : RoundToInt(a * b);
+    }
+
+    /**
+     * @brief float × float → float. Zero short-circuit.
+     */
+    constexpr float MulToFloat(const float a, const float b) noexcept
+    {
+        return a == 0.0f || b == 0.0f ? 0.0f : a * b;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Floor / Ceil multiply
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Multiplies two values and floors the result to int.
+     *        Returns 0 if either operand is zero.
+     */
+    constexpr int MulFloor(Arithmetic auto a, Arithmetic auto b) noexcept
+    {
+        if (a == 0 || b == 0) return 0;
+        return static_cast<int>(std::floorf(static_cast<float>(a) * static_cast<float>(b)));
+    }
+
+    /**
+     * @brief Multiplies two values and ceilings the result to int.
+     *        Returns 0 if either operand is zero.
+     */
+    constexpr int MulCeil(Arithmetic auto a, Arithmetic auto b) noexcept
+    {
+        if (a == 0 || b == 0) return 0;
+        return static_cast<int>(std::ceilf(static_cast<float>(a) * static_cast<float>(b)));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Clamp
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Constexpr clamp: restricts value to [lo, hi].
+     *        If lo > hi returns lo (graceful fallback).
+     *        Branchless on signed integer types ≤ int size.
+     * @tparam T Arithmetic type.
+     * @param v  Value to clamp.
+     * @param lo Lower bound.
+     * @param hi Upper bound.
+     * @return   Clamped value.
+     */
+    template<Arithmetic T>
+    constexpr T Clamp(T v, T lo, T hi) noexcept
+    {
+        if constexpr (std::is_signed_v<T> && sizeof(T) <= sizeof(int))
+        {
+            const T t = v < lo ? lo : v;
+            return t > hi ? hi : t;
+        }
+        else
+        {
+            if (v < lo) return lo;
+            if (v > hi) return hi;
+            return v;
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Normalize
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Normalizes a value from [ min, max ] → [0.0, 1.0].
+     *        Safe against division-by-zero.
+     * @tparam T  Arithmetic input type.
+     * @param value  Value to normalize.
+     * @param min    Range minimum.
+     * @param max    Range maximum.
+     * @param clamp  Clamp result to [0.0, 1.0] (default: true).
+     * @return       Normalized float.
+     */
+    template<Arithmetic T>
+    constexpr float Normalize(T value, T min, T max,const bool clamp = true) noexcept
+    {
+        const auto f_min = static_cast<float>(min);
+        const auto f_max = static_cast<float>(max);
+        const float range = f_max - f_min;
+
+        if (range == 0.0f) return 0.0f;
+
+        const float result = (static_cast<float>(value) - f_min) / range;
+        return clamp ? Clamp(result, 0.0f, 1.0f) : result;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Mix (Lerp)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Linear interpolation with a float factor (clamped).
+     */
+    template<Arithmetic T>
+    constexpr T Mix(T a, T b, const float t) noexcept
+    {
+        const float f = Clamp(t, 0.0f, 1.0f);
+        if constexpr (std::is_floating_point_v<T>)
+            return a + (b - a) * f;
+        else
+            return static_cast<T>(static_cast<float>(a) * (1.0f - f) + static_cast<float>(b) * f + 0.5f);
+    }
+
+    /**
+     * @brief Linear interpolation with an arithmetic factor (auto-clamped).
+     */
+    template<Arithmetic T>
+    constexpr T Mix(T a, T b, T t) noexcept
+    {
+        const float f = Clamp(static_cast<float>(t), 0.0f, 1.0f);
+        const float result = static_cast<float>(a) * (1.0f - f) + static_cast<float>(b) * f;
+        if constexpr (std::is_integral_v<T>)
+            return static_cast<T>(result + 0.5f);
+        else
+            return static_cast<T>(result);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Ratio utilities
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Returns the inverted ratio: 1.0f - ratio
+     *        Used for "remaining space" in flex layout, splitter logic, etc.
+     *        Input is safely clamped to [0.0, 1.0].
+     * @param ratio Input ratio.
+     * @return 1.0f - ratio ∈ [0.0, 1.0].
+     */
+    constexpr float InvertRatio(const float ratio) noexcept
+    {
+        const float r = Clamp(ratio, 0.0f, 1.0f);
+        return 1.0f - r;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // SnapToGrid
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * @brief Snaps a float to the nearest grid multiple.
+     *        If grid == 0.0f returns the value unchanged.
+     */
+    constexpr float SnapToGrid(const float value, const float grid) noexcept
+    {
+        return grid == 0.0f ? value : std::roundf(value / grid) * grid;
+    }
+
+    /**
+     * @brief Snaps an integer to the nearest lower-or-equal grid multiple.
+     *        If grid == 0 returns the value unchanged.
+     */
+    constexpr int SnapToGrid(const int value, const int grid) noexcept
+    {
+        return grid == 0 ? value : value / grid * grid;
+    }
     }
 
     namespace debug {
@@ -198,7 +359,6 @@ export namespace ufox {
             std::string message = std::vformat(format_str, std::make_format_args(args...));
             std::cout << std::format("[{}] {}\n", level_str, message);
         }
-
     }
 
     namespace gpu::vulkan {
@@ -820,7 +980,37 @@ export namespace ufox {
             glm::mat4           proj{};
         };
 
-        struct Viewpanel;
+    struct Length {
+        enum class Unit { Pixel, Percent };
+
+        std::optional<Unit> unit = std::nullopt;  // nullopt = auto (default stretch)
+        float value = 0.0f;                       // 0.0f + nullopt = auto (fill available/parent)
+
+        constexpr Length() noexcept = default;    // auto: resolves to full remain/parent (universal default)
+        constexpr Length(float v, Unit u) noexcept : unit(u), value(v) {}
+
+        // Factories
+        static constexpr Length Pixels(float v) noexcept { return {v, Unit::Pixel}; }
+        static constexpr Length Percent(float v) noexcept { return {v, Unit::Percent}; }
+
+        // Auto sentinel (default ctor alias)
+        static constexpr Length Auto() noexcept { return {}; }  // Explicit "stretch to fit"
+
+        // Queries
+        [[nodiscard]] constexpr bool isPixel() const noexcept { return unit == Unit::Pixel; }
+        [[nodiscard]] constexpr bool isPercent() const noexcept { return unit == Unit::Percent; }
+        [[nodiscard]] constexpr bool isAuto() const noexcept { return !unit.has_value() && value == 0.0f; }  // auto default
+        [[nodiscard]] constexpr bool hasUnit() const noexcept { return unit.has_value(); }
+    };
+
+    // Literals (renamed: _fill → _auto)
+    constexpr Length operator""_px(unsigned long long v) noexcept { return Length::Pixels(static_cast<float>(v)); }
+    constexpr Length operator""_px(long double v) noexcept { return Length::Pixels(static_cast<float>(v)); }
+    constexpr Length operator""_pct(unsigned long long v) noexcept { return Length::Percent(static_cast<float>(v)); }
+    constexpr Length operator""_pct(long double v) noexcept { return Length::Percent(static_cast<float>(v)); }
+    constexpr Length operator""_auto(unsigned long long) noexcept { return Length::Auto(); }
+
+    struct Viewpanel;
 
     struct ViewpanelResizerContext {
         ViewpanelResizerContext() = default;
@@ -843,86 +1033,90 @@ export namespace ufox {
         int                     parentExtent = 0;
     };
 
-        struct Viewpanel {
-            explicit Viewpanel(PanelAlignment align = PanelAlignment::eColumn,PickingMode picking = PickingMode::ePosition,ScalingMode scaling = ScalingMode::eFlex):alignment(align), pickingMode(picking), scalingMode(scaling) {}
-            ~Viewpanel() = default;
+    struct Viewpanel {
+        explicit Viewpanel(PanelAlignment align = PanelAlignment::eColumn,PickingMode picking = PickingMode::ePosition,ScalingMode scaling = ScalingMode::eFlex):alignment(align), pickingMode(picking), scalingMode(scaling) {}
+        ~Viewpanel() = default;
 
-            std::string             name{"Viewpanel"};
-            vk::Rect2D              rect{{0,0},{100,100}};
-            int                     minWidth{100};
-            int                     minHeight{100};
+        std::string             name{"Viewpanel"};
 
-            vk::Rect2D              resizerZone{{0,0},{0,0}};
-
-            Viewpanel*              parent{nullptr};
-            std::vector<Viewpanel*> children;
-
-            PanelAlignment          alignment{PanelAlignment::eColumn};
-            PickingMode             pickingMode{PickingMode::ePosition};
-            ScalingMode             scalingMode{ScalingMode::eFlex};
-
-            vk::ClearColorValue     clearColor{0.5f, 0.5f, 0.5f, 1.0f};
-            vk::ClearColorValue     clearColor2{0.8f, 0.8f, 0.8f, 1.0f};
-
-            float                   resizerValue{0.0f};
-            float                   flexScale{1.0f};
-
-            [[nodiscard]] bool isChildrenEmpty() const noexcept { return children.empty(); }
-            [[nodiscard]] size_t childCount() const noexcept { return children.size(); }
-            [[nodiscard]] Viewpanel* getChild(const size_t i) const noexcept { return children[i]; }
-            [[nodiscard]] size_t getLastChildIndex() const noexcept { return children.size() - 1; }
-            [[nodiscard]] bool isRow() const noexcept { return alignment == PanelAlignment::eRow; }
-            [[nodiscard]] bool isColumn() const noexcept { return alignment == PanelAlignment::eColumn; }
+        vk::Rect2D              rect{{0,0},{100,100}};
+        Length                  width{};
+        Length                  height{};
+        Length                  minWidth{};
+        Length                  minHeight{};
+        int                     maxWidth{200};
+        int                     maxHeight{200};
 
 
-            void add(Viewpanel* child)
+        vk::Rect2D              resizerZone{{0,0},{0,0}};
+
+        Viewpanel*              parent{nullptr};
+        std::vector<Viewpanel*> children;
+
+        PanelAlignment          alignment{PanelAlignment::eColumn};
+        PickingMode             pickingMode{PickingMode::ePosition};
+        ScalingMode             scalingMode{ScalingMode::eFlex};
+
+        vk::ClearColorValue     clearColor{0.5f, 0.5f, 0.5f, 1.0f};
+        vk::ClearColorValue     clearColor2{0.8f, 0.8f, 0.8f, 1.0f};
+
+        float                   resizerValue{0.0f};
+        float                   flexGlow{1.0f};
+        float                   flexShrink{1.0f};
+
+        [[nodiscard]] bool hasParent() const noexcept { return parent != nullptr; }
+        [[nodiscard]] bool isChildrenEmpty() const noexcept { return children.empty(); }
+        [[nodiscard]] size_t childCount() const noexcept { return children.size(); }
+        [[nodiscard]] Viewpanel* getChild(const size_t i) const noexcept { return children[i]; }
+        [[nodiscard]] size_t getLastChildIndex() const noexcept { return children.size() - 1; }
+        [[nodiscard]] bool isRow() const noexcept { return alignment == PanelAlignment::eRow; }
+        [[nodiscard]] bool isColumn() const noexcept { return alignment == PanelAlignment::eColumn; }
+
+
+        void add(Viewpanel* child)
+        {
+            if (child && child->parent != this)
             {
-                if (child && child->parent != this)
+                if (child->parent) child->parent->remove(child);
+                child->parent = this;
+                children.push_back(child);
+            }
+        }
+
+        void remove(Viewpanel* child)
+        {
+            if (!child) return;
+            auto it = std::find(children.begin(), children.end(), child);
+            if (it != children.end())
+            {
+                child->parent = nullptr;
+                children.erase(it);
+            }
+        }
+
+        [[nodiscard]] std::vector<Viewpanel*> getAllPanels() const &
+        {
+            std::vector<Viewpanel*> result;
+            result.push_back(const_cast<Viewpanel*>(this));
+
+            std::function<void(const Viewpanel&)> collect = [&](const Viewpanel& panel)
+            {
+                for (size_t i = 0; i < panel.childCount(); ++i)
                 {
-                    if (child->parent) child->parent->remove(child);
-                    child->parent = this;
-                    children.push_back(child);
+                    Viewpanel* child = panel.getChild(i);
+                    result.push_back(child);
+                    collect(*child);
                 }
-            }
+            };
 
-            void remove(Viewpanel* child)
-            {
-                if (!child) return;
-                auto it = std::find(children.begin(), children.end(), child);
-                if (it != children.end())
-                {
-                    child->parent = nullptr;
-                    children.erase(it);
-                }
-            }
+            collect(*this);
+            return result;
+        }
 
-            [[nodiscard]] std::vector<Viewpanel*> getAllPanels() const &
-            {
-                std::vector<Viewpanel*> result;
-                result.push_back(const_cast<Viewpanel*>(this));
-
-                std::function<void(const Viewpanel&)> collect = [&](const Viewpanel& panel)
-                {
-                    for (size_t i = 0; i < panel.childCount(); ++i)
-                    {
-                        Viewpanel* child = panel.getChild(i);
-                        result.push_back(child);
-                        collect(*child);
-                    }
-                };
-
-                collect(*this);
-                return result;
-            }
-
-            void setBackgroundColor(const vk::ClearColorValue& color) {
-                clearColor = color;
-            }
-
-            [[nodiscard]] int getExtentToViewportSpace(const bool& isRow) const {
-                return isRow ? rect.offset.x + static_cast<int>(rect.extent.width) : rect.offset.y + static_cast<int>(rect.extent.height);
-            }
-        };
+        void setBackgroundColor(const vk::ClearColorValue& color) {
+            clearColor = color;
+        }
+    };
 
         struct Viewport {
                 explicit Viewport(const windowing::WindowResource& window) : window(window) {}
@@ -937,6 +1131,38 @@ export namespace ufox {
                 std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
                 std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
             };
+
+    struct ViewpanelFlexContext {
+        const bool              isRow;
+        const int               relativeLength;
+        const size_t            lastIndex;
+        const int               absoluteBaseLength;
+        const int               shrinkCapacityLength;
+        const int               targetShrinkLength;
+
+        int                     accumulateOffset{0};
+        int                     remainFlexLength{0};
+        float                   remainSumsFlexGlow{0};
+
+        explicit ViewpanelFlexContext(
+            const Viewpanel& viewpanel,
+            const int& relativeLength_,
+            const int& absoluteBaseLength_,
+            const int& startShrinkLength_,
+            const int& targetShrinkLength_,
+            const int& accumulateOffset_,
+            const int& remainFlexLength_,
+            const float& remainSumsFlexGlow_):
+        isRow(viewpanel.isRow()), relativeLength(relativeLength_),
+        lastIndex(viewpanel.getLastChildIndex()),
+        absoluteBaseLength(absoluteBaseLength_),
+        shrinkCapacityLength(startShrinkLength_),
+        targetShrinkLength(targetShrinkLength_),
+        accumulateOffset(accumulateOffset_),
+        remainFlexLength(remainFlexLength_),
+        remainSumsFlexGlow(remainSumsFlexGlow_)
+        {}
+    };
 
         struct Vertex {
             glm::vec2 position;

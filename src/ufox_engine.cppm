@@ -72,7 +72,10 @@ export namespace ufox {
             viewpanel1->name = "root";
             viewpanel2.emplace();
             viewpanel2->name = "child [1]";
+            viewpanel2->width = geometry::Length::Pixels(400);
+            viewpanel2->flexShrink = 1.0f;
             viewpanel2->resizerValue = 0.25f;
+            viewpanel2->minWidth = geometry::Length::Pixels(200);
             viewpanel2->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
             viewpanel3.emplace(geometry::PanelAlignment::eColumn);
             viewpanel3->name = "child [2]";
@@ -80,6 +83,7 @@ export namespace ufox {
             viewpanel4.emplace();
             viewpanel4->name = "child [3]";
             viewpanel4->resizerValue = 0.75f;
+            viewpanel4->flexGlow = 1.0f;
             viewpanel4->setBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
             viewpanel5.emplace(geometry::PanelAlignment::eRow);
             viewpanel5->name = "child [2]-[1]";
@@ -104,6 +108,8 @@ export namespace ufox {
             viewpanel10.emplace();
             viewpanel10->name = "child [4]";
             viewpanel10->resizerValue = 0.1f;
+            viewpanel10->width = geometry::Length::Pixels(300);
+            viewpanel10->minWidth = geometry::Length::Pixels(200);
             viewpanel10->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.7f, 1.0f});
 
 

@@ -141,7 +141,7 @@ export namespace ufox::gpu::vulkan {
     auto ChooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& formats) {
         const auto preferredFormat = std::find_if(formats.begin(), formats.end(),
             [](const auto& format) {
-                return format.format == vk::Format::eB8G8R8A8Srgb &&
+                return format.format == vk::Format::eB8G8R8A8Unorm &&
                        format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
             });
 
