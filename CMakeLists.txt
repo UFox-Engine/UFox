@@ -62,7 +62,7 @@ endif()
 find_package(Freetype REQUIRED)
 
 # Enable USE_SDL define
-option(USE_SDL "Enable SDL3 support" OFF)
+option(USE_SDL "Enable SDL3 support" ON)
 
 
 

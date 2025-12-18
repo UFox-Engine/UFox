@@ -153,6 +153,12 @@ export namespace ufox {
     // ──────────────────────────────────────────────────────────────────────
     // Hot-path integer results (pixel-perfect layout)
     // ──────────────────────────────────────────────────────────────────────
+    template<typename  T, typename U>
+    constexpr float Divide(const T a, const U b) noexcept {
+        const auto f_a = static_cast<float>(a);
+        const auto f_b = static_cast<float>(b);
+        return f_a == 0.0f || f_b == 0.0f ? 0.0f : f_a / f_b;
+    }
 
     /**
      * @brief int × float → int (rounded). zero short-circuits.
@@ -255,16 +261,16 @@ export namespace ufox {
      * @param clamp  Clamp result to [0.0, 1.0] (default: true).
      * @return       Normalized float.
      */
-    template<Arithmetic T>
-    constexpr float Normalize(T value, T min, T max,const bool clamp = true) noexcept
+    template<Arithmetic U, Arithmetic V>
+    constexpr float Normalize(float value, U min, V max,const bool clamp = true) noexcept
     {
         const auto f_min = static_cast<float>(min);
         const auto f_max = static_cast<float>(max);
         const float range = f_max - f_min;
 
-        if (range == 0.0f) return 0.0f;
+        if (range == 0.0f) return value >= f_min ? 1.0f : 0.0f;
 
-        const float result = (static_cast<float>(value) - f_min) / range;
+        const float result = (value - f_min) / range;
         return clamp ? Clamp(result, 0.0f, 1.0f) : result;
     }
 
@@ -1010,6 +1016,17 @@ export namespace ufox {
     constexpr Length operator""_pct(long double v) noexcept { return Length::Percent(static_cast<float>(v)); }
     constexpr Length operator""_auto(unsigned long long) noexcept { return Length::Auto(); }
 
+    struct RectLayout {
+        int minWidth{0};
+        int minHeight{0};
+        int maxWidth{0};
+        int maxHeight{0};
+        int baseWidth{0};
+        int baseHeight{0};
+        int greaterMinWidth{0};
+        int greaterMinHeight{0};
+    };
+
     struct Viewpanel;
 
     struct ViewpanelResizerContext {
@@ -1044,9 +1061,10 @@ export namespace ufox {
         Length                  height{};
         Length                  minWidth{};
         Length                  minHeight{};
-        int                     maxWidth{200};
-        int                     maxHeight{200};
-
+        Length                  maxWidth{};
+        Length                  maxHeight{};
+        RectLayout              layout{};
+        RectLayout              layout2{};
 
         vk::Rect2D              resizerZone{{0,0},{0,0}};
 
@@ -1118,51 +1136,81 @@ export namespace ufox {
         }
     };
 
-        struct Viewport {
-                explicit Viewport(const windowing::WindowResource& window) : window(window) {}
-                ~Viewport() = default;
+    struct Viewport {
+        explicit Viewport(const windowing::WindowResource& window) : window(window) {}
+        ~Viewport() = default;
 
-                const windowing::WindowResource&                    window;
-                vk::Extent2D                                        extent{};
-                Viewpanel*                                          panel = nullptr;
-                Viewpanel*                                          hoveredPanel = nullptr;
-                Viewpanel*                                          focusedPanel = nullptr;
-                ViewpanelResizerContext                             resizerContext{};
-                std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
-                std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
-            };
-
-    struct ViewpanelFlexContext {
-        const bool              isRow;
-        const int               relativeLength;
-        const size_t            lastIndex;
-        const int               absoluteBaseLength;
-        const int               shrinkCapacityLength;
-        const int               targetShrinkLength;
-
-        int                     accumulateOffset{0};
-        int                     remainFlexLength{0};
-        float                   remainSumsFlexGlow{0};
-
-        explicit ViewpanelFlexContext(
-            const Viewpanel& viewpanel,
-            const int& relativeLength_,
-            const int& absoluteBaseLength_,
-            const int& startShrinkLength_,
-            const int& targetShrinkLength_,
-            const int& accumulateOffset_,
-            const int& remainFlexLength_,
-            const float& remainSumsFlexGlow_):
-        isRow(viewpanel.isRow()), relativeLength(relativeLength_),
-        lastIndex(viewpanel.getLastChildIndex()),
-        absoluteBaseLength(absoluteBaseLength_),
-        shrinkCapacityLength(startShrinkLength_),
-        targetShrinkLength(targetShrinkLength_),
-        accumulateOffset(accumulateOffset_),
-        remainFlexLength(remainFlexLength_),
-        remainSumsFlexGlow(remainSumsFlexGlow_)
-        {}
+        const windowing::WindowResource&                    window;
+        vk::Extent2D                                        extent{};
+        Viewpanel*                                          panel = nullptr;
+        Viewpanel*                                          hoveredPanel = nullptr;
+        Viewpanel*                                          focusedPanel = nullptr;
+        ViewpanelResizerContext                             resizerContext{};
+        std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
+        std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
     };
+
+
+
+    struct DiscadeltaBaseFiller {
+
+        int                     remainLength{0};
+        int                     accumulateOffset{0};
+        float                   accumulateStepRatio{0.0f};
+        std::vector<int*>       lengths{};
+        std::vector<int>        mins{};
+        std::vector<int>        offsets{};
+        std::vector<float>      stepRatios{};
+
+        DiscadeltaBaseFiller() = default;
+        ~DiscadeltaBaseFiller() = default;
+
+        explicit DiscadeltaBaseFiller(const size_t& steps) {
+            if (steps > 0) {
+                lengths.reserve(steps);
+                mins.reserve(steps);
+                offsets.reserve(steps);
+                stepRatios.reserve(steps);
+            }
+        }
+    };
+
+    struct DiscadeltaGlowFiller {
+        int                     remainLength{0};
+        float                   accumulateStepRatio{0.0f};
+        std::vector<int*>       lengths{};
+        std::vector<int>        maxs{};
+        std::vector<float>      stepRatios{};
+
+        DiscadeltaGlowFiller() = default;
+        ~DiscadeltaGlowFiller() = default;
+
+        explicit DiscadeltaGlowFiller(const size_t& steps) {
+            if (steps > 0) {
+                lengths.reserve(steps);
+                maxs.reserve(steps);
+                stepRatios.reserve(steps);
+            }
+        }
+    };
+
+    struct DiscadeltaContext {
+        int                     accumulateOffset{0};
+        std::vector<int>        baseLengths{};
+        std::vector<int>        glowLengths{};
+
+        DiscadeltaContext() = default;
+        ~DiscadeltaContext() = default;
+
+        explicit DiscadeltaContext(const int& accumulateOffset_, const size_t& steps):accumulateOffset(accumulateOffset_) {
+            if (steps > 0) {
+                baseLengths.reserve(steps);
+                glowLengths.reserve(steps);
+            }
+        }
+    };
+
+
 
         struct Vertex {
             glm::vec2 position;

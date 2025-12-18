@@ -72,18 +72,26 @@ export namespace ufox {
             viewpanel1->name = "root";
             viewpanel2.emplace();
             viewpanel2->name = "child [1]";
-            viewpanel2->width = geometry::Length::Pixels(400);
+            //viewpanel2->width = geometry::Length::Pixels(100);
+            viewpanel2->flexGlow = 1.0f;
             viewpanel2->flexShrink = 1.0f;
             viewpanel2->resizerValue = 0.25f;
-            viewpanel2->minWidth = geometry::Length::Pixels(200);
+            viewpanel2->minWidth = geometry::Length::Pixels(100);
             viewpanel2->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
             viewpanel3.emplace(geometry::PanelAlignment::eColumn);
             viewpanel3->name = "child [2]";
             viewpanel3->resizerValue = 0.50f;
+            viewpanel3->flexGlow = 1.0f;
+            viewpanel3->flexShrink = 1.0f;
+            //viewpanel3->minWidth = geometry::Length::Pixels(100);
+            //viewpanel3->width = geometry::Length::Pixels(100);
             viewpanel4.emplace();
             viewpanel4->name = "child [3]";
             viewpanel4->resizerValue = 0.75f;
             viewpanel4->flexGlow = 1.0f;
+            viewpanel4->flexShrink = 1.0f;
+            viewpanel4->width = geometry::Length::Pixels(100);
+            viewpanel4->maxWidth = geometry::Length::Pixels(150);
             viewpanel4->setBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
             viewpanel5.emplace(geometry::PanelAlignment::eRow);
             viewpanel5->name = "child [2]-[1]";
@@ -96,20 +104,26 @@ export namespace ufox {
             viewpanel7.emplace();
             viewpanel7->name = "child [2]-[1]-[1]";
             viewpanel7->resizerValue = 0.3f;
+            viewpanel7->width = geometry::Length::Pixels(200);
+            viewpanel7->minWidth = geometry::Length::Pixels(100);
             viewpanel7->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 1.0f, 1.0f});
             viewpanel8.emplace();
             viewpanel8->name = "child [2]-[1]-[2]";
+            //viewpanel8->width = geometry::Length::Pixels(100);
             viewpanel8->resizerValue = 0.6f;
             viewpanel8->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.5f, 1.0f});
             viewpanel9.emplace();
             viewpanel9->name = "child [2]-[1]-[3]";
             viewpanel9->resizerValue = 0.5f;
+            //viewpanel9->minWidth = geometry::Length::Pixels(20);
             viewpanel9->setBackgroundColor(vk::ClearColorValue{0.5f, 0.7f, 0.5f, 1.0f});
             viewpanel10.emplace();
             viewpanel10->name = "child [4]";
             viewpanel10->resizerValue = 0.1f;
-            viewpanel10->width = geometry::Length::Pixels(300);
-            viewpanel10->minWidth = geometry::Length::Pixels(200);
+            viewpanel10->flexGlow = 1.0f;
+            viewpanel10->flexShrink = 1.0f;
+            viewpanel10->width = geometry::Length::Pixels(100);
+            //viewpanel10->minWidth = geometry::Length::Pixels(200);
             viewpanel10->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.7f, 1.0f});
 
 
@@ -132,15 +146,6 @@ export namespace ufox {
             windowResource->getExtent(width, height);
             geometry::ResizingViewport(*viewport, width, height);
             geometry::BindEvents(*viewport,*inputResource, *standardCursorResource);
-
-            auto minExtent = geometry::GetPanelSumsMinSize2D(*viewport->panel);
-
-
-#ifdef USE_SDL
-            //SDL_SetWindowMinimumSize(windowResource->getHandle(),viewpanel3->getMinWidth(),viewpanel3->getMinHeight());
-#else
-            glfwSetWindowSizeLimits(windowResource->getHandle(),minExtent.first, minExtent.second, GLFW_DONT_CARE, GLFW_DONT_CARE);
-#endif
 
         }
 
