@@ -99,56 +99,19 @@ export namespace ufox::geometry {
         return panel.isRow()? panel.rect.offset.x: panel.rect.offset.y;
     }
 
-    constexpr std::pair<int,int> GetPanelAutoBaseLength2D(const Viewpanel& panel) noexcept {
-        if (panel.isChildrenEmpty()) return std::make_pair(0,0);
-        const int range = GetPanelAlignLength(panel);
-        int baseWidthLength = 0;
-        int baseHeightLength = 0;
-
-        for (const auto& child : panel.children) {
-            if (!child) continue;
-            auto [w,h] = GetPanelAutoBaseLength2D(*child);
-            if (!child->width.hasUnit()) {
-                baseWidthLength += w;
-            }
-            else {
-                if (child->width.isPixel()) {
-                    baseWidthLength += std::max(0, static_cast<int>(child->width.value));
-                }else if (child->width.isPercent()) {
-                    const float percent = mathf::Clamp(child->width.value, 0.0f, 100.0f) * 0.01f;
-                    baseWidthLength += mathf::MulToInt(percent, range);
-                }
-            }
-
-            if (!child->height.hasUnit()) {
-                baseHeightLength += h;
-            }
-            else {
-                if (child->height.isPixel()) {
-                    baseHeightLength += std::max(0, static_cast<int>(child->height.value));
-                }else if (child->height.isPercent()) {
-                    const float percent = mathf::Clamp(child->height.value, 0.0f, 100.0f) * 0.01f;
-                    baseHeightLength += mathf::MulToInt(percent, range);
-                }
-            }
-        }
-
-        return std::make_pair(baseWidthLength, baseHeightLength);
-    }
-
     constexpr int CalculateSegmentLength(const Length& length, int childAccumulated, int range) noexcept {
-    if (!length.hasUnit()) {
-        return childAccumulated;
+        if (!length.hasUnit()) {
+            return childAccumulated;
+        }
+        if (length.isPixel()) {
+            return std::max(0, static_cast<int>(length.value));
+        }
+        if (length.isPercent()) {
+            const float percent = mathf::Clamp(length.value, 0.0f, 100.0f) * 0.01f;
+            return mathf::MulToInt(percent, range);
+        }
+        return 0;
     }
-    if (length.isPixel()) {
-        return std::max(0, static_cast<int>(length.value));
-    }
-    if (length.isPercent()) {
-        const float percent = mathf::Clamp(length.value, 0.0f, 100.0f) * 0.01f;
-        return mathf::MulToInt(percent, range);
-    }
-    return 0;
-}
 
     constexpr int CalculateConstrainedSize(int baseLength, const Length& minLength, int parentRef, float invFlexShrink) noexcept {
         const int minVal = ReadLengthValue(minLength, parentRef, 0);
@@ -384,8 +347,7 @@ export namespace ufox::geometry {
             if (child == nullptr)
                 continue;
 
-            const auto [autoBaseWidth, autoBaseHeight] = GetPanelAutoBaseLength2D(*child);
-            const int baseLength = viewpanel.isRow()? ReadLengthValue(child->width,relativeLength, autoBaseWidth):ReadLengthValue(child->height,relativeLength, autoBaseHeight);
+            const int baseLength = viewpanel.isRow()? child->layout.baseWidth: child->layout.baseHeight;
             const int alignMin = viewpanel.isRow()? child->layout.greaterMinWidth: child->layout.greaterMinHeight;
             const int greaterMax = std::max(alignMin, baseLength);
 
