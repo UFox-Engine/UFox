@@ -464,7 +464,7 @@ export namespace ufox::geometry {
         return discadeltaCtx;
     }
 
-    constexpr void MakePanelsLayout(Viewpanel& viewpanel, const int& posX, const int& posY, const int& width, const int& height) {
+    constexpr void MakeRectLayout(Viewpanel& viewpanel, const int& posX, const int& posY, const int& width, const int& height) {
         SetLocalPanelRect(viewpanel, posX, posY, width, height);
 
         if (viewpanel.isChildrenEmpty()) return;
@@ -488,7 +488,7 @@ export namespace ufox::geometry {
             const int targetXOffset = isRow? flexCtx.accumulateOffset : viewpanel.rect.offset.x;
             const int targetYOffset = isRow? viewpanel.rect.offset.y : flexCtx.accumulateOffset;
 
-            MakePanelsLayout(*child, targetXOffset, targetYOffset, targetWidthLength,targetHeightLength);
+            MakeRectLayout(*child, targetXOffset, targetYOffset, targetWidthLength,targetHeightLength);
 
             flexCtx.accumulateOffset += targetLength;
 
@@ -510,7 +510,7 @@ export namespace ufox::geometry {
 #else
             glfwSetWindowSizeLimits(viewport.window.getHandle(),panel.layout.greaterMinWidth, panel.layout.greaterMinHeight, GLFW_DONT_CARE, GLFW_DONT_CARE);
 #endif
-            MakePanelsLayout(*viewport.panel, 0, 0, static_cast<int>(viewport.extent.width), static_cast<int>(viewport.extent.height));
+            MakeRectLayout(*viewport.panel, 0, 0, static_cast<int>(viewport.extent.width), static_cast<int>(viewport.extent.height));
         }
     }
 
@@ -689,7 +689,7 @@ export namespace ufox::geometry {
             ctx.currentValue = static_cast<int>(std::round(ctx.currentValue / RESIZER_SNAP_GRID) * RESIZER_SNAP_GRID);
 
             //TranslatePanelResizer(ctx);
-            MakePanelsLayout(*viewport.panel, 0, 0, static_cast<int>(viewport.extent.width), static_cast<int>(viewport.extent.height));
+            MakeRectLayout(*viewport.panel, 0, 0, static_cast<int>(viewport.extent.width), static_cast<int>(viewport.extent.height));
 
             // auto end = std::chrono::high_resolution_clock::now();
             // float ms = std::chrono::duration<float, std::milli>(end - start).count();
