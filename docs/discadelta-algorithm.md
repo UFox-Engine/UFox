@@ -27,12 +27,12 @@ root_distance / num_segments = 800 / 4 = 200
 ```
 **Results**:
 
-| Segment | Demand | Distance |
-|---------|--------|----------|
-| 1       | None   | 200      |
-| 2       | None   | 200      |
-| 3       | None   | 200      |
-| 4       | None   | 200      |
+| Segment | Distance |
+|---------|----------|
+| 1       | 200      |
+| 2       | 200      |
+| 3       | 200      |
+| 4       | 200      |
 
 ![Discadelta: Simple equal partitioning (800px root → 4 segments of 200px each)](images/DiscadeltaDocImage01.jpg)
 
@@ -72,3 +72,43 @@ SegmentDistanceₙ = root_distance / accumulateRatio * segmentRatioₙ
 ![Discadelta: Raw ratio demand example – ratios 0.1:1.0:2.0:0.5 → proportional sizes ~22|222|444|111](images/DiscadeltaDocImage02.jpg)
 
 This demonstrates pure proportional sharing — small ratios get tiny shares, large ratios dominate.
+In the next scenario, the segment uses a default distance.  
+At a segment ratio of 0.0, the segment's distance falls back to this default.
+
+### Base(default) + Share Ratio Demand Scenario
+
+Now each segment has two parts:
+- **Base distance** — the default size that must be satisfied first.
+- **Share ratio factor** — share of any **leftover** space after bases.
+
+**Scenario** (root distance **800**):
+
+| Segment | Base Demand | Ratio |
+|---------|-------------|-------|
+| 1       | 100         | 0.5   |
+| 2       | 150         | 1.0   |
+| 3       | 200         | 2.0   |
+| 4       | 50          | 0.5   |
+
+**Accumulated ratio** (`accumulateRatio`): `0.5` + `1.0` + `2.0` + `0.5` = `3.6`
+
+**Accumulate Base Distance** (`accumulateBaseDistance`): `100` + `150` + `200` + `50` = `500`
+
+**Remaining Distance** (`remainingDistance`): `800(root_distance)` - `500(accumulateBaseDistance)` = 300
+
+**Formula**:
+
+```
+shareDeltaₙ = remainingDistance / accumulateRatio * segmentRatioₙ
+SegmentDistanceₙ = baseDistanceₙ + shareDeltaₙ
+```
+**Results**:
+
+| Segment | Distance           |
+|---------|--------------------|
+| 1       | 100 + 37.5 = 137.5 |
+| 2       | 150 + 75   = 225   |
+| 3       | 200 + 150  = 350   |
+| 4       | 50  + 37.5 = 87.5  |
+
+**Total**: `800` 
