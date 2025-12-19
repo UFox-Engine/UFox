@@ -35,7 +35,7 @@ root_distance / num_segments
 ```
 800 / 4 = 200
 ```
-![Discadelta: Simple equal partitioning (800px root → 4 segments of 200px each)](docs/images/DiscadeltaDocImage01.jpg)
+![Discadelta: Simple equal partitioning (800px root → 4 segments of 200px each)](images/DiscadeltaDocImage01.jpg)
 
 Logically, each segment should get **200**. However, it becomes complex if each segment has its own **demand** determining its proportional share.
 
