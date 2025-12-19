@@ -72,6 +72,7 @@ SegmentDistanceₙ = root_distance / accumulateRatio * segmentRatioₙ
 ![Discadelta: Raw ratio demand example – ratios 0.1:1.0:2.0:0.5 → proportional sizes ~22|222|444|111](images/DiscadeltaDocImage02.jpg)
 
 This demonstrates pure proportional sharing — small ratios get tiny shares, large ratios dominate.
+
 In the next scenario, the segment uses a default distance.  
 At a segment ratio of 0.0, the segment's distance falls back to this default.
 

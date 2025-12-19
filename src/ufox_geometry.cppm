@@ -117,8 +117,8 @@ export namespace ufox::geometry {
 
     constexpr int CalculateConstrainedSize(int baseLength, const Length& minLength, int parentRef, float invFlexShrink) noexcept {
         const int minVal = ReadLengthValue(minLength, parentRef, 0);
-        const int shrunkVal = mathf::MulToInt(baseLength, invFlexShrink);
-        return std::max(shrunkVal, minVal);
+        const int fixedBase = mathf::MulToInt(baseLength, invFlexShrink);
+        return std::max(fixedBase, minVal);
     }
 
     constexpr void ChooseRectLayoutGreaterMin(Viewpanel& panel) noexcept {
@@ -171,113 +171,12 @@ export namespace ufox::geometry {
 
         const float invFlexShrink = mathf::InvertRatio(panel.flexShrink);
 
-        panel.layout.minWidth = CalculateConstrainedSize(baseWidthLength, panel.minWidth, pW, invFlexShrink);
-        panel.layout.minHeight = CalculateConstrainedSize(baseHeightLength, panel.minHeight, pH, invFlexShrink);
+        panel.layout.minWidth = CalculateConstrainedSize(panel.layout.baseWidth, panel.minWidth, pW, invFlexShrink);
+        panel.layout.minHeight = CalculateConstrainedSize(panel.layout.baseHeight , panel.minHeight, pH, invFlexShrink);
 
         ChooseRectLayoutGreaterMin(panel);
         return {baseWidthLength, baseHeightLength};
     }
-
-//Lagacy
-    // constexpr std::pair<int,int> GetPanelMin(const Viewpanel& panel) {
-    //     const int pW = static_cast<int>(panel.hasParent()? panel.parent->rect.extent.width : panel.rect.extent.width);
-    //     const int pH = static_cast<int>(panel.hasParent()? panel.parent->rect.extent.height : panel.rect.extent.height);
-    //     const int minWidth = ReadLengthValue(panel.minWidth, pW, 0);
-    //     const int minHeight = ReadLengthValue(panel.minHeight, pH, 0);
-    //
-    //     const auto [autoBaseWidth, autoBaseHeight] = GetPanelAutoBaseLength2D(panel);
-    //
-    //     const int baseWidth = ReadLengthValue(panel.width, pW, autoBaseWidth);
-    //     const int baseHeight = ReadLengthValue(panel.height, pH, autoBaseHeight);
-    //
-    //     const float invertFlex = mathf::InvertRatio(panel.flexShrink);
-    //     const int shrinkBaseWidth = mathf::MulToInt(baseWidth, invertFlex);
-    //     const int shrinkBaseHeight = mathf::MulToInt(baseHeight, invertFlex);
-    //
-    //     const int& w = shrinkBaseWidth > minWidth? shrinkBaseWidth: minWidth;
-    //     const int& h = shrinkBaseHeight > minHeight? shrinkBaseHeight: minHeight;
-    //
-    //     return { w, h };
-    // }
-    //
-    //
-    // constexpr void InitRectLayoutContext(Viewpanel& panel) noexcept {
-    //     const auto [w, h] = GetPanelMin(panel);
-    //
-    //     if (panel.isChildrenEmpty()) {
-    //         panel.layout2.minWidth = w;
-    //         panel.layout2.minHeight = h;
-    //
-    //         debug::log(debug::LogLevel::eInfo, "old panel {} min w {}", panel.name, panel.layout2.minWidth);
-    //         debug::log(debug::LogLevel::eInfo, "old panel {} min h {}", panel.name, panel.layout2.minHeight);
-    //         return;
-    //     }
-    //
-    //     const bool isRow = panel.isRow();
-    //
-    //     int sumsWidth = 0;
-    //     int sumsHeight = 0;
-    //
-    //     for (const auto &child : panel.children) {
-    //       InitRectLayoutContext(*child);
-    //       if (isRow) {
-    //         sumsWidth += child->layout2.minWidth;
-    //         if (child->layout2.minHeight > sumsHeight)
-    //           sumsHeight = child->layout2.minHeight;
-    //       } else {
-    //         if (child->layout2.minWidth > sumsWidth)
-    //           sumsWidth = child->layout2.minWidth;
-    //         sumsHeight += child->layout2.minHeight;
-    //       }
-    //     }
-    //
-    //     const int finalWidth = std::max(sumsWidth, w);
-    //     const int finalHeight = std::max(sumsHeight, h);
-    //
-    //
-    //     panel.layout2.minWidth = finalWidth;
-    //     panel.layout2.minHeight = finalHeight;
-    //
-    //     debug::log(debug::LogLevel::eInfo, "old panel {} min w {}", panel.name, panel.layout2.minWidth);
-    //     debug::log(debug::LogLevel::eInfo, "old panel {} min h {}", panel.name, panel.layout2.minHeight);
-    // }
-    //
-    // constexpr std::pair<int,int> GetPanelSumsMinSize2D(const Viewpanel& panel) noexcept {
-    //
-    //     const auto [w, h] = GetPanelMin(panel);
-    //
-    //     if (panel.isChildrenEmpty()) {
-    //         return { w, h };
-    //     }
-    //
-    //     int sumsWidth = 0;
-    //     int sumsHeight = 0;
-    //
-    //     if (panel.isRow()) {
-    //         for (const auto& child : panel.children) {
-    //             const auto size = GetPanelSumsMinSize2D(*child);
-    //             sumsWidth += size.first;
-    //             if (size.second > sumsHeight) sumsHeight = size.second;
-    //         }
-    //     }
-    //     else {
-    //         for (const auto& child : panel.children) {
-    //             const auto size = GetPanelSumsMinSize2D(*child);
-    //             if (size.first > sumsWidth) sumsWidth = size.first;
-    //             sumsHeight += size.second;
-    //         }
-    //     }
-    //
-    //     int finalWidth = sumsWidth > w ? sumsWidth : w;
-    //     int finalHeight = sumsHeight > h ? sumsHeight : h;
-    //
-    //     return std::make_pair(finalWidth, finalHeight);
-    // }
-    //
-    // constexpr int GetPanelSumsMinSize1D(const bool& isRow,const Viewpanel& panel) noexcept {
-    //     auto [w, h] = GetPanelSumsMinSize2D(panel);
-    //     return isRow ? w : h;
-    // }
 
     constexpr void ComputeDiscadeltaBase(DiscadeltaBaseFiller& filler, const size_t& currentStep) noexcept {
         const int& offset = filler.offsets[currentStep];
@@ -451,8 +350,6 @@ export namespace ufox::geometry {
 
             const int targetXOffset = isRow? flexCtx.accumulateOffset : viewpanel.rect.offset.x;
             const int targetYOffset = isRow? viewpanel.rect.offset.y : flexCtx.accumulateOffset;
-
-            debug::log(debug::LogLevel::eInfo, "child {} pos x {} y {} w {} h {}", child->name, targetXOffset, targetYOffset, targetWidthLength, targetHeightLength);
 
             MakeRectLayout(*child, targetXOffset, targetYOffset, targetWidthLength,targetHeightLength);
 
