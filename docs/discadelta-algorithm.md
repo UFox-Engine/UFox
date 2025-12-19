@@ -54,11 +54,11 @@ Logically, each segment should get **200**. However, it becomes complex if each 
 | 4       | 0.5       |
 
 **Formula**:
-> **root_distance** = `800`
+> **rootDistance** = `800`
 
-> **Accumulated ratio** = `0.1` + `1.0` + `2.0` + `0.5` = `3.6`
+> **accumulateRatio** = `0.1` + `1.0` + `2.0` + `0.5` = `3.6`
 
-> **SegmentDistanceₙ** = `root_distance` / `accumulateRatio` * `segmentRatioₙ`
+> **SegmentDistanceₙ** = `rootDistance` / `accumulateRatio` * `segmentRatioₙ`
 
 **Results**:
 
@@ -94,13 +94,13 @@ Now each segment has two parts:
 | 4       | 50          | 0.5   |
 
 **Formula**:
-> **root_distance** = `800`
+> **rootDistance** = `800`
 
 > **accumulateRatio** = `0.5` + `1.0` + `2.0` + `0.5` = `3.6`
 
 > **accumulateBaseDistance** = `100` + `150` + `200` + `50` = `500`
 
-> **remainingDistance** = `root_distance` - `accumulateBaseDistance` = `300`
+> **remainingDistance** = `rootDistance` - `accumulateBaseDistance` = `300`
 
 > **shareDeltaₙ** = `remainingDistance` / `accumulateRatio` * `segmentRatioₙ`
 
