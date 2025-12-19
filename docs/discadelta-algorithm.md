@@ -23,11 +23,11 @@ Calculate the distance of an individual segment given the root distance.
 ### Fair Share Scenario (No Demands)
 
 **Formula**:
-> **root_distance** = `800`
+> **rootDistance** = `800`
 
-> **num_segments** = `4`
+> **numSegments** = `4`
 
-> **SegmentDistanceₙ** = `root_distance` / `num_segments`
+> **SegmentDistanceₙ** = `rootDistance` / `numSegments`
 
 **Results**:
 
