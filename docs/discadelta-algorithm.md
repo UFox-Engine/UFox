@@ -104,7 +104,7 @@ shareDeltaₙ = remainingDistance / accumulateRatio * segmentRatioₙ
 SegmentDistanceₙ = baseDistanceₙ + shareDeltaₙ
 ```
 
-![Discadelta: segment with base sample](images\DiscadeltaDocImage03.jpg)
+![Discadelta: segment with base and share ratio](images/DiscadeltaDocImage03.jpg)
 
 **Results**:
 
