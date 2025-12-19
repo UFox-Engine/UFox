@@ -1,30 +1,33 @@
 # Discadelta Algorithm 🦊
-## What is Discadelta?
-**Discadelta** = **Distance** + **Cascade** + **Delta**
-
-- **Distance**: One-dimensional positive value.
-- **Cascade**: Front segment consumes remaining distance.
-- **Delta**: Filling/sharing leftover distance to each segment.
+## Overview
+> **Discadelta** = **Distance** + **Cascade** + **Delta**
 
 Discadelta is a 1D partitioning algorithm for dividing a line (width, height, edge length, etc.) into resizable segments.  
 It powers fit rect layout in UFox’s GUI/Editor system, but is also designed to be used anywhere in the engine that needs reliable, interactive linear splitting.
+
+### Core Components
+- **Distance**: One-dimensional positive value.
+- **Cascade**: Additive cascading offset for the next segment begin distance.
+- **Delta**: Filling/sharing leftover distance to each segment.
 
 ## Use Cases
 - **Tools/Editor**
 - **Procedural Generation**
 - **Constraints**
 
+
 ## Theory
 ### Goal
 Calculate the distance of an individual segment given the root distance.
 
 ### Fair Share Scenario (No Demands)
-**Root distance**: `800`  
+**Root distance**: `800`
+
 **Formula**:
 
-```
-root_distance / num_segments = 800 / 4 = 200
-```
+> **SegmentDistanceₙ** = `800 (root_distance)` / `4 (num_segments)`
+
+
 **Results**:
 
 | Segment | Distance |
@@ -50,13 +53,13 @@ Logically, each segment should get **200**. However, it becomes complex if each 
 | 3       | 2.0       |
 | 4       | 0.5       |
 
-**Accumulated ratio** (`accumulateRatio`): `0.1 + 1.0 + 2.0 + 0.5 = 3.6`
+
 
 **Formula**:
+> **Accumulated ratio** = `0.1` + `1.0` + `2.0` + `0.5` = `3.6`
 
-```
-SegmentDistanceₙ = root_distance / accumulateRatio * segmentRatioₙ
-```
+> **SegmentDistanceₙ** = `root_distance` / `accumulateRatio` * `segmentRatioₙ`
+
 
 **Results**:
 
@@ -67,7 +70,7 @@ SegmentDistanceₙ = root_distance / accumulateRatio * segmentRatioₙ
 | 3       | 444.444444 |
 | 4       | 111.111111 |
 
-**Total**: `799.999999` (rounds to `800` due to floating-point precision).
+> **Total**: `799.999999` (rounds to `800` due to floating-point precision).
 
 ![Discadelta: segment with share ratio](images/DiscadeltaDocImage02.jpg)
 
@@ -91,18 +94,18 @@ Now each segment has two parts:
 | 3       | 200         | 2.0   |
 | 4       | 50          | 0.5   |
 
-**Accumulated ratio** (`accumulateRatio`): `0.5` + `1.0` + `2.0` + `0.5` = `3.6`
-
-**Accumulate Base Distance** (`accumulateBaseDistance`): `100` + `150` + `200` + `50` = `500`
-
-**Remaining Distance** (`remainingDistance`): `800(root_distance)` - `500(accumulateBaseDistance)` = 300
-
 **Formula**:
 
-```
-shareDeltaₙ = remainingDistance / accumulateRatio * segmentRatioₙ
-SegmentDistanceₙ = baseDistanceₙ + shareDeltaₙ
-```
+> **accumulateRatio** = `0.5` + `1.0` + `2.0` + `0.5` = `3.6`
+
+> **accumulateBaseDistance** = `100` + `150` + `200` + `50` = `500`
+
+> **remainingDistance** = `800 (root_distance)` - `500 (accumulateBaseDistance)` = `300`
+
+> **shareDeltaₙ** = `remainingDistance` / `accumulateRatio` * `segmentRatioₙ`
+
+> **SegmentDistanceₙ** = `baseDistanceₙ` + `shareDeltaₙ`
+
 
 ![Discadelta: segment with base and share ratio](images/DiscadeltaDocImage03.jpg)
 
@@ -115,4 +118,4 @@ SegmentDistanceₙ = baseDistanceₙ + shareDeltaₙ
 | 3       | 200 + 150  = 350   |
 | 4       | 50  + 37.5 = 87.5  |
 
-**Total**: `800` 
+> **Total**: `137.5` + `225` + `350` + `87.5` = `800` 
