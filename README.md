@@ -6,4 +6,4 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **In-House Technologies**
-- [Discadelta Algorithm](docs/discadelta-layout.md) — Incremental 1D chain partitioning for GUI, procedural geometry, physics, and more
+- [Discadelta Algorithm](docs/discadelta-algorithm.md) — Incremental 1D chain partitioning for GUI, procedural geometry, physics, and more

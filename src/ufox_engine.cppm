@@ -73,10 +73,10 @@ export namespace ufox {
             viewpanel2.emplace();
             viewpanel2->name = "child [1]";
             //viewpanel2->width = geometry::Length::Pixels(100);
-            viewpanel2->flexGlow = 1.0f;
-            viewpanel2->flexShrink = 1.0f;
-            viewpanel2->resizerValue = 0.25f;
-            viewpanel2->minWidth = geometry::Length::Pixels(100);
+            viewpanel2->flexGlow = 0.0f;
+            viewpanel2->flexShrink = 0.0f;
+            //viewpanel2->resizerValue = 0.25f;
+            //viewpanel2->minWidth = geometry::Length::Pixels(100);
             viewpanel2->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
             viewpanel3.emplace(geometry::PanelAlignment::eColumn);
             viewpanel3->name = "child [2]";
@@ -88,10 +88,10 @@ export namespace ufox {
             viewpanel4.emplace();
             viewpanel4->name = "child [3]";
             viewpanel4->resizerValue = 0.75f;
-            viewpanel4->flexGlow = 1.0f;
-            viewpanel4->flexShrink = 1.0f;
-            viewpanel4->width = geometry::Length::Pixels(100);
-            viewpanel4->maxWidth = geometry::Length::Pixels(150);
+            viewpanel4->flexGlow = 0.0f;
+            viewpanel4->flexShrink = 0.0f;
+            //viewpanel4->width = geometry::Length::Pixels(100);
+            //viewpanel4->maxWidth = geometry::Length::Pixels(150);
             viewpanel4->setBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
             viewpanel5.emplace(geometry::PanelAlignment::eRow);
             viewpanel5->name = "child [2]-[1]";
@@ -104,8 +104,8 @@ export namespace ufox {
             viewpanel7.emplace();
             viewpanel7->name = "child [2]-[1]-[1]";
             viewpanel7->resizerValue = 0.3f;
-            viewpanel7->width = geometry::Length::Pixels(200);
-            viewpanel7->minWidth = geometry::Length::Pixels(100);
+            //viewpanel7->width = geometry::Length::Pixels(200);
+            //viewpanel7->minWidth = geometry::Length::Pixels(100);
             viewpanel7->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 1.0f, 1.0f});
             viewpanel8.emplace();
             viewpanel8->name = "child [2]-[1]-[2]";
@@ -122,7 +122,7 @@ export namespace ufox {
             viewpanel10->resizerValue = 0.1f;
             viewpanel10->flexGlow = 1.0f;
             viewpanel10->flexShrink = 1.0f;
-            viewpanel10->width = geometry::Length::Pixels(100);
+            //viewpanel10->width = geometry::Length::Pixels(100);
             //viewpanel10->minWidth = geometry::Length::Pixels(200);
             viewpanel10->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.7f, 1.0f});
 
@@ -132,13 +132,13 @@ export namespace ufox {
             viewpanel1->add(&*viewpanel2);
             viewpanel1->add(&*viewpanel3);
             viewpanel1->add(&*viewpanel4);
-            viewpanel1->add(&*viewpanel10);
-            viewpanel3->add(&*viewpanel5);
+
             viewpanel3->add(&*viewpanel6);
+            viewpanel3->add(&*viewpanel5);
             viewpanel5->add(&*viewpanel7);
             viewpanel5->add(&*viewpanel8);
             viewpanel5->add(&*viewpanel9);
-
+            viewpanel5->add(&*viewpanel10);
 
 
 
@@ -193,7 +193,7 @@ export namespace ufox {
 
 
         void IniInitializeWindow() {
-            windowResource.emplace(windowing::CreateWindow(*gpu.instance, "UFox", vk::Extent2D{800, 800}));
+            windowResource.emplace(windowing::CreateWindow(*gpu.instance, "UFox", vk::Extent2D{800, 200}));
 #ifdef USE_SDL
             SDL_AddEventWatch(framebufferResizeCallback, this);
 
@@ -402,11 +402,12 @@ export namespace ufox {
             vk::ClearColorValue c10 = viewport->hoveredPanel == &viewpanel10.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel10->clearColor;
             render::RenderArea(cmb, *windowResource, viewpanel2->rect, c2);
             render::RenderArea(cmb, *windowResource, viewpanel4->rect, c4);
+            render::RenderArea(cmb, *windowResource, viewpanel5->rect, vk::ClearColorValue{1.0f, 1.0f, 1.0f, 1.0f});
             render::RenderArea(cmb, *windowResource, viewpanel6->rect, c6);
              render::RenderArea(cmb, *windowResource, viewpanel7->rect, c7);
              render::RenderArea(cmb, *windowResource, viewpanel8->rect, c8);
              render::RenderArea(cmb, *windowResource, viewpanel9->rect, c9);
-            render::RenderArea(cmb, *windowResource, viewpanel10->rect, c10);
+             render::RenderArea(cmb, *windowResource, viewpanel10->rect, c10);
 
 
             gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(),

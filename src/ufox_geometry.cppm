@@ -62,7 +62,8 @@ export namespace ufox::geometry {
 
     constexpr std::pair<int, int> GetParentPanelPosition2D(const Viewpanel& panel) noexcept {
         if (!panel.parent) return std::make_pair(0, 0);
-        return std::make_pair(panel.parent->rect.offset.x, panel.parent->rect.offset.y);
+        const bool isRow = panel.parent->isRow();
+        return std::make_pair(isRow? panel.parent->rect.offset.x:0, isRow? 0: panel.parent->rect.offset.y);
     }
 
     constexpr int GetPanelGlobalLength(const bool& isRow, const Viewpanel& panel) noexcept {
@@ -76,6 +77,7 @@ export namespace ufox::geometry {
         const auto finalHeight = static_cast<uint32_t>(height);
 
         const auto [pWidth, pHeight] = GetParentPanelPosition2D(panel);
+
         globalX += pWidth;
         globalY += pHeight;
 
@@ -449,6 +451,8 @@ export namespace ufox::geometry {
 
             const int targetXOffset = isRow? flexCtx.accumulateOffset : viewpanel.rect.offset.x;
             const int targetYOffset = isRow? viewpanel.rect.offset.y : flexCtx.accumulateOffset;
+
+            debug::log(debug::LogLevel::eInfo, "child {} pos x {} y {} w {} h {}", child->name, targetXOffset, targetYOffset, targetWidthLength, targetHeightLength);
 
             MakeRectLayout(*child, targetXOffset, targetYOffset, targetWidthLength,targetHeightLength);
 
