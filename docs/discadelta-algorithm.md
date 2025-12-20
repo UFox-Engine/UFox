@@ -86,12 +86,12 @@ Now each segment has two parts:
 
 **Configuration**:
 
-| Segment | Base Demand | Ratio |
-|---------|-------------|-------|
-| 1       | 100         | 0.5   |
-| 2       | 150         | 1.0   |
-| 3       | 200         | 2.0   |
-| 4       | 50          | 0.5   |
+| Segment | Base   | Ratio |
+|---------|--------|-------|
+| 1       | 100    | 0.5   |
+| 2       | 150    | 1.0   |
+| 3       | 200    | 2.0   |
+| 4       | 50     | 0.5   |
 
 **Formula**:
 > **rootDistance** = `800`
