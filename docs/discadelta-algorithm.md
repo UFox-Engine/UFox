@@ -175,11 +175,11 @@ When `accumulateBaseDistance` exceeds `rootDistance`, the algorithm **uses a dyn
 This leverages the `reduceRatio` configuration to maintain proportional sharing among segments.
 
 #### Key Behaviors in This Scenario:
-- Clamp `remainingDistance` to `0`.
-- Ignore `shareDeltaₙ` calculation (returns `0`).
-- `reduceDistance` is a solidified base distance that resists scaling.
-- Normalize `segmentBaseₙ` (`baseShareRatioₙ`) for scaling.
-- Cascading strategy to solve loss of precision or overflow.
+- Treats `reduceDistance` as a **solidified base distance** that resists scaling.
+- Normalizes `segmentBase<sub>n</sub>` (`baseShareRatio<sub>n</sub>`) for scaling.
+- Applies a **cascading strategy** to solve loss of precision or overflow.
+- Calculates **share delta** if the remaining share distance is greater than 0.
+
 
 
 **Configuration**:
