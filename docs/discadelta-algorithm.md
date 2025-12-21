@@ -326,8 +326,8 @@ int main()
         if (rootBase <= accumulateBaseDistance) {
             const float remainReduceDistance = remainShareDistance - accumulateReduceDistance;
             const float shareRatio = baseShareRatios[i];
-            const float baseDistance = remainReduceDistance <= 0.0f || accumulateBaseShareRatio <= 0.0f || shareRatio <= 0.0f ? 0.0f :
-                remainReduceDistance / accumulateBaseShareRatio * shareRatio + reduceDistances[i];
+            const float baseDistance = (remainReduceDistance <= 0.0f || accumulateBaseShareRatio <= 0.0f || shareRatio <= 0.0f ? 0.0f :
+                remainReduceDistance / accumulateBaseShareRatio * shareRatio) + reduceDistances[i];
 
             accumulateReduceDistance -= reduceDistances[i];
             remainShareDistance -= baseDistance;

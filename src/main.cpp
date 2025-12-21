@@ -46,7 +46,7 @@ int main() {
 //     std::vector<DiscadeltaSegmentConfig> segmentConfigs{
 //         {200.0f, 0.7f, 0.1f},
 //         {300.0f, 1.0f, 1.0f},
-//         {150.0f, 1.0f, 2.0f},
+//         {150.0f, 0.0f, 2.0f},
 //         {250.0f, 0.3f, 0.5f}
 //     };
 //
@@ -108,8 +108,8 @@ int main() {
 //         if (rootBase <= accumulateBaseDistance) {
 //             const float remainReduceDistance = remainShareDistance - accumulateReduceDistance;
 //             const float shareRatio = baseShareRatios[i];
-//             const float baseDistance = remainReduceDistance <= 0.0f || accumulateBaseShareRatio <= 0.0f || shareRatio <= 0.0f ? 0.0f :
-//                 remainReduceDistance / accumulateBaseShareRatio * shareRatio + reduceDistances[i];
+//             const float baseDistance = (remainReduceDistance <= 0.0f || accumulateBaseShareRatio <= 0.0f || shareRatio <= 0.0f ? 0.0f :
+//                 remainReduceDistance / accumulateBaseShareRatio * shareRatio) + reduceDistances[i];
 //
 //             accumulateReduceDistance -= reduceDistances[i];
 //             remainShareDistance -= baseDistance;
