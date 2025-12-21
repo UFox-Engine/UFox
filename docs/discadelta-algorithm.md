@@ -237,6 +237,8 @@ This leverages the `reduceRatio` configuration to maintain proportional sharing 
 
 ## Code Sample
 
+Below is a standalone C++23 implementation of the **Dynamic Base Segment (Underflow Handling)** scenario — the most complex case.
+
 ```cpp
 #include <iostream>
 #include <vector>
