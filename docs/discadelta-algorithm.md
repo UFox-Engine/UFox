@@ -311,7 +311,7 @@ int main()
     }
 #pragma endregion //Prepare Compute Context
 
-#pragma region //Compute Segment Distance
+#pragma region //Compute Segment Base Distance
 
     float remainShareDistance = rootBase;
     float total{0.0f};
@@ -343,7 +343,7 @@ int main()
         segmentDistances.push_back(segment);
     }
 
-#pragma endregion //Compute Segment Distance
+#pragma endregion //Compute Segment Base Distance
 
 #pragma region //Compute Segment Delta
 
