@@ -107,7 +107,7 @@ int main()
 
         if (rootBase <= accumulateBaseDistance) {
             const float remainReduceDistance = remainShareDistance - accumulateReduceDistance;
-            const float shareRatio = baseShareRatios[i];
+            const float& shareRatio = baseShareRatios[i];
             const float baseDistance = (remainReduceDistance <= 0.0f || accumulateBaseShareRatio <= 0.0f || shareRatio <= 0.0f ? 0.0f :
                 remainReduceDistance / accumulateBaseShareRatio * shareRatio) + reduceDistances[i];
 
@@ -137,13 +137,14 @@ int main()
         float remainShareRatio = accumulateShareRatio;
 
         for (size_t i = 0; i < segmentCount; ++i) {
-            const float shareDelta = remainShareDistance / remainShareRatio * shareRatios[i];
+            const float& shareRatio = shareRatios[i];
+            const float shareDelta = remainShareDistance <= 0.0f || remainShareRatio <= 0.0f || shareRatio <= 0.0f? 0.0f : remainShareDistance / remainShareRatio * shareRatio;
 
             segmentDistances[i].delta = shareDelta;
             segmentDistances[i].value += shareDelta;
 
             remainShareDistance -= shareDelta;
-            remainShareRatio -= shareRatios[i];
+            remainShareRatio -= shareRatio;
         }
     }
 
