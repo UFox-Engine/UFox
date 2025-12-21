@@ -179,7 +179,7 @@ export namespace ufox::geometry {
     }
 
     constexpr void ComputeDiscadeltaBase(DiscadeltaBaseFiller& filler, const size_t& currentStep) noexcept {
-        const int& offset = filler.offsets[currentStep];
+        const int& reduceDistance = filler.reduceDistances[currentStep];
         const int& min = filler.mins[currentStep];
         const float& stepRatio = filler.stepRatios[currentStep];
         int& remainLength = filler.remainLength;
@@ -187,11 +187,11 @@ export namespace ufox::geometry {
         int& accumulateOffset = filler.accumulateOffset;
         int& baseLength = *filler.lengths[currentStep];
         const int endLength = remainLength - accumulateOffset;
-        const int flexLength = remainLength <= 0? 0 :mathf::MulToInt(mathf::Divide(endLength, remainStepRatio), stepRatio)+ offset;
+        const int flexLength = remainLength <= 0? 0 :mathf::MulToInt(mathf::Divide(endLength, remainStepRatio), stepRatio)+ reduceDistance;
 
         baseLength = std::max(flexLength , min);
 
-        accumulateOffset -= offset;
+        accumulateOffset -= reduceDistance;
         remainLength -= baseLength;
         remainStepRatio -= stepRatio;
     }
@@ -264,7 +264,7 @@ export namespace ufox::geometry {
 
             baseFiller.lengths.push_back(&discadeltaCtx.baseLengths[i]);
             baseFiller.mins.push_back(alignMin);
-            baseFiller.offsets.push_back(flexShrinkOffset);
+            baseFiller.reduceDistances.push_back(flexShrinkOffset);
             baseFiller.stepRatios.push_back(flexShrinkRatio);
             baseFiller.accumulateStepRatio += flexShrinkRatio;
             baseFiller.accumulateOffset += flexShrinkOffset;

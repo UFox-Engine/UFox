@@ -1064,7 +1064,6 @@ export namespace ufox {
         Length                  maxWidth{};
         Length                  maxHeight{};
         RectLayout              layout{};
-        RectLayout              layout2{};
 
         vk::Rect2D              resizerZone{{0,0},{0,0}};
 
@@ -1159,7 +1158,7 @@ export namespace ufox {
         float                   accumulateStepRatio{0.0f};
         std::vector<int*>       lengths{};
         std::vector<int>        mins{};
-        std::vector<int>        offsets{};
+        std::vector<int>        reduceDistances{};
         std::vector<float>      stepRatios{};
 
         DiscadeltaBaseFiller() = default;
@@ -1169,7 +1168,7 @@ export namespace ufox {
             if (steps > 0) {
                 lengths.reserve(steps);
                 mins.reserve(steps);
-                offsets.reserve(steps);
+                reduceDistances.reserve(steps);
                 stepRatios.reserve(steps);
             }
         }
