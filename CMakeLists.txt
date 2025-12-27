@@ -1,10 +1,20 @@
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 4.0.0)
+set(CMAKE_CXX_STANDARD 23)
+
+
+
 project(UFoxEngine LANGUAGES CXX C)
 
-# Use C++23 without compiler-specific extensions
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD_REQUIRED OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+
+
+
+
+
+# Use C++23 without compiler-specific extensions
+
 
 # Let CMake scan and manage C++ module dependencies
 # set(CMAKE_CXX_SCAN_FOR_MODULES ON)

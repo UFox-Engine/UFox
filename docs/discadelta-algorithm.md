@@ -171,71 +171,95 @@ Below is a strategy to solve this Scenario by cascading remain distance reductio
 The next scenario will introduce **Dynamic Base Segment** in case `accumulateBaseDistance` is greater than rootDistance.
 
 ### Dynamic Base Segment Scenario (Underflow Handling)
-When `accumulateBaseDistance` exceeds `rootDistance`, the algorithm **uses a dynamic base** to proportionally scale down allocations to fit within `rootDistance`.  
-This leverages the `reduceRatio` configuration to maintain proportional sharing among segments.
+When `rootBase` < `accumulateBaseDistance`, scale down bases proportionally using `compressRatio`, `compressBaseDistance` and `solidifyBaseDistance`.
 
-#### Key Behaviors in This Scenario:
-- Treats `reduceDistance` as a **solidified base distance** that resists scaling.
-- Normalizes `segmentBase<sub>n</sub>` (`baseShareRatio<sub>n</sub>`) for scaling.
-- Applies a **cascading strategy** to solve loss of precision or overflow.
-- Calculates **share delta** if the remaining share distance is greater than 0.
-
+* **Accumulate Base Distance**: A sum of all elements base distance to be compressing.
+* **Compress Ratio**: A normalized compressible distance configuration value.
+* **Compress Base Distance**: This is the "flexible" portion of the segment's base size. When space is tight, the algorithm scales this portion down first to fit the root distance.
+* **Solidify Base Distance**: This represents the "unyielding" portion of a segment. It acts as a hard anchor that the algorithm tries to protect during compression.
 
 
 **Configuration**:
 
-| Segment | Base | reduceRatio | shareRatio |
-|---------|------|-------------|------------|
-| 1       | 200  | 0.7         | 0.1        |
-| 2       | 300  | 1.0         | 1.0        |
-| 3       | 150  | 1.0         | 2.0        |
-| 4       | 250  | 0.3         | 0.5        |
+| Segment | Base | compressRatio | shareRatio |
+|---------|------|---------------|------------|
+| 1       | 200  | 0.7           | 0.1        |
+| 2       | 300  | 1.0           | 1.0        |
+| 3       | 150  | 1.0           | 2.0        |
+| 4       | 250  | 0.3           | 0.5        |
 
 **Formula**:
 
-**Prepare Compute Context**
+**Prepare Begin Compute Phase**
 
-> **rootDistance** = `800`
+> **compressBaseDistanceₙ** = `baseₙ` * `compressRatioₙ`
+
+> **solidifyBaseDistanceₙ** = `baseₙ` - `compressBaseDistanceₙ`
+
+> **accumulateBaseDistance** = sum(`baseₙ`)
+
+> **accumulateSolidifyBaseDistance** = sum(`solidifyBaseDistanceₙ`)
+
+**Set Remain Metrics for Cascading**
 
 > **remainShareDistance** = `rootDistance`
 
-> **reduceDistanceₙ** = `segmentBaseₙ` * (`1` - `reduceRatioₙ`)
+> **remainBaseDistance** = `accumulateBaseDistance`
 
-> **baseShareDistanceₙ** = `segmentBaseₙ` * `reduceRatioₙ`
+> **remainSolidifyBaseDistance** = `accumulateSolidifyBaseDistance` 
 
-> **baseShareRatioₙ** = `baseShareDistanceₙ` / `100`
 
-> **accumulateReduceDistance** = `accumulateReduceDistance` + `reduceDistanceₙ`
+**Compute Dynamic Base Distance and Cascading**
 
-> **accumulateBaseShareRatio** = `accumulateBaseShareRatio` + `baseShareRatioₙ`
+> Formula: **dynamicBaseDistanceₙ** = (`remainShareDistance` - `remainSolidifyBaseDistance`) / (`remainBaseDistance` - `remainSolidifyBaseDistance`) * `compressBaseDistanceₙ` + `solidifyBaseDistanceₙ`
 
-**Compute Base Distance**
+```
+for each segment n:
+    currentShareDistance = remainShareDistance - remainSolidifyBaseDistance
+    currentBaseCapacity = remainBaseDistance - remainSolidifyBaseDistance
+    dynamicBaseDistanceₙ = currentShareDistance / currentBaseCapacity × compressBaseDistanceₙ + solidifyBaseDistanceₙ
+    dynamicBaseDistanceₙ = max(0, dynamicBaseDistanceₙ)   // prevent negative optional
 
-> **remainReduceDistance** = `remainShareDistance` - `accumulateReduceDistance`
+    // Cascade
+    remainShareDistance -= dynamicBaseDistanceₙ
+    remainSolidifyBaseDistance -= solidifyBaseDistanceₙ
+    remainBaseDistance -= baseₙ
+```
+**Pre-Compute Table**:
 
-> **baseDistanceₙ** = `remainReduceDistance` / `accumulateBaseShareRatio` * `baseShareRatioₙ` + `reduceDistanceₙ`
+| Metric                         | Value |
+|--------------------------------|-------|
+| accumulateBaseDistance         | 900   |
+| accumulateSolidifyBaseDistance | 235   |
+| remainShareDistance            | 800   |
+| remainBaseDistance             | 900   |
+| remainSolidifyBaseDistance     | 235   |
 
-**Cascading strategy**
 
-> **accumulateReduceDistance** = `accumulateReduceDistance` - `reduceDistanceₙ`
+**Dynamic Base Table**:
 
-> **remainShareDistance** = `remainShareDistance` - `baseDistanceₙ`
+| Segment | Solidify Distance | Compress Distance   | Dynamic Distance  |
+|---------|-------------------|---------------------|-------------------|
+| 1       | 60                | 140                 | 178.9474          |
+| 2       | 0                 | 300                 | 254.8872          |
+| 3       | 0                 | 150                 | 127.4436          |
+| 4       | 175               | 75                  | 238.7218          |
 
-> **accumulateBaseShareRatio** = `accumulateBaseShareRatio` - `baseShareRatioₙ`
+> **Total**: `178.9474` + `254.8872` + `127.4436` + `238.7218` = `800`
 
-> **SegmentDistanceₙ** = `baseDistanceₙ` + `(0) shareDeltaₙ`
+**Cascade Table**
 
-**Results** (using cascading strategy):
+| Iterate | remainShareDistance | -dynamicBase | remainBaseDistance | -base | remainSolidifyBaseDistance | -solidify |
+|---------|---------------------|--------------|--------------------|-------|----------------------------|-----------|
+| 0       | 800                 | -178.9474    | 900                | -200  | 235                        | -60       |
+| 1       | 621.0526            | -254.8872    | 700                | -300  | 175                        | -0        |
+| 2       | 366.1654            | -127.4436    | 400                | -150  | 175                        | -0        |
+| 3       | 238.7218            | -238.7218    | 250                | -250  | 175                        | -175      |
 
-| Segment | reduceDistance | baseShareDistance | baseShareRatio | remainReduceDistance / accumulateBaseShareRatio * baseShareRatioₙ | baseDistanceₙ   |
-|---------|----------------|-------------------|----------------|-------------------------------------------------------------------|-----------------|
-| 1       | 60             | 140               | 1.4            | 565 / 6.65 * 1.4 ≈ 118.947368                                     | 178.947368      |
-| 2       | 0              | 300               | 3.0            | 446.052632 / 5.25 * 3.0 ≈ 254.887218                              | 254.887218      |
-| 3       | 0              | 150               | 1.5            | 191.165414 / 2.25 * 1.5 ≈ 127.443609                              | 127.443609      |
-| 4       | 175            | 75                | 0.75           | 63.721805 / 0.75 * 0.75 = 63.721805                               | 238.721805      |
-
-> **Total**: `178.947368` + `254.887218` + `127.443609` + `238.721805` = `800`
-
+> **Remain**: 
+> - `remainShareDistance` = `0`, 
+> - `remainBaseDistance` = `0`, 
+> - `remainSolidifyBaseDistance` = `0`
 
 ## Code Sample
 
@@ -245,7 +269,7 @@ Below is a standalone C++23 implementation of the **Dynamic Base Segment (Underf
 #include <iostream>
 #include <vector>
 #include <format>
-#include <iomanip>  // for std::setw, std::fixed, std::setprecision
+#include <iomanip>
 
 struct DiscadeltaSegment {
     float base;
@@ -255,7 +279,7 @@ struct DiscadeltaSegment {
 
 struct DiscadeltaSegmentConfig {
     float base;
-    float reduceRatio;
+    float compressRatio;
     float shareRatio;
 };
 
@@ -268,6 +292,13 @@ int main()
         {250.0f, 0.3f, 0.5f}
     };
 
+    // std::vector<DiscadeltaSegmentConfig> segmentConfigs{
+    //         {100.0f, 1.0f, 1.0f},
+    //         {100.0f, 1.0f, 1.0f},
+    //         {150.0f, 1.0f, 2.0f},
+    //         {150.0f, 1.0f, 1.5f}
+    // };
+
     const size_t segmentCount = segmentConfigs.size();
 
     std::vector<DiscadeltaSegment> segmentDistances{};
@@ -276,140 +307,150 @@ int main()
 #pragma region // Prepare Compute Context
     constexpr float rootBase = 800.0f;
 
-    std::vector<float> reduceDistances{};
-    reduceDistances.reserve(segmentCount);
+    std::vector<float> compressBaseDistances{};
+    compressBaseDistances.reserve(segmentCount);
 
-    std::vector<float> baseShareDistances{};
-    baseShareDistances.reserve(segmentCount);
+    std::vector<float> solidifyBaseDistances{};
+    solidifyBaseDistances.reserve(segmentCount);
 
-    std::vector<float> baseShareRatios{};
-    baseShareRatios.reserve(segmentCount);
+    std::vector<float> baseDistances{};
+    baseDistances.reserve(segmentCount);
 
     std::vector<float> shareRatios{};
     shareRatios.reserve(segmentCount);
 
-    float accumulateReduceDistance{0.0f};
-    float accumulateBaseShareRatio{0.0f};
-
     float accumulateBaseDistance{0.0f};
+    float accumulateSolidifyBaseDistance{0.0f};
     float accumulateShareRatio{0.0f};
 
     for (size_t i = 0; i < segmentCount; ++i) {
-        const auto &[base, reduceRatio, shareRatio] = segmentConfigs[i];
+        const auto &[base, compressRatio, shareRatio] = segmentConfigs[i];
 
-        const float reduceDistance = base * (1.0f - reduceRatio);
-        const float baseShareDistance = base * reduceRatio;
-        const float baseShareRatio = baseShareDistance / 100.0f;
+        //Calculate base proportion metrics
+        const float compressBaseDistance = base * compressRatio;
+        const float solidifyBaseDistance = base - compressBaseDistance;
+        const float validatedBaseDistance = std::max(base, 0.0f); // no negative
 
-        accumulateReduceDistance += reduceDistance;
-        accumulateBaseShareRatio += baseShareRatio;
+        compressBaseDistances.push_back(compressBaseDistance);
+        solidifyBaseDistances.push_back(solidifyBaseDistance);
+        baseDistances.push_back(validatedBaseDistance);
 
-        accumulateBaseDistance += base;
-        accumulateShareRatio += shareRatio;
+        //Accumulate share proportion capacity metrics:
+        accumulateBaseDistance += validatedBaseDistance;
+        accumulateSolidifyBaseDistance += solidifyBaseDistance;
 
-        reduceDistances.push_back(reduceDistance);
-        baseShareDistances.push_back(baseShareDistance);
-        baseShareRatios.push_back(baseShareRatio);
+        DiscadeltaSegment segment{};
+        segment.base = validatedBaseDistance;
+        segment.value = validatedBaseDistance;
+        segmentDistances.push_back(segment);
 
         shareRatios.push_back(shareRatio);
+        accumulateShareRatio += shareRatio;
     }
+
+    //Set Remain Metrics for Cascading
+    float remainShareDistance = rootBase;
+    float remainBaseDistance = accumulateBaseDistance;
+    float remainSolidifyBaseDistance = accumulateSolidifyBaseDistance;
+
 #pragma endregion //Prepare Compute Context
 
 #pragma region //Compute Segment Base Distance
 
-    float remainShareDistance = rootBase;
-    float total{0.0f};
+    if (rootBase < accumulateBaseDistance) {
+        //compressing
+        for (size_t i = 0; i < segmentCount; ++i) {
+            const float currentShareDistance = remainShareDistance - remainSolidifyBaseDistance;
+            const float currentBaseCapacity = remainBaseDistance - remainSolidifyBaseDistance;
+            const float& currentCompressBase = compressBaseDistances[i];
+            const float& currentSolidifyBase = solidifyBaseDistances[i];
+            const float dynamicBaseDistance = currentShareDistance <= 0 || currentBaseCapacity <= 0 || currentCompressBase <= 0? 0.0f:
+            std::max(0.0f, currentShareDistance / currentBaseCapacity * currentCompressBase + currentSolidifyBase);
 
-    for (size_t i = 0; i < segmentCount; ++i) {
-        DiscadeltaSegment segment{};
+            DiscadeltaSegment& segment = segmentDistances[i];
+            segment.base = dynamicBaseDistance;
+            segment.value = dynamicBaseDistance;
 
-        if (rootBase <= accumulateBaseDistance) {
-            const float remainReduceDistance = remainShareDistance - accumulateReduceDistance;
-            const float& shareRatio = baseShareRatios[i];
-            const float baseDistance = (remainReduceDistance <= 0.0f || accumulateBaseShareRatio <= 0.0f || shareRatio <= 0.0f ? 0.0f + reduceDistances[i] :
-                remainReduceDistance / accumulateBaseShareRatio * shareRatio) + reduceDistances[i];
-
-            accumulateReduceDistance -= reduceDistances[i];
-            remainShareDistance -= baseDistance;
-            accumulateBaseShareRatio -= shareRatio;
-
-            segment.base = baseDistance;
-            segment.value = baseDistance;
-            total += baseDistance;
+            remainShareDistance -= dynamicBaseDistance;
+            remainSolidifyBaseDistance -= currentSolidifyBase;
+            remainBaseDistance -= baseDistances[i];
         }
-        else {
-            const float baseDistance = segmentConfigs[i].base;
-            segment.base = baseDistance;
-            segment.value = baseDistance;
-            remainShareDistance -= baseDistance;
-        }
+    }
+    else {
+        //Expanding
+        float currentRemainShareDistance = std::max(remainShareDistance - accumulateBaseDistance, 0.0f);
+        float currentRemainShareRatio = accumulateShareRatio;
 
-        segmentDistances.push_back(segment);
+        if (currentRemainShareDistance > 0.0f) {
+            for (size_t i = 0; i < segmentCount; ++i) {
+                const float& shareRatio = shareRatios[i];
+                const float shareDelta = currentRemainShareRatio <= 0.0f || shareRatio <= 0.0f? 0.0f :
+                currentRemainShareDistance / currentRemainShareRatio * shareRatio;
+
+                segmentDistances[i].delta = shareDelta;
+                segmentDistances[i].value += shareDelta;
+
+                currentRemainShareDistance -= shareDelta;
+                currentRemainShareRatio -= shareRatio;
+            }
+        }
     }
 
 #pragma endregion //Compute Segment Base Distance
 
-#pragma region //Compute Segment Delta
-
-    if (remainShareDistance > 0.0f) {
-        float remainShareRatio = accumulateShareRatio;
-
-        for (size_t i = 0; i < segmentCount; ++i) {
-            const float& shareRatio = shareRatios[i];
-            const float shareDelta = remainShareRatio <= 0.0f || shareRatio <= 0.0f? 0.0f : remainShareDistance / remainShareRatio * shareRatio;
-
-            segmentDistances[i].delta = shareDelta;
-            segmentDistances[i].value += shareDelta;
-
-            remainShareDistance -= shareDelta;
-            remainShareRatio -= shareRatio;
-        }
-    }
-
-#pragma endregion //Compute Segment Delta
 
 #pragma region //Print Result
     std::cout << "\n=== Dynamic Base Segment (Underflow Handling) ===\n";
-    std::cout << std::format("Root distance: {:.1f}\n\n", rootBase);
+    std::cout << std::format("Root distance: {:.4f}\n\n", rootBase);
 
+  std::cout << std::string(123, '-') << '\n';
     // Table header
     std::cout << std::left
-              << std::setw(8) << "Segment"
-              << std::setw(14) << "reduceDist"
-              << std::setw(16) << "baseShareDist"
-              << std::setw(16) << "baseShareRatio"
-              << std::setw(14) << "base"
-              << std::setw(14) << "delta"
-              << std::setw(14) << "distance"
+              << std::setw(2) << "|"
+              << std::setw(10) << "Segment"
+              << std::setw(2) << "|"
+              << std::setw(20) << "Solidify Distance"
+              << std::setw(2) << "|"
+              << std::setw(20) << "Compress Distance"
+              << std::setw(2) << "|"
+              << std::setw(20) << "Dynamic Distance"
+              << std::setw(2) << "|"
+              << std::setw(20) << "Expand Delta"
+              << std::setw(2) << "|"
+              << std::setw(20) << "Scaled Distance"
+              << std::setw(2) << "|"
               << '\n';
 
-    std::cout << std::string(100, '-') << '\n';
-
+    std::cout << std::string(123, '-') << '\n';
+    float total{0.0f};
     for (size_t i = 0; i < segmentCount; ++i) {
-        const auto& seg = segmentConfigs[i];
         const auto& res = segmentDistances[i];
 
-        const float reduceDistance = seg.base * (1.0f - seg.reduceRatio);
-        const float baseShareDistance = seg.base * seg.reduceRatio;
-        const float baseShareRatio = baseShareDistance / 100.0f;
+        total += res.value;
 
         std::cout << std::fixed << std::setprecision(3)
-                  << std::setw(8) << (i + 1)
-                  << std::setw(14) << reduceDistance
-                  << std::setw(16) << baseShareDistance
-                  << std::setw(16) << baseShareRatio
-                  << std::setw(14) << res.base
-                  << std::setw(14) << res.delta
-                  << std::setw(14) << res.value
+                  << std::setw(2) << "|"
+                  << std::setw(10) << (i + 1)
+                  << std::setw(2) << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",solidifyBaseDistances[i])
+                  << std::setw(2) << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",compressBaseDistances[i])
+                  << std::setw(2) << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",res.base)
+                  << std::setw(2) << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",res.delta)
+                  << std::setw(2) << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",res.value)
+                  << std::setw(2) << "|"
                   << '\n';
     }
 
-    std::cout << std::string(100, '-') << '\n';
-    std::cout << std::format("Total: {:.3f} (expected 800.0)\n\n", total);
-#pragma endregion //Print Result
+        std::cout << std::string(123, '-') << '\n';
+        std::cout << std::format("Total: {:.4f} (expected 800.0)\n", total);
+        #pragma endregion //Print Result
 
-    return 0;
-}
+        return 0;
+    }
 ```
 
 ## Chapter Summary
