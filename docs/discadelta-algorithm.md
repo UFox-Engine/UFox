@@ -10,7 +10,6 @@ Discadelta is a 1D partitioning algorithm for dividing a line (width, height, ed
 - **Cascade**: A method where the remainder of a calculation is passed to the next step to prevent rounding errors.
 - **Delta**: The specific amount added to or subtracted from a segment to reach the target size.
 
----
 
 ## Theory
 ### Goal
@@ -100,7 +99,7 @@ When segments use ratios, floating-point math can result in small overflows or g
 
 * **Total**: `129.032258` + `246.774193` + `296.774193` + `127.419356` = `800`
 
----
+
 ## Dynamic Base Segment (Underflow Handling)
 When the total base distance required by segments is greater than the root distance ($rootBase < accumulateBaseDistance$), the algorithm scales bases down proportionally.
 
@@ -173,7 +172,7 @@ For each segment $n$, the **Dynamic Base Distance** is calculated as:
   * `remainBaseDistance` = `0`,
   * `remainSolidifyBaseDistance` = `0`
 
----
+
 
 ## Code Sample (C++23)
 Below is the implementation of the **Underflow Handling** scenario, ensuring the total distance exactly matches the root.
