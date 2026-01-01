@@ -492,7 +492,7 @@ constexpr void RedistributeDiscadeltaCompressDistance(const DiscadeltaPreCompute
 
 **Important Note**: Developers may choose not to pre-clamp the base in the pre-compute step. The result will differ significantly.
 
-const float baseVal = rawBase; // no clamping (Unity-like behavior)
+> const float baseVal = rawBase; // no clamping (Unity-like behavior)
 
 
 | Segment   | Compress Solidify | Compress Capacity | Compress Distance | Expand Delta | Distance |
