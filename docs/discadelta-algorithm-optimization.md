@@ -5,7 +5,7 @@ The previous chapter introduced Recursive Redistribution for handling min/max co
 
 This chapter optimizes the algorithm into a **single-pass iterative loop** for both compression and expansion. By pre-computing priority orders (for min-hit likelihood in compression and max-growth room in expansion), Discadelta achieves the same fair results without recursion — maximizing CPU cache efficiency, reducing stack usage, and enabling better Vulkan/SDL3/GLFW performance in dynamic layouts.
 
-The technique relies on sorting segments by "tolerance" (shrink room / ratio for compression) or "growth room" (max - base for expansion) — allowing the cascade to process in an optimal order that minimizes order bias in one pass.
+The technique relies on sorting segments by "tolerance" (base - min or compress solidify) or "growth room" (max - base for expansion) — allowing the cascade to process in an optimal order that minimizes order bias in one pass.
 
 ## Core Goals
 1. **Eliminate recursion** for performance and simplicity
