@@ -9,21 +9,21 @@ This chapter introduces **Recursive Redistribution**. When a segment hits a cons
 
 ```ccp
 struct DiscadeltaSegment {
-    std::string name;//optional
-    float base;
-    float expandDelta;
-    float distance;
+    std::string name{"none"};//optional
+    float base{0.0f};
+    float expandDelta{0.0f};
+    float distance{0.0f};
 };
 ```
 
 ```cpp
 struct DiscadeltaSegmentConfig {
-    std::string name;//optional
-    float base;
-    float compressRatio;
-    float expandRatio;
-    float min;
-    float max;
+    std::string name{"none"};//optional
+    float base{0.0f};
+    float compressRatio{0.0f};
+    float expandRatio{0.0f};
+    float min{0.0f};
+    float max{0.0f};
 };
 ```
 
@@ -502,55 +502,72 @@ int main() {
     else {
         RedistributeDiscadeltaExpandDistance(preComputeMetrics);
     }
-    
-#pragma region //Print Result
-    std::cout << "\n=== Pre-compute & Scaling Pass Constraints ===\n";
-    std::cout << std::format("Root distance: {:.4f}\n\n", rootBase);
 
-    std::cout << std::string(123, '-') << '\n';
+#pragma region //Print Result
+    std::cout << "=== Dynamic Base Segment (Underflow Handling) ===" << std::endl;
+    std::cout << std::format("Input distance: {}", rootDistance)<< std::endl;
+
     // Table header
     std::cout << std::left
-              << std::setw(2) << "|"
+              << "|"
               << std::setw(10) << "Segment"
-              << std::setw(2) << "|"
+              << "|"
               << std::setw(20) << "Compress Solidify"
-              << std::setw(2) << "|"
+              << "|"
               << std::setw(20) << "Compress Capacity"
-              << std::setw(2) << "|"
+              << "|"
               << std::setw(20) << "Compress Distance"
-              << std::setw(2) << "|"
-              << std::setw(20) << "Expand Delta"
-              << std::setw(2) << "|"
+              << "|"
+              << std::setw(15) << "Expand Delta"
+              << "|"
               << std::setw(20) << "Scaled Distance"
-              << std::setw(2) << "|"
-              << '\n';
+              << "|"
+              << std::endl;
 
-    std::cout << std::string(123, '-') << '\n';
+    std::cout << std::left
+                   << "|"
+                   << std::string(10, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::string(15, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::endl;
+
+
     float total{0.0f};
-    for (size_t i = 0; i < segmentCount; ++i) {
+    for (size_t i = 0; i < segmentDistances.size(); ++i) {
         const auto& res = segmentDistances[i];
 
-        total += res.distance;
+        total += res->distance;
 
         std::cout << std::fixed << std::setprecision(3)
-                  << std::setw(2) << "|"
+                  << "|"
                   << std::setw(10) << (i + 1)
-                  << std::setw(2) << "|"
-                  << std::setw(20) << std::format("Total: {:.4f}",compressSolidifies[i])
-                  << std::setw(2) << "|"
-                  << std::setw(20) << std::format("Total: {:.4f}",compressCapacities[i])
-                  << std::setw(2) << "|"
-                  << std::setw(20) << std::format("Total: {:.4f}",res.base)
-                  << std::setw(2) << "|"
-                  << std::setw(20) << std::format("Total: {:.4f}",res.expandDelta)
-                  << std::setw(2) << "|"
-                  << std::setw(20) << std::format("Total: {:.4f}",res.distance)
-                  << std::setw(2) << "|"
-                  << '\n';
+                  << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",preComputeMetrics.compressSolidifies[i])
+                  << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",preComputeMetrics.compressCapacities[i])
+                  << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",res->base)
+                  << "|"
+                  << std::setw(15) << std::format("Total: {:.4f}",res->expandDelta)
+                  << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",res->distance)
+                  << "|"
+                  << std::endl;
     }
 
-    std::cout << std::string(123, '-') << '\n';
+
     std::cout << std::format("Total: {:.4f} (expected 800.0)\n", total);
+
+    std::this_thread::sleep_for(std::chrono::seconds(2));
 #pragma endregion //Print Result
 
     return 0;
