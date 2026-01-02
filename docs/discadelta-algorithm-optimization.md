@@ -132,26 +132,26 @@ constexpr void DiscadeltaExpanding(const DiscadeltaPreComputeMetrics& preCompute
 
 ### Code Sample (C++23)
 ```cpp
-#include <format>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <thread>
 #include <vector>
 
 struct DiscadeltaSegment {
-    std::string name;
-    float base;
-    float expandDelta;
-    float distance;
+    std::string name{"none"};//optional
+    float base{0.0f};
+    float expandDelta{0.0f};
+    float distance{0.0f};
 };
 
 struct DiscadeltaSegmentConfig {
-    std::string name;
-    float base;
-    float compressRatio;
-    float expandRatio;
-    float min;
-    float max;
+    std::string name{"none"};//optional
+    float base{0.0f};
+    float compressRatio{0.0f};
+    float expandRatio{0.0f};
+    float min{0.0f};
+    float max{0.0f};
 };
 
 struct DiscadeltaPreComputeMetrics {
@@ -305,7 +305,7 @@ constexpr void DiscadeltaExpanding(const DiscadeltaPreComputeMetrics& preCompute
     float cascadeExpandRatio = preComputeMetrics.accumulateExpandRatio;
 
     if (cascadeExpandDelta <= 0.0f) return;
-    
+
     for (size_t i = 0; i < preComputeMetrics.segments.size(); ++i) {
         const size_t index = preComputeMetrics.expandPriorityIndies[i];
         DiscadeltaSegment* seg = preComputeMetrics.segments[index];
@@ -347,27 +347,42 @@ int main()
 
 #pragma region //Print Result
     std::cout << "\n=== Pre-compute & Scaling Pass Constraints Pass Optimization ===\n";
-    std::cout << std::format("Root distance: {:.4f}\n\n", preComputeMetrics.inputDistance);
+    std::cout << std::format("Input distance: {}", rootDistance)<< std::endl;
 
-  std::cout << std::string(123, '-') << '\n';
     // Table header
     std::cout << std::left
-              << std::setw(2) << "|"
+              << "|"
               << std::setw(10) << "Segment"
-              << std::setw(2) << "|"
+              << "|"
               << std::setw(20) << "Compress Solidify"
-              << std::setw(2) << "|"
+              << "|"
               << std::setw(20) << "Compress Capacity"
-              << std::setw(2) << "|"
+              << "|"
               << std::setw(20) << "Compress Distance"
-              << std::setw(2) << "|"
-              << std::setw(20) << "Expand Delta"
-              << std::setw(2) << "|"
+              << "|"
+              << std::setw(15) << "Expand Delta"
+              << "|"
               << std::setw(20) << "Scaled Distance"
-              << std::setw(2) << "|"
-              << '\n';
+              << "|"
+              << std::endl;
 
-    std::cout << std::string(123, '-') << '\n';
+    std::cout << std::left
+                   << "|"
+                   << std::string(10, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::string(15, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::endl;
+
+
     float total{0.0f};
     for (size_t i = 0; i < segmentDistances.size(); ++i) {
         const auto& res = segmentDistances[i];
@@ -375,24 +390,26 @@ int main()
         total += res->distance;
 
         std::cout << std::fixed << std::setprecision(3)
-                  << std::setw(2) << "|"
-                  << std::setw(10) << res->name
-                  << std::setw(2) << "|"
-                  << std::setw(20) << preComputeMetrics.compressSolidifies[i]
-                  << std::setw(2) << "|"
-                  << std::setw(20) << preComputeMetrics.compressCapacities[i]
-                  << std::setw(2) << "|"
-                  << std::setw(20) << res->base
-                  << std::setw(2) << "|"
-                  << std::setw(20) << res->expandDelta
-                  << std::setw(2) << "|"
-                  << std::setw(20) << res->distance
-                  << std::setw(2) << "|"
-                  << '\n';
+                  << "|"
+                  << std::setw(10) << (i + 1)
+                  << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",preComputeMetrics.compressSolidifies[i])
+                  << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",preComputeMetrics.compressCapacities[i])
+                  << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",res->base)
+                  << "|"
+                  << std::setw(15) << std::format("Total: {:.4f}",res->expandDelta)
+                  << "|"
+                  << std::setw(20) << std::format("Total: {:.4f}",res->distance)
+                  << "|"
+                  << std::endl;
     }
 
-        std::cout << std::string(123, '-') << '\n';
-        std::cout << std::format("Total: {:.3f} (expected 800.0)\n", total);
+
+    std::cout << std::format("Total: {:.4f} (expected 800.0)\n", total);
+
+    std::this_thread::sleep_for(std::chrono::seconds(2));
         #pragma endregion //Print Result
 
         return 0;
