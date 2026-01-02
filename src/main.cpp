@@ -396,31 +396,32 @@ constexpr void DiscadeltaCompressing(const DiscadeltaPreComputeMetrics& preCompu
     }
 }
 
+
+
 constexpr void DiscadeltaExpanding(const DiscadeltaPreComputeMetrics& preComputeMetrics) {
     float cascadeExpandDelta = std::max(preComputeMetrics.inputDistance - preComputeMetrics.accumulateBaseDistance, 0.0f);
     float cascadeExpandRatio = preComputeMetrics.accumulateExpandRatio;
 
-    if (cascadeExpandDelta > 0.0f) {
+    if (cascadeExpandDelta <= 0.0f) return;
 
-        for (size_t i = 0; i < preComputeMetrics.segments.size(); ++i) {
-            const size_t index = preComputeMetrics.expandPriorityIndies[i];
-            DiscadeltaSegment* seg = preComputeMetrics.segments[index];
-            const float& base = preComputeMetrics.baseDistances[index];
-            const float& ratio = preComputeMetrics.expandRatios[index];
+    for (size_t i = 0; i < preComputeMetrics.segments.size(); ++i) {
+        const size_t index = preComputeMetrics.expandPriorityIndies[i];
+        DiscadeltaSegment* seg = preComputeMetrics.segments[index];
+        const float& base = preComputeMetrics.baseDistances[index];
+        const float& ratio = preComputeMetrics.expandRatios[index];
 
-            const float expandDelta = DiscadeltaScaler(cascadeExpandDelta, cascadeExpandRatio, ratio);
-            // const float expandDelta = cascadeExpandRatio <= 0.0f || ratio <= 0.0f ? 0.0f :
-            //                            cascadeExpandDelta / cascadeExpandRatio * ratio;
+        const float expandDelta = DiscadeltaScaler(cascadeExpandDelta, cascadeExpandRatio, ratio);
+        // const float expandDelta = cascadeExpandRatio <= 0.0f || ratio <= 0.0f ? 0.0f :
+        //                            cascadeExpandDelta / cascadeExpandRatio * ratio;
 
-            // Apply MAX Constraint
-            const float maxDelta = std::max(0.0f, preComputeMetrics.maxDistances[index] - base);
-            const float clampedDelta = std::min(expandDelta, maxDelta);
+        // Apply MAX Constraint
+        const float maxDelta = std::max(0.0f, preComputeMetrics.maxDistances[index] - base);
+        const float clampedDelta = std::min(expandDelta, maxDelta);
 
-            seg->expandDelta = clampedDelta;
-            seg->distance = base + clampedDelta;
-            cascadeExpandDelta -= clampedDelta;
-            cascadeExpandRatio -= ratio;
-        }
+        seg->expandDelta = clampedDelta;
+        seg->distance = base + clampedDelta;
+        cascadeExpandDelta -= clampedDelta;
+        cascadeExpandRatio -= ratio;
     }
 }
 

@@ -437,48 +437,47 @@ Expansion follows a similar recursive principle but focuses on the max constrain
 constexpr void RedistributeDiscadeltaExpandDistance(const DiscadeltaPreComputeMetrics& preComputeMetrics) {
     float cascadeExpandDelta = std::max(preComputeMetrics.inputDistance - preComputeMetrics.accumulateBaseDistance, 0.0f);
     float cascadeExpandRatio = preComputeMetrics.accumulateExpandRatio;
+    if (cascadeExpandDelta <= 0.0f) return;
 
-    if (cascadeExpandDelta > 0.0f) {
-        DiscadeltaPreComputeMetrics nextLineMetrics(preComputeMetrics.segments.size(), cascadeExpandDelta);
-        int recursiveSafeguardValue{0}, recursiveSafeguardLimit{0};
+    DiscadeltaPreComputeMetrics nextLineMetrics(preComputeMetrics.segments.size(), cascadeExpandDelta);
+    int recursiveSafeguardValue{0}, recursiveSafeguardLimit{0};
 
-        for (size_t i = 0; i < preComputeMetrics.segments.size(); ++i) {
-            DiscadeltaSegment* seg = preComputeMetrics.segments[i];
-            const float& base = preComputeMetrics.baseDistances[i];
-            const float& ratio = preComputeMetrics.expandRatios[i];
+    for (size_t i = 0; i < preComputeMetrics.segments.size(); ++i) {
+        DiscadeltaSegment* seg = preComputeMetrics.segments[i];
+        const float& base = preComputeMetrics.baseDistances[i];
+        const float& ratio = preComputeMetrics.expandRatios[i];
 
-            const float expandDelta = (cascadeExpandRatio <= 0.0f || ratio <= 0.0f) ? 0.0f :
-                                       cascadeExpandDelta / cascadeExpandRatio * ratio;
+        const float expandDelta = (cascadeExpandRatio <= 0.0f || ratio <= 0.0f) ? 0.0f :
+                                      cascadeExpandDelta / cascadeExpandRatio * ratio;
 
-            // Apply MAX Constraint
-            const float maxDelta = std::max(0.0f, preComputeMetrics.maxDistances[i] - base);
-            const float clampedDelta = std::min(expandDelta, maxDelta);
+        // Apply MAX Constraint
+        const float maxDelta = std::max(0.0f, preComputeMetrics.maxDistances[i] - base);
+        const float clampedDelta = std::min(expandDelta, maxDelta);
 
-            if (clampedDelta != expandDelta || ratio <= 0.0f) {
-                nextLineMetrics.inputDistance -= clampedDelta;
-            } else {
-                nextLineMetrics.accumulateBaseDistance += base;
-                nextLineMetrics.accumulateExpandRatio += ratio;
-                nextLineMetrics.expandRatios.push_back(ratio);
-                nextLineMetrics.baseDistances.push_back(base);
-                nextLineMetrics.maxDistances.push_back(preComputeMetrics.maxDistances[i]);
-                nextLineMetrics.segments.push_back(seg);
-                recursiveSafeguardValue++;
-            }
-
-            seg->expandDelta = clampedDelta;
-            seg->distance = base + clampedDelta;
-            cascadeExpandDelta -= clampedDelta;
-            cascadeExpandRatio -= ratio;
-            recursiveSafeguardLimit++;
+        if (clampedDelta != expandDelta || ratio <= 0.0f) {
+            nextLineMetrics.inputDistance -= clampedDelta;
+        } else {
+            nextLineMetrics.accumulateBaseDistance += base;
+            nextLineMetrics.accumulateExpandRatio += ratio;
+            nextLineMetrics.expandRatios.push_back(ratio);
+            nextLineMetrics.baseDistances.push_back(base);
+            nextLineMetrics.maxDistances.push_back(preComputeMetrics.maxDistances[i]);
+            nextLineMetrics.segments.push_back(seg);
+            recursiveSafeguardValue++;
         }
 
-        // Add back base distance for absolute distance input in recursion
-        nextLineMetrics.inputDistance += nextLineMetrics.accumulateBaseDistance;
+        seg->expandDelta = clampedDelta;
+        seg->distance = base + clampedDelta;
+        cascadeExpandDelta -= clampedDelta;
+        cascadeExpandRatio -= ratio;
+        recursiveSafeguardLimit++;
+    }
 
-        if (recursiveSafeguardValue < recursiveSafeguardLimit) {
-            RedistributeDiscadeltaExpandDistance(nextLineMetrics);
-        }
+    // Add back base distance for absolute distance input in recursion
+    nextLineMetrics.inputDistance += nextLineMetrics.accumulateBaseDistance;
+
+    if (recursiveSafeguardValue < recursiveSafeguardLimit) {
+        RedistributeDiscadeltaExpandDistance(nextLineMetrics);
     }
 }
 ```
@@ -500,23 +499,7 @@ constexpr void RedistributeDiscadeltaExpandDistance(const DiscadeltaPreComputeMe
         RedistributeDiscadeltaCompressDistance(preComputeMetrics);
     }
     else {
-        //Expanding
-        float cascadeExpandDistance = std::max(preComputeMetrics.inputDistance - preComputeMetrics.accumulateBaseDistance, 0.0f);
-        float cascadeExpandRatio = preComputeMetrics.accumulateExpandRatio;
-
-        if (cascadeExpandDistance > 0.0f) {
-            for (size_t i = 0; i < segmentDistances.size(); ++i) {
-                const float& expandRatio = preComputeMetrics.expandRatios[i];
-                const float expandDelta = cascadeExpandRatio <= 0.0f || expandRatio <= 0.0f? 0.0f :
-                cascadeExpandDistance / cascadeExpandRatio * expandRatio;
-
-                segmentDistances[i]->expandDelta = expandDelta;
-                segmentDistances[i]->distance += expandDelta; //add to precompute
-
-                cascadeExpandDistance -= expandDelta;
-                cascadeExpandRatio -= expandRatio;
-            }
-        }
+        RedistributeDiscadeltaExpandDistance(preComputeMetrics);
     }
 ```
 
