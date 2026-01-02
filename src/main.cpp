@@ -233,21 +233,27 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <thread>
+#include <chrono>
+#include <cstdlib>
 
 struct DiscadeltaSegment {
-    std::string name;
-    float base;
-    float expandDelta;
-    float distance;
+    std::string name{"None"};
+    float base{0.0f};
+    float expandDelta{0.0f};
+    float distance{0.0f};
+    float offset{0.0f};
+    size_t order{0};
 };
 
 struct DiscadeltaSegmentConfig {
-    std::string name;
-    float base;
-    float compressRatio;
-    float expandRatio;
-    float min;
-    float max;
+    std::string name{"None"};
+    float base{0.0f};
+    float compressRatio{0.0f};
+    float expandRatio{0.0f};
+    float min{0.0f};
+    float max{0.0f};
+    size_t order{0};
 };
 
 struct DiscadeltaPreComputeMetrics {
@@ -263,7 +269,6 @@ struct DiscadeltaPreComputeMetrics {
     float accumulateCompressSolidify{0.0f};
     float accumulateExpandRatio{0.0f};
 
-    // NEW: Non-owning pointers — safe because ownedSegments outlives metrics
     std::vector<DiscadeltaSegment*> segments;
 
     std::vector<size_t> compressPriorityIndies;
@@ -288,8 +293,7 @@ struct DiscadeltaPreComputeMetrics {
 
 using DiscadeltaSegmentsHandler = std::vector<std::unique_ptr<DiscadeltaSegment>>;
 
-constexpr auto MakeDiscadeltaContext = [](const std::vector<DiscadeltaSegmentConfig>& configs, const float inputDistance) -> std::tuple<DiscadeltaSegmentsHandler, DiscadeltaPreComputeMetrics, bool>
-{
+constexpr auto MakeDiscadeltaContext = [](const std::vector<DiscadeltaSegmentConfig>& configs, const float inputDistance) -> std::tuple<DiscadeltaSegmentsHandler, DiscadeltaPreComputeMetrics, bool>{
     const float validatedInputDistance = std::max(0.0f, inputDistance);
     const size_t segmentCount = configs.size();
 
@@ -302,7 +306,7 @@ constexpr auto MakeDiscadeltaContext = [](const std::vector<DiscadeltaSegmentCon
     float expandPriorityLowestValue{0.0f};
 
     for (size_t i = 0; i < segmentCount; ++i) {
-        const auto& [name, rawBase, rawCompressRatio, rawExpandRatio, rawMin, rawMax] = configs[i];
+        const auto& [name, rawBase, rawCompressRatio, rawExpandRatio, rawMin, rawMax, rawOrder] = configs[i];
 
         // --- INPUT VALIDATION ---
         const float minVal = std::max(0.0f, rawMin);
@@ -331,6 +335,7 @@ constexpr auto MakeDiscadeltaContext = [](const std::vector<DiscadeltaSegmentCon
         // --- CREATE OWNED SEGMENT ---
         auto seg = std::make_unique<DiscadeltaSegment>();
         seg->name = name;
+        seg->order = rawOrder;
         seg->base = baseVal;
         seg->distance = baseVal;
         seg->expandDelta = 0.0f;
@@ -396,8 +401,6 @@ constexpr void DiscadeltaCompressing(const DiscadeltaPreComputeMetrics& preCompu
     }
 }
 
-
-
 constexpr void DiscadeltaExpanding(const DiscadeltaPreComputeMetrics& preComputeMetrics) {
     float cascadeExpandDelta = std::max(preComputeMetrics.inputDistance - preComputeMetrics.accumulateBaseDistance, 0.0f);
     float cascadeExpandRatio = preComputeMetrics.accumulateExpandRatio;
@@ -425,13 +428,93 @@ constexpr void DiscadeltaExpanding(const DiscadeltaPreComputeMetrics& preCompute
     }
 }
 
-int main()
-{
+constexpr void DiscadeltaPlacing(DiscadeltaPreComputeMetrics& preComputeMetrics) {
+    // 1. Sort segments by their desired visual 'order'
+    std::sort(preComputeMetrics.segments.begin(), preComputeMetrics.segments.end(), [](const auto& a, const auto& b) {
+        return a->order < b->order;
+    });
+
+    // 2. Linear accumulation of offsets
+    float currentOffset = 0.0f;
+    for (auto* seg : preComputeMetrics.segments) {
+        if (!seg) continue;
+
+        // The segment starts at the current-accumulated distance
+        seg->offset = currentOffset;
+
+        // Push the offset forward by the segment's resolved size
+        currentOffset += seg->distance;
+    }
+}
+
+void Debugger(const DiscadeltaSegmentsHandler& segmentDistances, const DiscadeltaPreComputeMetrics &preComputeMetrics) {
+    std::cout <<"=== Discadelta Layout: Metrics & Final Distribution ===" << std::endl;
+    std::cout << std::format("Input distance: {}", preComputeMetrics.inputDistance)<< std::endl;
+
+    // Table header
+    std::cout << std::left
+              << "|"
+              << std::setw(10) << "Segment"
+              << "|"
+              << std::setw(20) << "Base"
+              << "|"
+              << std::setw(15) << "Delta"
+              << "|"
+              << std::setw(15) << "Distance"
+              << "|"
+              << std::setw(15) << "Order"
+              << "|"
+              << std::setw(15) << "Offset"
+              << "|"
+              << std::endl;
+
+    std::cout << std::left
+                   << "|"
+                   << std::string(10, '-')
+                   << "|"
+                   << std::string(20, '-')
+                   << "|"
+                   << std::string(15, '-')
+                   << "|"
+                   << std::string(15, '-')
+                   << "|"
+                   << std::string(15, '-')
+                   << "|"
+                   << std::string(15, '-')
+                   << "|"
+                   << std::endl;
+
+    float total{0.0f};
+    for (const auto & res : segmentDistances) {
+        total += res->distance;
+
+        std::cout << std::left<< "|"<< std::setw(10) << res->name<< "|"
+                  << std::setw(20) << std::format("{:.3f}",res->base)
+                  << "|"
+                  << std::setw(15) << std::format("{:.3f}",res->expandDelta)
+                  << "|"
+                  << std::setw(15) << std::format("{:.3f}",res->distance)
+                  << "|"
+                  << std::setw(15) << std::format("{}",res->order)
+                  << "|"
+                  << std::setw(15) << std::format("{:.3f}",res->offset)
+                  << "|"
+                  << std::endl;
+    }
+}
+
+constexpr void SetSegmentOrder(DiscadeltaPreComputeMetrics& preComputeMetrics, std::string_view name, const size_t order) {
+  const auto it = std::ranges::find_if(
+      preComputeMetrics.segments, [&](const auto& seg) { return seg->name == name; });
+    if (it != preComputeMetrics.segments.end()) (*it)->order = order;
+}
+
+int main() {
     std::vector<DiscadeltaSegmentConfig> segmentConfigs{
-      {"Segment_1", 200.0f, 0.7f, 0.1f, 0.0f, 100.0f},
-      {"Segment_2", 200.0f, 1.0f, 1.0f, 300.0f, 800.0f},
-      {"Segment_3", 150.0f, 0.0f, 2.0f, 0.0f, 200.0f},
-      {"Segment_4", 350.0f, 0.3f, 0.5f, 50.0f, 300.0f}};
+          {"Segment_1", 200.0f, 0.7f, 0.1f, 0.0f, 100.0f, 2},
+          {"Segment_2", 200.0f, 1.0f, 1.0f, 300.0f, 800.0f, 1},
+          {"Segment_3", 150.0f, 0.0f, 2.0f, 0.0f, 200.0f, 3},
+          {"Segment_4", 350.0f, 0.3f, 0.5f, 50.0f, 300.0f, 0}};
 
     constexpr float rootDistance = 800.0f;
     auto [segmentDistances, preComputeMetrics, processingCompression] = MakeDiscadeltaContext(segmentConfigs, rootDistance);
@@ -443,55 +526,18 @@ int main()
         DiscadeltaExpanding(preComputeMetrics);
     }
 
-#pragma region //Print Result
-    std::cout << "\n=== Dynamic Base Segment (Underflow Handling) ===\n";
-    std::cout << std::format("Root distance: {:.4f}\n\n", preComputeMetrics.inputDistance);
+    DiscadeltaPlacing(preComputeMetrics);
 
-  std::cout << std::string(123, '-') << '\n';
-    // Table header
-    std::cout << std::left
-              << std::setw(2) << "|"
-              << std::setw(10) << "Segment"
-              << std::setw(2) << "|"
-              << std::setw(20) << "Compress Solidify"
-              << std::setw(2) << "|"
-              << std::setw(20) << "Compress Capacity"
-              << std::setw(2) << "|"
-              << std::setw(20) << "Compress Distance"
-              << std::setw(2) << "|"
-              << std::setw(20) << "Expand Delta"
-              << std::setw(2) << "|"
-              << std::setw(20) << "Scaled Distance"
-              << std::setw(2) << "|"
-              << '\n';
+    Debugger(segmentDistances, preComputeMetrics);
+    //the debugger is slow we sleep for 2 seconds before trigger another log
+    std::this_thread::sleep_for(std::chrono::seconds(2));
 
-    std::cout << std::string(123, '-') << '\n';
-    float total{0.0f};
-    for (size_t i = 0; i < segmentDistances.size(); ++i) {
-        const auto& res = segmentDistances[i];
+    SetSegmentOrder(preComputeMetrics, "Segment_1", 3);
+    SetSegmentOrder(preComputeMetrics, "Segment_3", 2);
 
-        total += res->distance;
+    DiscadeltaPlacing(preComputeMetrics);
 
-        std::cout << std::fixed << std::setprecision(3)
-                  << std::setw(2) << "|"
-                  << std::setw(10) << res->name
-                  << std::setw(2) << "|"
-                  << std::setw(20) << preComputeMetrics.compressSolidifies[i]
-                  << std::setw(2) << "|"
-                  << std::setw(20) << preComputeMetrics.compressCapacities[i]
-                  << std::setw(2) << "|"
-                  << std::setw(20) << res->base
-                  << std::setw(2) << "|"
-                  << std::setw(20) << res->expandDelta
-                  << std::setw(2) << "|"
-                  << std::setw(20) << res->distance
-                  << std::setw(2) << "|"
-                  << '\n';
-    }
+    Debugger(segmentDistances, preComputeMetrics);
 
-        std::cout << std::string(123, '-') << '\n';
-        std::cout << std::format("Total: {:.3f} (expected 800.0)\n", total);
-        #pragma endregion //Print Result
-
-        return 0;
-    }
+    return 0;
+}

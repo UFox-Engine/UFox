@@ -346,7 +346,7 @@ int main()
     }
 
 #pragma region //Print Result
-    std::cout << "\n=== Dynamic Base Segment (Underflow Handling) ===\n";
+    std::cout << "\n=== Pre-compute & Scaling Pass Constraints Pass Optimization ===\n";
     std::cout << std::format("Root distance: {:.4f}\n\n", preComputeMetrics.inputDistance);
 
   std::cout << std::string(123, '-') << '\n';
