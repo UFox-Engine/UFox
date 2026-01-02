@@ -402,3 +402,11 @@ int main()
 ## Summary
 With priority sorting, Discadelta achieves fair clamping in a single pass — no recursion, maximum performance for UFox real-time layouts. This is the peak optimization, making Discadelta faster than recursive alternatives while maintaining precision and fairness.
 
+## What's Next: The Placing Pass
+We have successfully solved the "How big?" question. Every segment now has a finalized `distance` that respects its min, max, and proportional fair share.
+
+However, in a high-performance engine, knowing the **size** isn't enough—we need to know the **position**. In the next chapter, we introduce the final piece of the pipeline: **The Placing Pass**.
+
+We will explore how to translate these resolved distances into world-space offsets and how the `size_t order` member allows us to swap or reorder segments in real-time without ever having to touch this scaling math again.
+
+### Next Chapter: [Discadelta Algorithm Dynamic Placing](discadelta-algorithm-dynamic-placing.md)
