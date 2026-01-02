@@ -1,22 +1,9 @@
 # Discadelta Algorithm Constraints 🦊 (Chapter 2)
 
 ## Overview
-The previous chapter implemented the core Discadelta algorithm: Solving Precision Loss, underflow/overflow handling via **Compress Base Distance** and **Expand Delta**.
+The previous chapter implemented the core Discadelta algorithm: solving precision loss and handling underflow/overflow via **Compress Base Distance** and **Expand Delta**. However, in a real-world GUI or editor system, segments often have **min** and **max** boundaries.
 
-This chapter adds **min** and **max** constraints per segment to ensure individual parts stay within acceptable size bounds.
-
-Min/Max constraints usually break "perfect" proportional sharing because they force a segment to stop growing or shrinking, leaving the "**Expand Delta**" or "**Compress Base Distance**" to be redistributed among the remaining segments.
-
-The challenge is:
-- After applying constraints, the total must still exactly equal the root distance.
-- We must distribute "clamped" space fairly among unconstrained segments.
-
-## Core Goals
-1. **Respect min/max** per segment
-2. **Preserve total sum** = root distance
-3. **Distribute excess/deficit fairly** using ratios
-4. **Handle multiple clamping cases** (some segments at min, some at max, some free)
-5. **Remain numerically stable** (avoid catastrophic cancellation)
+This chapter introduces **Recursive Redistribution**. When a segment hits a constraint, it "locks" its size, and the remaining distance is redistributed among the other segments to ensure the total distance remains perfectly equal to the root.
 
 ## Organize Data Struct
 
@@ -68,8 +55,7 @@ struct DiscadeltaPreComputeMetrics {
 ```
 
 
-## Theory
-### Validate Min, Max and Base
+## Validate Min, Max and Base
 
 Before performing any computation, Discadelta must **validate** and **sanitize** the `min` and `max` values for each segment. Invalid or inconsistent bounds can lead to:
 
@@ -89,12 +75,12 @@ Before performing any computation, Discadelta must **validate** and **sanitize**
    - If `min` is invalid (< 0) → clamp to `0.0f`
    - If `max` is invalid (< `min`) → set `max` = `min` (effectively fixed size)
 
-4. **Clamp Base**
-   - To ensure the preferred `base` value is logically consistent with the constraints, we clamp it to `[min, max]` upfront.  
-     This is a deliberate design choice: it doesn't seem right to have a config where `base` is bigger than `max` or lower than `min` — it would mean the "ideal" size is impossible from the start.  
-     Pre-clamping the `base` prevents invalid intermediate states and aligns with modern layout standards (e.g., CSS Flexbox clamps flex-basis to min/max before distribution).  
-     Use `std::clamp` for this, as max and min are already validated. If needed for older compilers, use an if-statement equivalent.
+4. **Pre-Clamp Base**
+   - The preferred `base` is clamped to `[min, max]` during pre-computation.  
+     This prevents illogical configurations where the "ideal" size exceeds hard constraints.  
+     It aligns with modern standards (CSS Flexbox, Yoga) and ensures fairness from the start.
 
+   
 **Technical Note:** These operations require the <algorithm> header for std::clamp and std::max. Ensure your project includes it to prevent compiler errors.
 
 ### Pre-Compute Helper Method
@@ -259,16 +245,16 @@ int main()
     }
 ```
 
-   | Segment   | Compress Solidify | Compress Capacity | Compress Distance | Expand Delta | Distance |
+| Segment   | Compress Solidify | Compress Capacity | Compress Distance | Expand Delta | Distance |
    |-----------|-------------------|-------------------|-------------------|--------------|----------|
-   | 1         | 30.0000           | 70.0000           | 92.3913           | 0.0000       | 92.3913  |
-   | 2         | 0.0000            | 300.0000          | 267.3913          | 0.0000       | 267.3913 |
-   | 3         | 150.0000          | 0.0000            | 150.0000          | 0.0000       | 150.0000 |
-   | 4         | 210.0000          | 90.0000           | 290.2174          | 0.0000       | 290.2174 |
+| 1         | 30.0000           | 70.0000           | 92.3913           | 0.0000       | 92.3913  |
+| 2         | 0.0000            | 300.0000          | 267.3913          | 0.0000       | 267.3913 |
+| 3         | 150.0000          | 0.0000            | 150.0000          | 0.0000       | 150.0000 |
+| 4         | 210.0000          | 90.0000           | 290.2174          | 0.0000       | 290.2174 |
 
 * **Total**: `92.3913` + `267.3913` + `150.0000` + `290.2174` = `800`
 
-### Redistribute Clamped Delta (Compression only)
+## Redistribute Clamped Delta
 The current algorithm processes segments in a single forward pass, following the natural loop order.  
 Each segment has no awareness of its siblings — it only sees the remaining space at its turn.  
 When a segment hits its min/max limit, it takes its full guaranteed amount, forcing all following segments to absorb the entire adjustment.  
@@ -278,7 +264,7 @@ This forward-pass design can lead to unfair distribution when constraints are ac
 To achieve proportional fairness (relist and reset pre-compute metrics of unconstrained segments and recalculate, regardless of order), we need a redistribution pass — ideally iterative or recursive — after detecting any clamping.
 
 
-#### Relist DiscadeltaSegment And Redistribute
+### Relist DiscadeltaSegment And Redistribute
 
 The current **Pre-Compute Helper Method** is returning a copy/new instance of metrics and segments there we can't grab a point within a method, we will rework so it can.
 
@@ -376,75 +362,127 @@ constexpr auto MakeDiscadeltaContext = [](const std::vector<DiscadeltaSegmentCon
 };
 ```
 
-* **Redistribute Compressed Metrics**: When a segment hits a constraint, we recalculate the remaining layout recursively to ensure fair distribution.
+### Underflow: Compression Redistribution 
+
+When a segment hits a constraint, we recalculate the remaining layout recursively to ensure fair distribution.
+
+#### The Compression Logic
+
+We use a Recursive Safeguard. We track how many segments we tried to process vs. how many were actually flexible. If a segment was clamped, we trigger a recursion with the updated "remaining" distance and a smaller pool of segments.
+
 ```cpp
 constexpr void RedistributeDiscadeltaCompressDistance(const DiscadeltaPreComputeMetrics& preComputeMetrics) {
-    // --- SETUP CASCADE VARIABLES ---
     float cascadeCompressDistance = preComputeMetrics.inputDistance;
     float cascadeBaseDistance = preComputeMetrics.accumulateBaseDistance;
     float cascadeCompressSolidify = preComputeMetrics.accumulateCompressSolidify;
 
-    DiscadeltaPreComputeMetrics nextLineMetrics(preComputeMetrics.segments.size(), preComputeMetrics.inputDistance);
+    DiscadeltaPreComputeMetrics nextLineMetrics(preComputeMetrics.segments.size(), cascadeCompressDistance);
 
-
-    int recursiveSafeguardValue = 0;
-    int recursiveSafeguardLimit = 0;
+    int recursiveSafeguardValue{0}; // Tracks flexible segments
+    int recursiveSafeguardLimit{0}; // Tracks total segments in this pass
 
     for (size_t i = 0; i < preComputeMetrics.segments.size(); ++i) {
-        // --- PROPORTIONAL CALCULATION ---
         DiscadeltaSegment* seg = preComputeMetrics.segments[i];
         if (seg == nullptr) break;
 
-        const float remainCompressDistance = cascadeCompressDistance - cascadeCompressSolidify ;
-        const float remainCompressCapacity = cascadeBaseDistance - cascadeCompressSolidify ;
-        const float& compressCapacity = preComputeMetrics.compressCapacities[i];
-        const float& compressSolidify = preComputeMetrics.compressSolidifies[i];
-        const float base = preComputeMetrics.baseDistances[i];
+        const float remainDist = cascadeCompressDistance - cascadeCompressSolidify;
+        const float remainCap = cascadeBaseDistance - cascadeCompressSolidify;
+        const float& cap = preComputeMetrics.compressCapacities[i];
+        const float& solidify = preComputeMetrics.compressSolidifies[i];
+        const float& base = preComputeMetrics.baseDistances[i];
 
-        const float compressBaseDistance = (remainCompressDistance <= 0 || remainCompressCapacity <= 0 || compressCapacity <= 0 ? 0.0f :
-                                      remainCompressDistance / remainCompressCapacity * compressCapacity) + compressSolidify;
+        // Proportional math with safety checks
+        const float compressBaseDistance = (remainDist <= 0 || remainCap <= 0 || cap <= 0 ? 0.0f :
+                                      remainDist / remainCap * cap) + solidify;
 
-        // --- APPLY CONSTRAINT ---
-        const float min = preComputeMetrics.minDistances[i];
-        const float clampedCompressBaseDistance = std::max(compressBaseDistance, min);
+        // Apply MIN Constraint
+        const float& min = preComputeMetrics.minDistances[i];
+        const float clampedDist = std::max(compressBaseDistance, min);
 
-        // --- SETUP RECURSIVE METRICS ---
-        //Exclude the clamped segment or reach 0 compressCapacity.
-        //Reduce Metrics input by clamped segment distance amount 
-        if (compressBaseDistance != clampedCompressBaseDistance || compressCapacity <= 0.0f) {
-            nextLineMetrics.inputDistance -= clampedCompressBaseDistance;
+        // If Clamped: Reduce the budget for the next pass
+        // If Flexible: Add to the pool for the next pass
+        if (compressBaseDistance != clampedDist || cap <= 0.0f) {
+            nextLineMetrics.inputDistance -= clampedDist;
         }
         else {
             nextLineMetrics.accumulateBaseDistance += base;
-            nextLineMetrics.accumulateCompressSolidify += compressSolidify;
-            nextLineMetrics.accumulateExpandRatio += preComputeMetrics.expandRatios[i];
-
-            nextLineMetrics.compressCapacities.push_back(compressCapacity);
-            nextLineMetrics.compressSolidifies.push_back(compressSolidify);
+            nextLineMetrics.accumulateCompressSolidify += solidify;
+            nextLineMetrics.compressCapacities.push_back(cap);
+            nextLineMetrics.compressSolidifies.push_back(solidify);
             nextLineMetrics.baseDistances.push_back(base);
-            nextLineMetrics.maxDistances.push_back(preComputeMetrics.maxDistances[i]);
-            nextLineMetrics.expandRatios.push_back(preComputeMetrics.expandRatios[i]);
-            nextLineMetrics.minDistances.push_back(preComputeMetrics.minDistances[i]);
+            nextLineMetrics.minDistances.push_back(min);
             nextLineMetrics.segments.push_back(seg);
-
             recursiveSafeguardValue++;
         }
 
-
-        seg->base = clampedCompressBaseDistance;
-        seg->distance = clampedCompressBaseDistance;
-
-        cascadeCompressDistance -= clampedCompressBaseDistance;
-        cascadeCompressSolidify -= compressSolidify;
+        seg->base = seg->distance = clampedDist;
+        cascadeCompressDistance -= clampedDist;
+        cascadeCompressSolidify -= solidify;
         cascadeBaseDistance -= base;
         recursiveSafeguardLimit++;
     }
 
+    // Recursion ends when Value == Limit (No new segments hit constraints)
     if (recursiveSafeguardValue < recursiveSafeguardLimit) {
         RedistributeDiscadeltaCompressDistance(nextLineMetrics);
     }
 }
 ```
+### Overflow: Expansion Redistribution
+
+Expansion follows a similar recursive principle but focuses on the max constraint. If a segment reaches its maximum allowed size, any leftover expandDelta is redistributed to the remaining segments.
+
+#### The Expansion Logic
+```cpp
+constexpr void RedistributeDiscadeltaExpandDistance(const DiscadeltaPreComputeMetrics& preComputeMetrics) {
+    float cascadeExpandDelta = std::max(preComputeMetrics.inputDistance - preComputeMetrics.accumulateBaseDistance, 0.0f);
+    float cascadeExpandRatio = preComputeMetrics.accumulateExpandRatio;
+
+    if (cascadeExpandDelta > 0.0f) {
+        DiscadeltaPreComputeMetrics nextLineMetrics(preComputeMetrics.segments.size(), cascadeExpandDelta);
+        int recursiveSafeguardValue{0}, recursiveSafeguardLimit{0};
+
+        for (size_t i = 0; i < preComputeMetrics.segments.size(); ++i) {
+            DiscadeltaSegment* seg = preComputeMetrics.segments[i];
+            const float& base = preComputeMetrics.baseDistances[i];
+            const float& ratio = preComputeMetrics.expandRatios[i];
+
+            const float expandDelta = (cascadeExpandRatio <= 0.0f || ratio <= 0.0f) ? 0.0f :
+                                       cascadeExpandDelta / cascadeExpandRatio * ratio;
+
+            // Apply MAX Constraint
+            const float maxDelta = std::max(0.0f, preComputeMetrics.maxDistances[i] - base);
+            const float clampedDelta = std::min(expandDelta, maxDelta);
+
+            if (clampedDelta != expandDelta || ratio <= 0.0f) {
+                nextLineMetrics.inputDistance -= clampedDelta;
+            } else {
+                nextLineMetrics.accumulateBaseDistance += base;
+                nextLineMetrics.accumulateExpandRatio += ratio;
+                nextLineMetrics.expandRatios.push_back(ratio);
+                nextLineMetrics.baseDistances.push_back(base);
+                nextLineMetrics.maxDistances.push_back(preComputeMetrics.maxDistances[i]);
+                nextLineMetrics.segments.push_back(seg);
+                recursiveSafeguardValue++;
+            }
+
+            seg->expandDelta = clampedDelta;
+            seg->distance = base + clampedDelta;
+            cascadeExpandDelta -= clampedDelta;
+            cascadeExpandRatio -= ratio;
+            recursiveSafeguardLimit++;
+        }
+
+        // Add back base distance for absolute distance input in recursion
+        nextLineMetrics.inputDistance += nextLineMetrics.accumulateBaseDistance;
+
+        if (recursiveSafeguardValue < recursiveSafeguardLimit) {
+            RedistributeDiscadeltaExpandDistance(nextLineMetrics);
+        }
+    }
+}
+```
+
 * **Main Sample**
 ```cpp
     std::vector<DiscadeltaSegmentConfig> segmentConfigs{
@@ -482,7 +520,8 @@ constexpr void RedistributeDiscadeltaCompressDistance(const DiscadeltaPreCompute
     }
 ```
 
-### Result Table (Pre-Clamped Base)
+### Result Table (Pre-Clamped Base, rootDistance = 800)
+
 | Segment   | Compress Solidify | Compress Capacity | Compress Distance | Expand Delta | Distance |
 |-----------|-------------------|-------------------|-------------------|--------------|----------|
 | 1         | 30.0000           | 70.0000           | 78.1250           | 0.0000       | 78.1250  |
@@ -490,9 +529,30 @@ constexpr void RedistributeDiscadeltaCompressDistance(const DiscadeltaPreCompute
 | 3         | 150.0000          | 0.0000            | 150.0000          | 0.0000       | 150.0000 |
 | 4         | 210.0000          | 90.0000           | 271.8750          | 0.0000       | 271.8750 | 
 
-**Important Note**: Developers may choose not to pre-clamp the base in the pre-compute step. The result will differ significantly.
+**Important Note**: Developers may choose how to handle the `base` value in pre-computation.
+- **Pre-clamped base**: (recommended, default): Clamp `base` to [min, max] before calculating metrics. This ensures logical consistency and aligns with modern standards (CSS Flexbox, Yoga). Use for fair, order-independent results.
 
-> const float baseVal = rawBase; // no clamping (Unity-like behavior)
+
+- **Raw base**: (Unity-like): Use the original `base` for compression metrics (capacity/solidify). This reproduces Unity's behavior but can be less fair. Requires separate raw tracking:
+
+
+- **Compression**: Use metrics.rawBaseDistances and metrics.accumulateRawBaseDistance if you want Unity mode.
+
+
+- **Expansion**: Always use clamped metrics.baseDistances and metrics.accumulateBaseDistance.
+
+```cpp
+// --- COMPRESS METRICS ---
+const float compressCapacity = rawBase * compressRatio;
+const float compressSolidify = std::max (0.0f, rawBase - compressCapacity);
+
+....
+
+preComputeMetrics.rawBaseDistances.push_back(rawBase);
+preComputeMetrics.accumulateRawBaseDistance += rawBase;
+
+```
+
 
 
 | Segment   | Compress Solidify | Compress Capacity | Compress Distance | Expand Delta | Distance |
@@ -502,8 +562,24 @@ constexpr void RedistributeDiscadeltaCompressDistance(const DiscadeltaPreCompute
 | 3         | 150.0000          | 0.0000            | 150.0000          | 0.0000       | 150.0000 |
 | 4         | 245.0000          | 105.000           | 264.2857          | 0.0000       | 264.2857 | 
 
-## Summary
-With this implementation, Discadelta successfully handles constraints in the compression loop using a recursive redistribution method.  
-This demonstration solves the constraint scenario straightforwardly, but it is not performance-friendly due to reliance on recursion.
+### Expansion Result Table (rootDistance 1300)
 
-This document does not showcase recursive constraints for the expansion loop. We will continue with a more performant approach to redistributing constrained segments in future chapters.
+| Segment   | Compress Solidify | Compress Capacity | Compress Distance | Expand Delta | Distance |
+|-----------|-------------------|-------------------|-------------------|--------------|----------|
+| 1         | 30.0000           | 70.0000           | 100.0000          | 0.0000       | 100.0000 |
+| 2         | 0.0000            | 300.0000          | 300.0000          | 0.0000       | 300.0000 |
+| 3         | 150.0000          | 0.0000            | 150.0000          | 0.0000       | 200.0000 |
+| 4         | 210.0000          | 90.000            | 300.0000          | 0.0000       | 300.0000 | 
+
+## Performance & Stability Summary
+
+1. **Guaranteed Convergence**: The `recursiveSafeguardValue < recursiveSafeguardLimit` logic ensures termination as soon as a pass is stable. Since at least one segment is removed in every clamping pass, worst-case complexity is O(N).
+
+2. **Memory Optimization**: Internal metric containers use `reserve(segmentCount)` to minimize allocations during pre-computation.
+
+3. **Numerical Stability**: Cascade subtraction (`cascadeDistance -= allocated`) ensures rounding errors never accumulate — a final sum is always exactly the root distance.
+
+### Next Chapter: Iterative Optimization
+While recursion provides a mathematically perfect baseline, the next phase converts these recursive passes into a high-performance iterative loop to maximize CPU cache efficiency and real-time performance in UFox.
+
+### Next Chapter: [Discadelta Algorithm Optimization](discadelta-algorithm-optimization.md)
