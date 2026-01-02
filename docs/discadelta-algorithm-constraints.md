@@ -1,4 +1,4 @@
-# Discadelta Algorithm Constraints 🦊 (Chapter 2)
+# Discadelta: Pre-compute & Scaling Pass Constraints 🦊 (Chapter 2)
 
 ## Overview
 The previous chapter implemented the core Discadelta algorithm: solving precision loss and handling underflow/overflow via **Compress Base Distance** and **Expand Delta**. However, in a real-world GUI or editor system, segments often have **min** and **max** boundaries.
@@ -565,4 +565,4 @@ preComputeMetrics.accumulateRawBaseDistance += rawBase;
 ### Next Chapter: Iterative Optimization
 While recursion provides a mathematically perfect baseline, the next phase converts these recursive passes into a high-performance iterative loop to maximize CPU cache efficiency and real-time performance in UFox.
 
-### Next Chapter: [Discadelta Algorithm Optimization](discadelta-algorithm-optimization.md)
+### Next Chapter: [Discadelta: Pre-compute & Scaling Pass Constraints Pass Optimization](discadelta-algorithm-optimization.md)

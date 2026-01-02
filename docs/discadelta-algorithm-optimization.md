@@ -1,4 +1,4 @@
-# Peak Discadelta 🦊 (Chapter 3)
+# Discadelta: Pre-compute & Scaling Pass Constraints Pass Optimization🦊 (Chapter 3)
 
 ## Overview
 The previous chapter introduced Recursive Redistribution for handling min/max constraints in compression, providing fair proportional allocation across unconstrained segments. While effective, recursion can introduce performance overhead in high-segment-count scenarios or real-time GUI updates.
@@ -409,4 +409,4 @@ However, in a high-performance engine, knowing the **size** isn't enough—we ne
 
 We will explore how to translate these resolved distances into world-space offsets and how the `size_t order` member allows us to swap or reorder segments in real-time without ever having to touch this scaling math again.
 
-### Next Chapter: [Discadelta Algorithm Dynamic Placing](discadelta-algorithm-dynamic-placing.md)
+### Next Chapter: [Discadelta: Dynamic Placing Pass](discadelta-algorithm-dynamic-placing.md)

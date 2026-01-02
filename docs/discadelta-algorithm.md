@@ -26,7 +26,7 @@ Discadelta doesn't just "calculate and draw." It uses a strictly decoupled 3-pas
   By processing segments based on their constraint priority, it ensures that "fair share" is maintained even when segments hit their min/max limits.
 
 
-* **Pass 3: Placing (The Builder)**: 
+* **Pass 3: Dynamic Placing (The Builder)**: 
   Once every segment knows its size, the Placing Pass translates those distances into world-space offsets (positions). 
   Because this is a separate pass, you can swap or reorder segments visually without ever needing to recalculate the complex scaling math.
 
@@ -433,4 +433,4 @@ int main()
 
 Chapter 1 establishes the foundation for static partitioning. By using the Cascade method, Discadelta ensures that no matter how complex the ratios are, the sum of segments will always equal the root distance exactly.
 
-### Next Chapter: [Discadelta Algorithm Constraints](discadelta-algorithm-constraints.md)
+### Next Chapter: [Discadelta: Pre-compute & Scaling Pass Constraints](discadelta-algorithm-constraints.md)
