@@ -16,33 +16,31 @@ export module ufox_engine;
 import ufox_lib;
 import ufox_graphic_device;
 import ufox_input;
-import ufox_geometry;
-import ufox_render;
-import ufox_gui;
+import ufox_geometry_core;
+import ufox_render_core;
+import ufox_gui_lib;
+import ufox_gui_core;
 import ufox_resource_manager;
+import ufox_discadelta_lib;
+import ufox_discadelta_core;
 
+using namespace ufox::geometry;
 
+void PrintTreeDebugWithOffset(const discadelta::RectSegmentContext& ctx, int indent = 0) noexcept {
+    std::string pad(indent * 4, ' ');
+    std::cout << pad << ctx.config.name
+              << " | w: " << ctx.content.width
+              << " | h: " << ctx.content.height
+              << " | x: " << ctx.content.x
+              << " | y: " << ctx.content.y
+              << "\n";
+
+    for (const auto* child : ctx.children) {
+        PrintTreeDebugWithOffset(*child, indent + 1);
+    }
+}
 
 export namespace ufox {
-    gpu::vulkan::GraphicDeviceCreateInfo CreateGraphicDeviceInfo() {
-        gpu::vulkan::GraphicDeviceCreateInfo createInfo{};
-        createInfo.appInfo.pApplicationName = "UFox";
-        createInfo.appInfo.applicationVersion = vk::makeVersion(1, 0, 0);
-        createInfo.appInfo.pEngineName = "UFox Engine";
-        createInfo.appInfo.engineVersion = vk::makeVersion(1, 0, 0);
-        createInfo.appInfo.apiVersion = vk::ApiVersion14;
-        createInfo.instanceExtensions = gpu::vulkan::GetInstanceExtensions();
-        createInfo.deviceExtensions = gpu::vulkan::GetDeviceExtensions();
-        createInfo.enableDynamicRendering = true;
-        createInfo.enableExtendedDynamicState = true;
-        createInfo.enableSynchronization2 = true;
-        createInfo.commandPoolCreateFlags = vk::CommandPoolCreateFlags{
-            vk::CommandPoolCreateFlagBits::eResetCommandBuffer |
-            vk::CommandPoolCreateFlagBits::eTransient
-        };
-
-        return createInfo;
-    }
 
     class UFoxEngine {
     public:
@@ -59,102 +57,18 @@ export namespace ufox {
             if (windowResource->swapchainResource) {
                 windowResource->swapchainResource->Clear();
             }
-            if (viewport && inputResource) {
-                geometry::UnbindEvents(*viewport,*inputResource);
-            }
+            // if (viewport && inputResource) {
+            //     geometry::UnbindEvents(*viewport,*inputResource);
+            // }
 
         }
 
+
+
         void Init() {
             InitializeGPU();
-            viewport.emplace(*windowResource);
-            viewpanel1.emplace(geometry::PanelAlignment::eRow,geometry::PickingMode::eIgnore);
-            viewpanel1->name = "root";
-            viewpanel2.emplace();
-            viewpanel2->name = "child [1]";
-            //viewpanel2->width = geometry::Length::Pixels(100);
-            viewpanel2->flexGlow = 0.0f;
-            viewpanel2->flexShrink = 0.0f;
-            //viewpanel2->resizerValue = 0.25f;
-            //viewpanel2->minWidth = geometry::Length::Pixels(100);
-            viewpanel2->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 0.0f, 1.0f});
-            viewpanel3.emplace(geometry::PanelAlignment::eColumn);
-            viewpanel3->name = "child [2]";
-            viewpanel3->resizerValue = 0.50f;
-            viewpanel3->flexGlow = 1.0f;
-            viewpanel3->flexShrink = 1.0f;
-            //viewpanel3->minWidth = geometry::Length::Pixels(100);
-            //viewpanel3->width = geometry::Length::Pixels(100);
-            viewpanel4.emplace();
-            viewpanel4->name = "child [3]";
-            viewpanel4->resizerValue = 0.75f;
-            viewpanel4->flexGlow = 0.0f;
-            viewpanel4->flexShrink = 0.0f;
-            //viewpanel4->width = geometry::Length::Pixels(100);
-            //viewpanel4->maxWidth = geometry::Length::Pixels(150);
-            viewpanel4->setBackgroundColor(vk::ClearColorValue{0.0f, 0.0f, 1.0f, 1.0f});
-            viewpanel5.emplace(geometry::PanelAlignment::eRow);
-            viewpanel5->name = "child [2]-[1]";
-            viewpanel5->resizerValue = 0.5f;
-            viewpanel5->setBackgroundColor(vk::ClearColorValue{0.0f, 1.0f, 0.0f, 1.0f});
-            viewpanel6.emplace();
-            viewpanel6->name = "child [2]-[2]";
-            viewpanel6->resizerValue = 0.5f;
-            viewpanel6->setBackgroundColor(vk::ClearColorValue{1.0f, 1.0f, 0.0f, 1.0f});
-            viewpanel7.emplace();
-            viewpanel7->name = "child [2]-[1]-[1]";
-            viewpanel7->resizerValue = 0.3f;
-            viewpanel7->flexShrink = 0.7f;
-            viewpanel7->flexGlow = 0.7f;
-            viewpanel7->width = geometry::Length::Pixels(200);
-            //viewpanel7->minWidth = geometry::Length::Pixels(100);
-            viewpanel7->maxWidth = geometry::Length::Pixels(100);
-            viewpanel7->setBackgroundColor(vk::ClearColorValue{1.0f, 0.0f, 1.0f, 1.0f});
-            viewpanel8.emplace();
-            viewpanel8->name = "child [2]-[1]-[2]";
-            viewpanel8->flexGlow = 1.0f;
-            viewpanel8->flexShrink = 1.0f;
-            viewpanel8->width = geometry::Length::Pixels(200);
-            viewpanel8->minWidth = geometry::Length::Pixels(300);
-            viewpanel8->resizerValue = 0.6f;
-            viewpanel8->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.5f, 1.0f});
-            viewpanel9.emplace();
-            viewpanel9->name = "child [2]-[1]-[3]";
-            viewpanel9->flexGlow = 2.0f;
-            viewpanel9->flexShrink = 0.0f;
-            viewpanel9->width = geometry::Length::Pixels(150);
-            viewpanel9->resizerValue = 0.5f;
-            viewpanel9->maxWidth = geometry::Length::Pixels(200);
-            viewpanel9->setBackgroundColor(vk::ClearColorValue{0.5f, 0.7f, 0.5f, 1.0f});
-            viewpanel10.emplace();
-            viewpanel10->name = "child [4]";
-            viewpanel10->resizerValue = 0.1f;
-            viewpanel10->flexGlow = 0.5f;
-            viewpanel10->flexShrink = 0.3f;
-            viewpanel10->width = geometry::Length::Pixels(350);
-            viewpanel10->maxWidth = geometry::Length::Pixels(300);
-            viewpanel10->setBackgroundColor(vk::ClearColorValue{0.5f, 0.5f, 0.7f, 1.0f});
 
 
-            viewport->panel = &*viewpanel1;
-            viewpanel1->resizerValue =0;
-            viewpanel1->add(&*viewpanel2);
-            viewpanel1->add(&*viewpanel3);
-            viewpanel1->add(&*viewpanel4);
-
-            viewpanel3->add(&*viewpanel6);
-            viewpanel3->add(&*viewpanel5);
-            viewpanel5->add(&*viewpanel7);
-            viewpanel5->add(&*viewpanel8);
-            viewpanel5->add(&*viewpanel9);
-            viewpanel5->add(&*viewpanel10);
-
-
-
-            int width = 0, height = 0;
-            windowResource->getExtent(width, height);
-            geometry::ResizingViewport(*viewport, width, height);
-            geometry::BindEvents(*viewport,*inputResource, *standardCursorResource);
 
         }
 
@@ -217,7 +131,7 @@ export namespace ufox {
         }
 
         void InitializeGPU() {
-            gpuCreateInfo = CreateGraphicDeviceInfo();
+            gpuCreateInfo = gpu::vulkan::CreateGraphicDeviceInfo();
 
             gpu.context.emplace();
             gpu.instance.emplace(gpu::vulkan::MakeInstance(gpu, gpuCreateInfo));
@@ -241,7 +155,7 @@ export namespace ufox {
             standardCursorResource.emplace(input::CreateStandardMouseCursor());
 
             std::vector<char> shaderCode = ReadFile("res/shaders/test.slang.spv");
-            guiResource.emplace(gui::MakeGuiResource(gpu, *windowResource->swapchainResource, shaderCode));
+            //guiResource.emplace(gui::MakeGuiResource(gpu, *windowResource->swapchainResource, shaderCode));
 
             resourceManager.emplace(gpu);
             resourceManager->SetRootPath("res/"); // Sets rootPath to "res/textures/"
@@ -361,10 +275,18 @@ export namespace ufox {
             frameResource->ContinueNextFrame();
         }
 
+        static vk::Rect2D ConvertDiscadeltaToVkRect(const discadelta::RectSegmentContext& context) {
+            auto x = static_cast<int>(context.content.x);
+            auto y = static_cast<int>(context.content.y);
+            auto width = static_cast<uint32_t>(context.content.width);
+            auto height = static_cast<uint32_t>(context.content.height);
+            return vk::Rect2D{{x,y}, {width, height}};
+        }
+
 
         void recordCommandBuffer(const vk::raii::CommandBuffer& cmb) const {
             std::array<vk::ClearValue, 2> clearValues{};
-            clearValues[0].color        = vk::ClearColorValue{0.2f, 0.2f, 0.2f,1.0f};
+            clearValues[0].color        = vk::ClearColorValue{0.0f, 0.0f, 0.0f,1.0f};
             clearValues[1].depthStencil = vk::ClearDepthStencilValue{0.0f, 0};
             vk::Extent2D extent = windowResource->extent;
             cmb.begin({});
@@ -402,21 +324,22 @@ export namespace ufox {
 
             cmb.endRendering();
 
-            vk::ClearColorValue c4 = viewport->hoveredPanel == &viewpanel4.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel4->clearColor;
-            vk::ClearColorValue c2 = viewport->hoveredPanel == &viewpanel2.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel2->clearColor;
-            vk::ClearColorValue c6 = viewport->hoveredPanel == &viewpanel6.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel6->clearColor;
-            vk::ClearColorValue c7 = viewport->hoveredPanel == &viewpanel7.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel7->clearColor;
-            vk::ClearColorValue c8 = viewport->hoveredPanel == &viewpanel8.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel8->clearColor;
-            vk::ClearColorValue c9 = viewport->hoveredPanel == &viewpanel9.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel9->clearColor;
-            vk::ClearColorValue c10 =viewport->hoveredPanel == &viewpanel10.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel10->clearColor;
-            vk::ClearColorValue bbc = vk::ClearColorValue{0.8f,0.8f,0.8f,1.0f};
-            render::RenderArea(cmb, *windowResource, viewpanel2->rect, c2);
-            render::RenderArea(cmb, *windowResource, viewpanel4->rect, c4);
-            render::RenderArea(cmb, *windowResource, viewpanel6->rect, c6);
-            render::RenderArea(cmb, *windowResource, viewpanel7->rect, c7);
-            render::RenderArea(cmb, *windowResource, viewpanel8->rect, c8);
-            render::RenderArea(cmb, *windowResource, viewpanel9->rect, c9);
-            render::RenderArea(cmb, *windowResource, viewpanel10->rect, c10);
+            // vk::ClearColorValue c4 = viewport->hoveredPanel == &viewpanel4.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel4->clearColor;
+            // vk::ClearColorValue c2 = viewport->hoveredPanel == &viewpanel2.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel2->clearColor;
+            // vk::ClearColorValue c6 = viewport->hoveredPanel == &viewpanel6.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel6->clearColor;
+            // vk::ClearColorValue c7 = viewport->hoveredPanel == &viewpanel7.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel7->clearColor;
+            // vk::ClearColorValue c8 = viewport->hoveredPanel == &viewpanel8.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel8->clearColor;
+            // vk::ClearColorValue c9 = viewport->hoveredPanel == &viewpanel9.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel9->clearColor;
+            // vk::ClearColorValue c10 =viewport->hoveredPanel == &viewpanel10.value()? vk::ClearColorValue{0.8f, 0.8f, 0.8f, 1.0f}: viewpanel10->clearColor;
+
+            // render::RenderArea(cmb, *windowResource, viewpanel2->rect, c2);
+            // render::RenderArea(cmb, *windowResource, viewpanel4->rect, c4);
+            // render::RenderArea(cmb, *windowResource, viewpanel6->rect, c6);
+            // render::RenderArea(cmb, *windowResource, viewpanel7->rect, c7);
+            // render::RenderArea(cmb, *windowResource, viewpanel8->rect, c8);
+            // render::RenderArea(cmb, *windowResource, viewpanel9->rect, c9);
+            // render::RenderArea(cmb, *windowResource, viewpanel10->rect, c10);
+
 
 
             gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(),
@@ -433,7 +356,6 @@ export namespace ufox {
                 SDL_GetWindowSize(win, &width, &height);
                 app->framebufferResized = true;
                 app->recreateSwapchain(width, height);
-                geometry::ResizingViewport(*app->viewport, width, height);
 
                 app->drawFrame();
             }
@@ -451,9 +373,9 @@ export namespace ufox {
                         if (windowResource->swapchainResource) {
                             windowResource->swapchainResource->Clear();
                         }
-                        if (viewport && inputResource) {
-                            geometry::UnbindEvents(*viewport,*inputResource);
-                        }
+                        // if (viewport && inputResource) {
+                        //     geometry::UnbindEvents(*viewport,*inputResource);
+                        // }
                         running = false;
                         SDL_RemoveEventWatch(framebufferResizeCallback, this);
                         break;
@@ -508,7 +430,7 @@ export namespace ufox {
             auto app = static_cast<UFoxEngine*>(glfwGetWindowUserPointer(window));
             app->framebufferResized = true;
             app->recreateSwapchain(width, height);
-            geometry::ResizingViewport(*app->viewport, width, height);
+            gui::UpdateViewportSize(app->vp, static_cast<float>(width), static_cast<float>(height));
             app->drawFrame();
         }
 
@@ -550,19 +472,13 @@ export namespace ufox {
         std::optional<gpu::vulkan::FrameResource>       frameResource{};
         std::optional<input::InputResource>             inputResource{};
         std::optional<input::StandardCursorResource>    standardCursorResource{};
-        std::optional<gui::GUIResource>                 guiResource{};
+        std::optional<gui::RenderResource>                 guiResource{};
         std::optional<ResourceManager>                  resourceManager{};
-        std::optional<geometry::Viewport>               viewport{};
-        std::optional<geometry::Viewpanel>              viewpanel1{};
-        std::optional<geometry::Viewpanel>              viewpanel2{};
-        std::optional<geometry::Viewpanel>              viewpanel3{};
-        std::optional<geometry::Viewpanel>              viewpanel4{};
-        std::optional<geometry::Viewpanel>              viewpanel5{};
-        std::optional<geometry::Viewpanel>              viewpanel6{};
-        std::optional<geometry::Viewpanel>              viewpanel7{};
-        std::optional<geometry::Viewpanel>              viewpanel8{};
-        std::optional<geometry::Viewpanel>              viewpanel9{};
-        std::optional<geometry::Viewpanel>              viewpanel10{};
+
+
+
+        discadelta::RectSegmentContextHandler rect1{nullptr, &discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
+        discadelta::RectSegmentContextHandler rect2{nullptr, &discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
 
 
         bool framebufferResized = false;

@@ -1,56 +1,86 @@
 module;
 
-#include <vulkan/vulkan_raii.hpp>
-#include <functional>
-#include <string>
-#include <vector>
+
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <ktx.h>
+#include <string>
+#include <vector>
+#include <vulkan/vulkan_raii.hpp>
+#include <iostream>
+#include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_surface.h>
+#include <SDL3_image/SDL_image.h>
 
-export module ufox_gui;
+
+export module ufox_gui_core;
 
 import ufox_lib;
+import ufox_engine_lib;
+import ufox_engine_core;
 import ufox_graphic_device;
-import ufox_geometry;
+import ufox_geometry_core;
+import ufox_geometry_lib;
+import ufox_gui_lib;
+import ufox_discadelta_lib;
+import ufox_discadelta_core;
+import ufox_render_lib;
+import ufox_render_core;
+
+
+using namespace ufox::geometry;
+
+
 
 export namespace ufox::gui {
-    constexpr void MakeDescriptorPool(const gpu::vulkan::GPUResources& gpu, const uint32_t& minImageCount, GUIResource& guiResource) {
-        auto pool = gpu::vulkan::MakeDescriptorPool(gpu, {{vk::DescriptorType::eUniformBuffer, minImageCount}});
 
-        guiResource.descriptorPool.emplace(std::move(pool));
+    VisualElement MakeVisualElement(const std::string& name) {
+        VisualElement visualElement{};
+        visualElement.rect = discadelta::CreateSegmentContext<discadelta::RectSegmentContext, discadelta::RectSegmentCreateInfo>({
+            .name          = name,
+            .width         = 0.0f,
+            .widthMin      = 0.0f,
+            .widthMax      = std::numeric_limits<float>::max(),
+            .height        = std::numeric_limits<float>::max(),
+            .heightMin     = 0.0f,
+            .heightMax     = std::numeric_limits<float>::max(),
+            .direction     = discadelta::FlexDirection::Row,
+            .flexCompress  = 1.0f,
+            .flexExpand    = 1.0f,
+            .order         = 0
+            });
+        return visualElement;
     }
 
-    constexpr void MakeDescriptorSetLayout(const gpu::vulkan::GPUResources& gpu, GUIResource& guiResource) {
+    void MakeDescriptorSetLayout(const gpu::vulkan::GPUResources& gpu, RenderResource& guiResource) {
         auto descriptorLayout = gpu::vulkan::MakeDescriptorSetLayout(gpu,
-        {{
-            vk::DescriptorType::eUniformBuffer,
-            1,
-            vk::ShaderStageFlagBits::eVertex,
-            nullptr
-        }});
+        {
+            {vk::DescriptorType::eUniformBuffer,1,vk::ShaderStageFlagBits::eVertex,nullptr},
+            {vk::DescriptorType::eCombinedImageSampler,1,vk::ShaderStageFlagBits::eFragment,nullptr}
+        });
 
         guiResource.descriptorSetLayout.emplace(std::move(descriptorLayout));
     }
 
-    constexpr void MakePipelineLayout(const gpu::vulkan::GPUResources& gpu, GUIResource& guiResource) {
+    void MakePipelineLayout(const gpu::vulkan::GPUResources& gpu, RenderResource& renderResource) {
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo
-          .setSetLayoutCount(1)
-          .setPSetLayouts(&*guiResource.descriptorSetLayout.value());
+            .setSetLayoutCount(1)
+            .setPSetLayouts(&*renderResource.descriptorSetLayout.value())
+            .setPushConstantRangeCount(0);
 
-        guiResource.pipelineLayout.emplace(*gpu.device, pipelineLayoutInfo);
+        renderResource.pipelineLayout.emplace(*gpu.device, pipelineLayoutInfo);
     }
 
-    void MakePipeline(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode, GUIResource& guiResource) {
+    void MakePipeline(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode, RenderResource& renderResource) {
         vk::raii::ShaderModule shaderModule = gpu::vulkan::CreateShaderModule(gpu ,shaderCode);
         std::array stages = {
             vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eVertex, *shaderModule, "vertMain" },
             vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eFragment, *shaderModule, "fragMain" }
         };
 
-        std::array bindingDescription{geometry::Vertex::getBindingDescription(0)};
-        auto attributeDescriptions = geometry::Vertex::getAttributeDescriptions(0);
+        std::array bindingDescription{Vertex::getBindingDescription()};
+        auto attributeDescriptions = Vertex::getAttributeDescriptions();
 
         vk::PipelineVertexInputStateCreateInfo vertexInput = gpu::vulkan::MakePipeVertexInputState(bindingDescription, attributeDescriptions);
 
@@ -80,7 +110,7 @@ export namespace ufox::gui {
         blendAttachment
             .setBlendEnable(true)
             .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha) // Use alpha for color
-            .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha) // 1 - alpha for background
+            .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha) // 1 - alpha for a background
             .setColorBlendOp(vk::BlendOp::eAdd) // Add blended colors
             .setSrcAlphaBlendFactor(vk::BlendFactor::eOne) // Preserve alpha
             .setDstAlphaBlendFactor(vk::BlendFactor::eZero)
@@ -124,73 +154,238 @@ export namespace ufox::gui {
             .setPColorBlendState(&blendState)
             .setPDynamicState(&dynamicState)
             .setPDepthStencilState(&depthStencil)
-            .setLayout(*guiResource.pipelineLayout.value())
+            .setLayout(*renderResource.pipelineLayout.value())
             .setRenderPass(nullptr)
             .setSubpass(0)
             .setPNext(&renderingInfo);
 
-        guiResource.pipelineCache.emplace(*gpu.device, vk::PipelineCacheCreateInfo());
-        guiResource.pipeline.emplace(*gpu.device, *guiResource.pipelineCache, pipelineInfo);
+        renderResource.pipelineCache.emplace(*gpu.device, vk::PipelineCacheCreateInfo());
+        renderResource.pipeline.emplace(*gpu.device, *renderResource.pipelineCache, pipelineInfo);
     }
 
-    constexpr GUIElement MakeGUIElement(const gpu::vulkan::GPUResources& gpu, const GUIResource& guiResource, const uint32_t& minImageCount) {
-        GUIElement guiElement{};
+    void MakeDescriptorPool(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, RenderResource& renderResource) {
+        uint32_t imageCount = swapchain.getImageCount();
+        std::array poolSizes {
+            vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, imageCount),
+            vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, imageCount)
+            };
+        vk::DescriptorPoolCreateInfo poolInfo{};
+        poolInfo
+            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+            .setMaxSets(imageCount)
+            .setPoolSizes(poolSizes);
+        renderResource.descriptorPool.emplace(*gpu.device, poolInfo);
+    }
 
-        guiElement.uniformBuffers.clear();
-        guiElement.uniformBuffersMapped.clear();
-
-        guiElement.uniformBuffers.reserve(minImageCount);
-        guiElement.uniformBuffersMapped.reserve(minImageCount);
-
-        guiElement.descriptorSets.clear();
-
-        const std::vector<vk::DescriptorSetLayout> layouts(minImageCount, *guiResource.descriptorSetLayout);
+    void MakeDescriptorSets(const gpu::vulkan::GPUResources& gpu, RenderResource& renderResource, const render::Texture2D & texture) {
+        std::vector<vk::DescriptorSetLayout> layouts(renderResource.uniformBuffers.size(), *renderResource.descriptorSetLayout);
         vk::DescriptorSetAllocateInfo allocInfo{};
         allocInfo
-            .setDescriptorPool( *guiResource.descriptorPool )
+            .setDescriptorPool( *renderResource.descriptorPool )
             .setDescriptorSetCount( static_cast<uint32_t>( layouts.size() ) )
             .setPSetLayouts( layouts.data() );
+        renderResource.descriptorSets.clear();
 
-        guiElement.descriptorSets = gpu.device->allocateDescriptorSets(allocInfo);
+        auto sets = gpu.device->allocateDescriptorSets(allocInfo);
 
-        for (size_t i = 0; i < minImageCount; i++) {
-            guiElement.uniformBuffers.push_back(gpu::vulkan::MakeBuffer(gpu, gpu::vulkan::UBO_BUFFER_SIZE, vk::BufferUsageFlagBits::eUniformBuffer
-                                                        , vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent));
-            guiElement.uniformBuffersMapped.push_back( guiElement.uniformBuffers[i].memory->mapMemory(0, gpu::vulkan::UBO_BUFFER_SIZE));
-
+        for (size_t i =0; i < renderResource.uniformBuffers.size(); i++) {
             vk::DescriptorBufferInfo bufferInfo{};
             bufferInfo
-                .setBuffer(*guiElement.uniformBuffers[i].data)
+                .setBuffer(*renderResource.uniformBuffers[i].data)
                 .setOffset(0)
-                .setRange(gpu::vulkan::UBO_BUFFER_SIZE);
+                .setRange(sizeof(engine::UniformBufferObject));
 
-            vk::WriteDescriptorSet write{};
-            write.setDstSet(guiElement.descriptorSets[i])
+            vk::DescriptorImageInfo imageInfo{};
+            imageInfo
+            .setSampler(*texture.sampler)
+            .setImageView(*texture.view)
+            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+
+            std::array<vk::WriteDescriptorSet, 2> write{};
+            write[0].setDstSet(*sets[i])
                     .setDstBinding(0)
                     .setDstArrayElement(0)
                     .setDescriptorType(vk::DescriptorType::eUniformBuffer)
                     .setDescriptorCount(1)
                     .setPBufferInfo(&bufferInfo);
+            write[1].setDstSet(*sets[i])
+                    .setDstBinding(1)
+                    .setDstArrayElement(0)
+                    .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                    .setDescriptorCount(1)
+                    .setPImageInfo(&imageInfo);
+            renderResource.descriptorSets.push_back(std::move(sets[i]));
+            gpu.device->updateDescriptorSets(write, {});
+        }
+    }
 
-            gpu.device->updateDescriptorSets(write, nullptr);
+    class  Document {
+    public:
+        explicit Document(engine::UFoxWindow* window_ = nullptr, MeshManager* meshManager_ = nullptr) : window(window_) , meshManager(meshManager_) {
+            if (window_ != nullptr) {
+                window->addSystemInitEventHandlers([](void* user) { static_cast<Document*>(user)->init();}, this);
+                window->addSystemInitEventHandlers([](void* user) { static_cast<Document*>(user)->initResource();}, this);
+                window->addResizeEventHandlers([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->updateViewportSize(w,h);}, this);
+                window->addUpdateBufferEventHandlers([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
+                window->addDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex,
+                        const windowing::WindowResource& winResource, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource);}, this);
+            }
         }
 
-        return guiElement;
-    }
+        ~Document() {
+            if (window != nullptr) {
+                window->removeSystemInitEventHandlers(this);
+                window->removeResourceInitEventHandlers(this);
+                window->removeOnResizeEventHandlers(this);
+                window->removeUpdateBufferEventHandlers(this);
+                window->removeDrawCanvasEventHandlers(this);
+                window = nullptr;
+            }
 
-    constexpr GUIResource MakeGuiResource(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode) {
-        GUIResource guiResource{};
+            if (meshManager != nullptr) {
+                meshManager->unuseMesh(meshUser, true);
+                meshManager = nullptr;
+            }
+        }
 
-        MakeDescriptorSetLayout(gpu, guiResource);
-        MakePipelineLayout(gpu, guiResource);
-        MakePipeline(gpu, swapchain, shaderCode, guiResource);
-        guiResource.meshResource.emplace(geometry::CreateDefaultQuadMesh(gpu));
-        MakeDescriptorPool(gpu, swapchain.getImageCount(), guiResource);
-        guiResource.elements.emplace(MakeGUIElement(gpu, guiResource, swapchain.getImageCount()));
+        void init() {
+            rootPanel.rect = discadelta::CreateSegmentContext<discadelta::RectSegmentContext, discadelta::RectSegmentCreateInfo>({
+                            .name          = "gui-root-rect",
+                            .width         = 0.0f,
+                            .widthMin      = 0.0f,
+                            .widthMax      = 0.0f,
+                            .height        = 0.0f,
+                            .heightMin     = 0.0f,
+                            .heightMax     = std::numeric_limits<float>::max(),
+                            .direction     = discadelta::FlexDirection::Row,
+                            .flexCompress  = 1.0f,
+                            .flexExpand    = 1.0f,
+                            .order         = 0
+                            });
+
+            rootPanel.rootElement = MakeVisualElement("root-panel-element");
+
+            discadelta::Link(*rootPanel.rect.get(), *rootPanel.rootElement.rect.get());
+
+            int w,h = 0;
+            window->windowResource->getExtent(w,h);
+
+            updateViewportSize(static_cast<float>(w), static_cast<float>(h));
 
 
-        return guiResource;
-    }
+            debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
+        }
+
+        void initResource() {
+            if (meshManager != nullptr){
+                meshUser.id = CreateMeshContent(*meshManager, RECT_MESH_NAME, RectVertices, RectIndices, engine::ContentSourceType::eBuiltIn, "GUI");
+                if (meshUser.id != nullptr) meshManager->useMesh(meshUser);
+            }
+
+            const gpu::vulkan::GPUResources& gpu = window->gpuResource;
+            remakeUniformResource(gpu);
+            const std::vector<char> shaderCode = engine::UFoxWindow::ReadFile("res/shaders/test.slang.spv");
+            MakeDescriptorSetLayout(gpu, renderResource);
+            MakePipelineLayout(gpu, renderResource);
+            MakePipeline(gpu, *window->windowResource->swapchainResource, shaderCode, renderResource);
+
+            textureImage = render::CreateTexture(window->gpuResource, "res/textures/rgb.png");
+            render::CreateTextureImageView(gpu,*textureImage);
+            render::createTextureSampler(gpu, *textureImage);
+
+            MakeDescriptorPool(gpu, *window->windowResource->swapchainResource, renderResource);
+            MakeDescriptorSets(gpu, renderResource, *textureImage);
+
+            debug::log(debug::LogLevel::eInfo, "GUI Document InitResource : Susses");
+        }
+
+
+        Viewpanel rootPanel{};
+
+    private:
+        engine::UFoxWindow* window = nullptr;
+        MeshManager* meshManager = nullptr;
+        MeshUser meshUser{};
+
+        RenderResource renderResource{};
+        std::unique_ptr<render::Texture2D> textureImage{};
+
+        void remakeUniformResource(const gpu::vulkan::GPUResources& gpu) {
+            const uint32_t imageCount = window->getImageCount();
+
+            renderResource.uniformBuffers.clear();
+            renderResource.uniformBuffersMapped.clear();
+            renderResource.uniformBuffers.reserve(imageCount);
+            renderResource.uniformBuffersMapped.reserve(imageCount);
+
+            for (uint32_t i = 0; i < imageCount; i++) {
+                vk::DeviceSize bufferSize = sizeof(engine::UniformBufferObject);
+                gpu::vulkan::Buffer buffer{};
+                gpu::vulkan::MakeBuffer(buffer,gpu, bufferSize , vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+                renderResource.uniformBuffers.push_back(std::move(buffer));
+                renderResource.uniformBuffersMapped.push_back(renderResource.uniformBuffers.back().memory->mapMemory(0, bufferSize));
+            }
+        }
+
+        void updateViewportSize(const float& width, const float& height) const {
+            discadelta::RectSegmentContext* rect = rootPanel.rect.get();
+            if (rect == nullptr) return;
+            discadelta::UpdateSegments(*rect, width, height, true);
+        }
+
+        void updateUniformBuffer(const uint32_t& currentImage) const {
+            engine::UniformBufferObject ubo{};
+            const discadelta::RectSegment& segment = rootPanel.rootElement.rect->content;
+            int w,h = 0;
+            window->windowResource->getExtent(w,h);
+            ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(00.0f, 00.0f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(segment.width, segment.height, 1.0f));
+            ubo.view = glm::mat4(1.0f);
+            ubo.proj = glm::ortho(0.0f, static_cast<float>(w),0.0f, static_cast<float>(h),-1.0f, 1.0f);
+
+            memcpy(renderResource.uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+        }
+
+        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource) const {
+            int height, width;
+
+            if (winResource.getExtent(width, height)) return;
+
+            const vk::Rect2D rect{{0, 0}, {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}};
+            vk::ClearColorValue clearColor{1.0f, 0.5f, 0.3f, 1.0f};
+
+            vk::RenderingAttachmentInfo colorAttachment{};
+            colorAttachment.setImageView(winResource.swapchainResource->getCurrentImageView())
+                           .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+                           .setLoadOp(vk::AttachmentLoadOp::eClear)
+                           .setStoreOp(vk::AttachmentStoreOp::eStore)
+                           .setClearValue(clearColor);
+
+            vk::RenderingInfo renderingInfo{};
+            renderingInfo.setRenderArea(rect)
+                         .setLayerCount(1)
+                         .setColorAttachmentCount(1)
+                         .setPColorAttachments(&colorAttachment);
+            cmb.beginRendering(renderingInfo);
+
+            cmb.bindPipeline(vk::PipelineBindPoint::eGraphics, *renderResource.pipeline);
+
+            cmb.setViewport(0, vk::Viewport{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
+            cmb.setScissor(0, rect);
+            cmb.setCullMode(vk::CullModeFlagBits::eNone);
+            cmb.setFrontFace(vk::FrontFace::eClockwise);
+            cmb.setPrimitiveTopology(vk::PrimitiveTopology::eTriangleList);
+
+            vk::Buffer vertexBuffers[] = {*meshUser.mesh->vertexBuffer.data};
+            vk::DeviceSize offsets[] = {0};
+            cmb.bindVertexBuffers(0, vertexBuffers, offsets);
+            cmb.bindIndexBuffer(*meshUser.mesh->indexBuffer.data, 0, vk::IndexType::eUint16);
+
+            cmb.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *renderResource.pipelineLayout, 0, *renderResource.descriptorSets[imageIndex], nullptr);
+            cmb.drawIndexed(std::size(RectIndices), 1, 0, 0, 0);
+
+            cmb.endRendering();
+        }
+    };
 }
 
 //legacy
@@ -457,53 +652,7 @@ export namespace ufox::gui {
 //
 //
 //
-//         // void CreateTextureImage(const vk::raii::CommandBuffer& cmb) {
-//         //     // Load KTX2 texture instead of using stb_image
-//         //     ktxTexture* kTexture;
-//         //     KTX_error_code result = ktxTexture_CreateFromNamedFile(
-//         //         "res/textures/rgb.png",
-//         //         KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-//         //         &kTexture);
-//         //
-//         //     if (result != KTX_SUCCESS) {
-//         //         throw std::runtime_error("failed to load ktx texture image!");
-//         //     }
-//         //
-//         //     // Get texture dimensions and data
-//         //     uint32_t texWidth = kTexture->baseWidth;
-//         //     uint32_t texHeight = kTexture->baseHeight;
-//         //     ktx_size_t imageSize = ktxTexture_GetImageSize(kTexture, 0);
-//         //     ktx_uint8_t* ktxTextureData = ktxTexture_GetData(kTexture);
-//         //
-//         //     // Create staging buffer
-//         //     gpu::vulkan::Buffer stagingBuffer(gpu, imageSize, vk::BufferUsageFlagBits::eTransferSrc);
-//         //
-//         //     // Copy texture data to staging buffer
-//         //     auto pData = static_cast<uint8_t *>( stagingBuffer.memory->mapMemory( 0, imageSize ) );
-//         //     memcpy( pData, ktxTextureData, imageSize );
-//         //     stagingBuffer.memory->unmapMemory();
-//         //
-//         //     // Determine the Vulkan format from KTX format
-//         //     vk::Format textureFormat = vk::Format::eR8G8B8A8Srgb; // Default format, should be determined from KTX metadata
-//         //
-//         //     // Create the texture image
-//         //     textureImage.emplace(gpu, vk::Extent3D{texWidth,texHeight,1}, textureFormat, vk::ImageTiling::eOptimal,
-//         //         vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal);
-//         //
-//         //     // Copy data from staging buffer to texture image
-//         //     gpu::vulkan::SetImageLayout(cmb, *textureImage, textureFormat, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-//         //     gpu::vulkan::CopyBufferToImage(gpu,stagingBuffer, *textureImage, {texWidth, texHeight, 1});
-//         //     gpu::vulkan::SetImageLayout(cmb, *textureImage, textureFormat, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
-//         //
-//         //
-//         //
-//         //     // Cleanup KTX resources
-//         //     ktxTexture_Destroy(kTexture);
-//         // }
-//
-//         void CreateTextureImageView() {
-//             gpu::vulkan::CreateImageView(gpu, *textureImage);
-//         }
+
 //
 //         const gpu::vulkan::GPUResources&                gpu;
 //         const uint32_t                                  minImageCount;

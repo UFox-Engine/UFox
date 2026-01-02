@@ -43,16 +43,19 @@ file(DOWNLOAD
 include(${CPM_DOWNLOAD_LOCATION})
 
 
-CPMAddPackage(NAME SDL3 GITHUB_REPOSITORY libsdl-org/SDL GIT_TAG release-3.2.24 OPTIONS "SDL_VULKAN ON" "SDL_STATIC OFF")
+CPMAddPackage(NAME SDL3 GITHUB_REPOSITORY libsdl-org/SDL GIT_TAG release-3.4.2 OPTIONS "SDL_VULKAN ON" "SDL_STATIC OFF")
 CPMAddPackage(NAME glfw GITHUB_REPOSITORY glfw/glfw GIT_TAG 3.4 OPTIONS "GLFW_BUILD_TESTS OFF" "GLFW_BUILD_EXAMPLES OFF" "GLFW_BUILD_DOCS OFF")
 CPMAddPackage(NAME Vulkan-Headers GITHUB_REPOSITORY KhronosGroup/Vulkan-Headers GIT_TAG v1.4.328)
-CPMAddPackage(NAME glm GITHUB_REPOSITORY g-truc/glm GIT_TAG 1.0.1)
-CPMAddPackage(NAME ktx GITHUB_REPOSITORY KhronosGroup/KTX-Software GIT_TAG v4.4.2 OPTIONS "KTX_FEATURE_TOOLS OFF" "KTX_FEATURE_TESTS OFF")
+CPMAddPackage(NAME glm GITHUB_REPOSITORY g-truc/glm GIT_TAG 1.0.3)
+CPMAddPackage(NAME ktx GITHUB_REPOSITORY KhronosGroup/KTX-Software GIT_TAG v4.4.2 OPTIONS "KTX_FEATURE_TOOLS ON" "KTX_FEATURE_TESTS OFF")
 CPMAddPackage(NAME nlohmann_json VERSION 3.12.0
         # the git repo is incredibly large, so we download the archived include directory
         URL https://github.com/nlohmann/json/releases/download/v3.12.0/include.zip
         URL_HASH SHA256=b8cb0ef2dd7f57f18933997c9934bb1fa962594f701cd5a8d3c2c80541559372
 )
+CPMAddPackage(NAME Discadelta GITHUB_REPOSITORY UFox-Engine/Discadelta GIT_TAG 1.2.6 OPTIONS "DISCADELTA_SAMPLES OFF")
+CPMAddPackage(NAME SDL3_image GITHUB_REPOSITORY libsdl-org/SDL_image GIT_TAG release-3.4.0)
+
 
 if (nlohmann_json_ADDED)
     add_library(nlohmann_json INTERFACE IMPORTED)
@@ -68,7 +71,13 @@ find_package(Freetype REQUIRED)
 # Enable USE_SDL define
 option(USE_SDL "Enable SDL3 support" ON)
 
-
+add_library(Discadelta-module)
+target_sources(Discadelta-module
+        PUBLIC
+        FILE_SET CXX_MODULES
+        BASE_DIRS ${Discadelta_SOURCE_DIR}
+        FILES ${Discadelta_SOURCE_DIR}/src/ufox_discadelta_lib.cppm ${Discadelta_SOURCE_DIR}/src/ufox_discadelta_core.cppm
+)
 
 add_library(glm-module)
 target_sources(glm-module
@@ -84,11 +93,17 @@ target_link_libraries(glm-module
         #glm::glm # One or the other
 )
 
+target_link_libraries(Discadelta-module PUBLIC Vulkan-Headers)
+target_compile_definitions(Discadelta-module PUBLIC HAS_VULKAN=1)
+
+
 set(LIBS)
-list(APPEND LIBS SDL3::SDL3 glfw Vulkan-Headers glm-module Freetype::Freetype ktx nlohmann_json)
+list(APPEND LIBS Vulkan-Headers Freetype::Freetype ktx nlohmann_json Discadelta-module glfw glm-module SDL3_image::SDL3_image SDL3::SDL3)
+
 
 
 add_executable(UFoxEngine)
+
 
 # Regular sources
 target_sources(UFoxEngine
@@ -97,29 +112,40 @@ target_sources(UFoxEngine
 )
 
 
+add_library(UFox-modules)
+target_sources(UFox-modules
+        PUBLIC
+        FILE_SET CXX_MODULES TYPE CXX_MODULES
+        FILES
+        src/ufox_Lib.cppm
+        src/ufox_graphic_device.cppm
+        src/ufox_input.cppm
+        src/ufox_engine_lib.cppm
+        src/ufox_engine_core.cppm
+        src/ufox_geometry_lib.cppm
+        src/ufox_geometry_core.cppm
+        src/ufox_render_lib.cppm
+        src/ufox_render_core.cppm
+        src/ufox_gui_lib.cppm
+        src/ufox_gui_core.cppm
+        src/ufox_engine.cppm
+        src/ufox_resource_manager.cppm
+)
+
+target_link_libraries(UFox-modules PRIVATE ${LIBS})
+
 # Add USE_SDL define if enabled
 if(USE_SDL)
+    target_compile_definitions(UFox-modules PRIVATE USE_SDL=1)
     target_compile_definitions(UFoxEngine PRIVATE USE_SDL=1)
     message(STATUS "Enable SDL3 support")
 endif()
 
-# Explicitly declare module interface files
-target_sources(UFoxEngine
-        PRIVATE
-        FILE_SET cxx_modules TYPE CXX_MODULES FILES
-        src/hello_world.cppm
-        src/ufox_Lib.cppm
-        src/ufox_graphic_device.cppm
-        src/ufox_input.cppm
-        src/ufox_geometry.cppm
-        src/ufox_render.cppm
-        src/ufox_resource_manager.cppm
-        src/ufox_gui.cppm
-        src/ufox_engine.cppm
-)
-
 # Link everything
-target_link_libraries(UFoxEngine PRIVATE ${LIBS})
+target_link_libraries(UFoxEngine PRIVATE ${LIBS} UFox-modules)
+
+
+
 
 find_program(GLSL_VALIDATOR glslangValidator HINTS $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 find_program(SLANGC_EXECUTABLE slangc HINTS $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)

@@ -30,6 +30,8 @@ module;
 
 #include <SDL3/SDL_vulkan.h>
 
+#include <SDL3_image/SDL_image.h>
+
 #else
 
 #include <GLFW/glfw3.h>
@@ -388,12 +390,7 @@ export namespace ufox {
             return typeIndex;
         }
 
-        vk::raii::DeviceMemory AllocateDeviceMemory( vk::raii::Device const & device, vk::PhysicalDeviceMemoryProperties const & memoryProperties,
-         vk::MemoryRequirements const &  memoryRequirements, vk::MemoryPropertyFlags memoryPropertyFlags ){
-            uint32_t               memoryTypeIndex = FindMemoryType( memoryProperties, memoryRequirements.memoryTypeBits, memoryPropertyFlags );
-            vk::MemoryAllocateInfo memoryAllocateInfo( memoryRequirements.size, memoryTypeIndex );
-            return {device, memoryAllocateInfo};
-        }
+
 
         struct PhysicalDeviceRequirements {
             static constexpr uint32_t MINIMUM_API_VERSION = vk::ApiVersion14;
@@ -526,8 +523,17 @@ export namespace ufox {
         };
 
         struct Buffer {
-            std::optional<vk::raii::Buffer>             data{};
             std::optional<vk::raii::DeviceMemory>       memory{};
+            std::optional<vk::raii::Buffer>             data{};
+
+            [[nodiscard]] bool isDataEmpty() const {
+                return !data.has_value();
+            }
+
+            void clear() {
+                memory.reset();
+                data.reset();
+            }
         };
 
         struct RemappableBuffer {
@@ -536,8 +542,10 @@ export namespace ufox {
         };
 
         struct TextureImage {
-            TextureImage(vk::raii::PhysicalDevice const &  physicalDevice,
-                  vk::raii::Device const &          device,
+
+            TextureImage() = default;
+
+            TextureImage(const GPUResources& gpu,
                   uint32_t width, uint32_t          height,
                   vk::Format format, vk::ImageTiling tiling,
                   vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties, vk::SharingMode shareMode = vk::SharingMode::eExclusive) {
@@ -554,7 +562,7 @@ export namespace ufox {
                     .setUsage(usage)
                     .setSharingMode(shareMode);
 
-                data.emplace(device, imageInfo);
+                data.emplace(gpu.device.value(), imageInfo);
 
 
                 vk::MemoryRequirements memoryRequirements = data->getMemoryRequirements();
@@ -565,17 +573,13 @@ export namespace ufox {
 
                     .setAllocationSize(memoryRequirements.size)
 
-                    .setMemoryTypeIndex(FindMemoryType(physicalDevice.getMemoryProperties(), memoryRequirements.memoryTypeBits, properties));
+                    .setMemoryTypeIndex(FindMemoryType(gpu.physicalDevice.value().getMemoryProperties(), memoryRequirements.memoryTypeBits, properties));
 
-                memory.emplace(device, allocInfo);
+                memory.emplace(gpu.device.value(), allocInfo);
 
                 data->bindMemory(*memory, 0);
             }
 
-            TextureImage(const GPUResources& gpu, uint32_t width, uint32_t height, vk::Format format,
-                vk::ImageTiling tiling, vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties,
-                vk::SharingMode shareMode = vk::SharingMode::eExclusive) :
-                TextureImage(gpu.physicalDevice.value(), gpu.device.value(), width, height, format, tiling, usage, properties, shareMode){}
 
             ~TextureImage() = default;
 
@@ -654,7 +658,7 @@ export namespace ufox {
                 glfwGetFramebufferSize(handle.get(), &width, &height);
 #endif
 
-                return width == 0 || height == 0;
+                return height < 1 || width < 1;
             }
         };
 
@@ -971,307 +975,6 @@ export namespace ufox {
         };
     }
 
-    namespace geometry {
-        enum class PanelAlignment { eRow, eColumn };
-        enum class PickingMode    { ePosition, eIgnore };
-        enum class ScalingMode    { eFlex, eFixed };
-
-        constexpr uint32_t RESIZER_THICKNESS = 12;
-        constexpr int32_t RESIZER_OFFSET = 6;
-        constexpr int RESIZER_SNAP_GRID = 4;
-
-        struct UniformBufferObject {
-            glm::mat4           model{};
-            glm::mat4           view{};
-            glm::mat4           proj{};
-        };
-
-    struct Length {
-        enum class Unit { Pixel, Percent };
-
-        std::optional<Unit> unit = std::nullopt;  // nullopt = auto (default stretch)
-        float value = 0.0f;                       // 0.0f + nullopt = auto (fill available/parent)
-
-        constexpr Length() noexcept = default;    // auto: resolves to full remain/parent (universal default)
-        constexpr Length(float v, Unit u) noexcept : unit(u), value(v) {}
-
-        // Factories
-        static constexpr Length Pixels(float v) noexcept { return {v, Unit::Pixel}; }
-        static constexpr Length Percent(float v) noexcept { return {v, Unit::Percent}; }
-
-        // Auto sentinel (default ctor alias)
-        static constexpr Length Auto() noexcept { return {}; }  // Explicit "stretch to fit"
-
-        // Queries
-        [[nodiscard]] constexpr bool isPixel() const noexcept { return unit == Unit::Pixel; }
-        [[nodiscard]] constexpr bool isPercent() const noexcept { return unit == Unit::Percent; }
-        [[nodiscard]] constexpr bool isAuto() const noexcept { return !unit.has_value() && value == 0.0f; }  // auto default
-        [[nodiscard]] constexpr bool hasUnit() const noexcept { return unit.has_value(); }
-    };
-
-    // Literals (renamed: _fill → _auto)
-    constexpr Length operator""_px(unsigned long long v) noexcept { return Length::Pixels(static_cast<float>(v)); }
-    constexpr Length operator""_px(long double v) noexcept { return Length::Pixels(static_cast<float>(v)); }
-    constexpr Length operator""_pct(unsigned long long v) noexcept { return Length::Percent(static_cast<float>(v)); }
-    constexpr Length operator""_pct(long double v) noexcept { return Length::Percent(static_cast<float>(v)); }
-    constexpr Length operator""_auto(unsigned long long) noexcept { return Length::Auto(); }
-
-    struct RectLayout {
-        int minWidth{0};
-        int minHeight{0};
-        int maxWidth{0};
-        int maxHeight{0};
-        int baseWidth{0};
-        int baseHeight{0};
-        int greaterMinWidth{0};
-        int greaterMinHeight{0};
-    };
-
-    struct Viewpanel;
-
-    struct ViewpanelResizerContext {
-        ViewpanelResizerContext() = default;
-        ~ViewpanelResizerContext() = default;
-
-        Viewpanel*              targetPanel= nullptr;
-
-        bool                    isActive= false;
-        bool                    isRow= true;
-
-        size_t                  index= 0;
-        size_t                  pushIndex= 0;
-        size_t                  panelsCount= 0;
-
-        int                     clickOffset= 0;
-        int                     valueOffset= 0;
-        int                     currentValue= 0;
-        int                     min= 0;
-        int                     max= 0;
-        int                     parentExtent = 0;
-    };
-
-    struct Viewpanel {
-        explicit Viewpanel(PanelAlignment align = PanelAlignment::eColumn,PickingMode picking = PickingMode::ePosition,ScalingMode scaling = ScalingMode::eFlex):alignment(align), pickingMode(picking), scalingMode(scaling) {}
-        ~Viewpanel() = default;
-
-        std::string             name{"Viewpanel"};
-
-        vk::Rect2D              rect{{0,0},{100,100}};
-        Length                  width{};
-        Length                  height{};
-        Length                  minWidth{};
-        Length                  minHeight{};
-        Length                  maxWidth{};
-        Length                  maxHeight{};
-        RectLayout              layout{};
-
-        vk::Rect2D              resizerZone{{0,0},{0,0}};
-
-        Viewpanel*              parent{nullptr};
-        std::vector<Viewpanel*> children;
-
-        PanelAlignment          alignment{PanelAlignment::eColumn};
-        PickingMode             pickingMode{PickingMode::ePosition};
-        ScalingMode             scalingMode{ScalingMode::eFlex};
-
-        vk::ClearColorValue     clearColor{0.5f, 0.5f, 0.5f, 1.0f};
-        vk::ClearColorValue     clearColor2{0.8f, 0.8f, 0.8f, 1.0f};
-
-        float                   resizerValue{0.0f};
-        float                   flexGlow{1.0f};
-        float                   flexShrink{1.0f};
-
-        [[nodiscard]] bool hasParent() const noexcept { return parent != nullptr; }
-        [[nodiscard]] bool isChildrenEmpty() const noexcept { return children.empty(); }
-        [[nodiscard]] size_t childCount() const noexcept { return children.size(); }
-        [[nodiscard]] Viewpanel* getChild(const size_t i) const noexcept { return children[i]; }
-        [[nodiscard]] size_t getLastChildIndex() const noexcept { return children.size() - 1; }
-        [[nodiscard]] bool isRow() const noexcept { return alignment == PanelAlignment::eRow; }
-        [[nodiscard]] bool isColumn() const noexcept { return alignment == PanelAlignment::eColumn; }
-
-
-        void add(Viewpanel* child)
-        {
-            if (child && child->parent != this)
-            {
-                if (child->parent) child->parent->remove(child);
-                child->parent = this;
-                children.push_back(child);
-            }
-        }
-
-        void remove(Viewpanel* child)
-        {
-            if (!child) return;
-            auto it = std::find(children.begin(), children.end(), child);
-            if (it != children.end())
-            {
-                child->parent = nullptr;
-                children.erase(it);
-            }
-        }
-
-        [[nodiscard]] std::vector<Viewpanel*> getAllPanels() const &
-        {
-            std::vector<Viewpanel*> result;
-            result.push_back(const_cast<Viewpanel*>(this));
-
-            std::function<void(const Viewpanel&)> collect = [&](const Viewpanel& panel)
-            {
-                for (size_t i = 0; i < panel.childCount(); ++i)
-                {
-                    Viewpanel* child = panel.getChild(i);
-                    result.push_back(child);
-                    collect(*child);
-                }
-            };
-
-            collect(*this);
-            return result;
-        }
-
-        void setBackgroundColor(const vk::ClearColorValue& color) {
-            clearColor = color;
-        }
-    };
-
-    struct Viewport {
-        explicit Viewport(const windowing::WindowResource& window) : window(window) {}
-        ~Viewport() = default;
-
-        const windowing::WindowResource&                    window;
-        vk::Extent2D                                        extent{};
-        Viewpanel*                                          panel = nullptr;
-        Viewpanel*                                          hoveredPanel = nullptr;
-        Viewpanel*                                          focusedPanel = nullptr;
-        ViewpanelResizerContext                             resizerContext{};
-        std::optional<input::EventCallbackPool::Handler>    mouseMoveEventHandle{};
-        std::optional<input::EventCallbackPool::Handler>    leftClickEventHandle{};
-    };
-
-
-
-    struct DiscadeltaBaseFiller {
-
-        int                     remainLength{0};
-        int                     accumulateOffset{0};
-        float                   accumulateStepRatio{0.0f};
-        std::vector<int*>       lengths{};
-        std::vector<int>        mins{};
-        std::vector<int>        reduceDistances{};
-        std::vector<float>      stepRatios{};
-
-        DiscadeltaBaseFiller() = default;
-        ~DiscadeltaBaseFiller() = default;
-
-        explicit DiscadeltaBaseFiller(const size_t& steps) {
-            if (steps > 0) {
-                lengths.reserve(steps);
-                mins.reserve(steps);
-                reduceDistances.reserve(steps);
-                stepRatios.reserve(steps);
-            }
-        }
-    };
-
-    struct DiscadeltaGlowFiller {
-        int                     remainLength{0};
-        float                   accumulateStepRatio{0.0f};
-        std::vector<int*>       lengths{};
-        std::vector<int>        maxs{};
-        std::vector<float>      stepRatios{};
-
-        DiscadeltaGlowFiller() = default;
-        ~DiscadeltaGlowFiller() = default;
-
-        explicit DiscadeltaGlowFiller(const size_t& steps) {
-            if (steps > 0) {
-                lengths.reserve(steps);
-                maxs.reserve(steps);
-                stepRatios.reserve(steps);
-            }
-        }
-    };
-
-    struct DiscadeltaContext {
-        int                     accumulateOffset{0};
-        std::vector<int>        baseLengths{};
-        std::vector<int>        glowLengths{};
-
-        DiscadeltaContext() = default;
-        ~DiscadeltaContext() = default;
-
-        explicit DiscadeltaContext(const int& accumulateOffset_, const size_t& steps):accumulateOffset(accumulateOffset_) {
-            if (steps > 0) {
-                baseLengths.reserve(steps);
-                glowLengths.reserve(steps);
-            }
-        }
-    };
-
-
-
-        struct Vertex {
-            glm::vec2 position;
-            glm::vec2 uv;
-            glm::vec4 color;
-
-            static constexpr vk::VertexInputBindingDescription
-            getBindingDescription(uint32_t binding) {
-                vk::VertexInputBindingDescription d{};
-                d.setBinding(binding)
-                 .setStride(sizeof(Vertex))
-                 .setInputRate(vk::VertexInputRate::eVertex);
-                return d;
-            }
-
-            static constexpr std::array<vk::VertexInputAttributeDescription, 3>
-            getAttributeDescriptions(uint32_t binding) {
-                std::array<vk::VertexInputAttributeDescription, 3> a{};
-                a[0].setBinding(binding).setLocation(0)
-                     .setFormat(vk::Format::eR32G32Sfloat).setOffset(0);
-                a[1].setBinding(binding).setLocation(1)
-                     .setFormat(vk::Format::eR32G32Sfloat)
-                     .setOffset(offsetof(Vertex, uv));
-                a[2].setBinding(binding).setLocation(2)
-                     .setFormat(vk::Format::eR32G32B32A32Sfloat)
-                     .setOffset(offsetof(Vertex, color));
-                return a;
-            }
-        };
-
-        constexpr Vertex QuadVertices[]{
-            {{0.f, 0.f}, {0.f, 0.f}, {1.f,1.f,1.f,1.f}}, // TL
-            {{1.f, 0.f}, {1.f, 0.f}, {1.f,1.f,1.f,1.f}}, // TR
-            {{1.f, 1.f}, {1.f, 1.f}, {1.f,1.f,1.f,1.f}}, // BR
-            {{0.f, 1.f}, {0.f, 1.f}, {1.f,1.f,1.f,1.f}}, // BL
-        };
-
-        constexpr uint16_t QuadIndices[]{
-            0, 1, 2, 2, 3, 0
-        };
-
-        constexpr vk::DeviceSize VERTEX_BUFFER_SIZE         = sizeof(Vertex);
-        constexpr vk::DeviceSize QUAD_VERTICES_BUFFER_SIZE      = sizeof(QuadVertices);
-        constexpr vk::DeviceSize QUAD_INDICES_BUFFER_SIZE          = sizeof(QuadIndices);
-        constexpr auto DEFAULT_QUAD_MESH_NAME = "default_quad_mesh";
-        constexpr auto QUAD_VERTEX_COUNT = std::size(QuadVertices);
-        constexpr auto QUAD_INDEX_COUNT = std::size(QuadIndices);
-
-        struct MeshResource {
-            std::string                             name;
-            size_t                                  id{0};
-
-            std::vector<Vertex>                     vertices;
-            std::vector<uint16_t>                   indices;
-
-            std::optional<gpu::vulkan::Buffer>      vertexBuffer;
-            std::optional<gpu::vulkan::Buffer>      indexBuffer;
-
-            explicit MeshResource(const std::string_view name_ = {}): name(name_) , id(utilities::GenerateUniqueID(name_)) {}
-        };
-    }
-
     namespace gui {
         struct Style {
             glm::vec4                                       backgroundColor = {0.5f, 0.5f, 0.5f, 1.0f};
@@ -1313,16 +1016,6 @@ export namespace ufox {
             }
         };
 
-        struct GUIResource {
-            std::vector<StyleResource>                      styles{};
-            std::optional<vk::raii::PipelineCache>          pipelineCache{};
-            std::optional<vk::raii::Pipeline>               pipeline{};
-            std::optional<vk::raii::DescriptorSetLayout>    descriptorSetLayout{};
-            std::optional<vk::raii::PipelineLayout>         pipelineLayout{};
-            std::optional<geometry::MeshResource>           meshResource{};
-            std::optional<vk::raii::DescriptorPool>         descriptorPool{};
 
-            std::optional<GUIElement>                       elements{};
-        };
     }
 }

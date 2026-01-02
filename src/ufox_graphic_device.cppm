@@ -23,8 +23,12 @@ export module ufox_graphic_device;
 import ufox_lib;
 
 export namespace ufox::gpu::vulkan {
-
-
+    vk::raii::DeviceMemory AllocateDeviceMemory( vk::raii::Device const & device, vk::PhysicalDeviceMemoryProperties const & memoryProperties,
+             vk::MemoryRequirements const &  memoryRequirements, vk::MemoryPropertyFlags memoryPropertyFlags ){
+        uint32_t               memoryTypeIndex = FindMemoryType( memoryProperties, memoryRequirements.memoryTypeBits, memoryPropertyFlags );
+        vk::MemoryAllocateInfo memoryAllocateInfo( memoryRequirements.size, memoryTypeIndex );
+        return {device, memoryAllocateInfo};
+    }
 
     std::vector<std::string> GetDeviceExtensions() {
         return {
@@ -39,23 +43,23 @@ export namespace ufox::gpu::vulkan {
     {
         std::vector<std::string> extensions;
         extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME );
-#if defined( VK_USE_PLATFORM_ANDROID_KHR )
+    #if defined( VK_USE_PLATFORM_ANDROID_KHR )
         extensions.push_back( VK_KHR_ANDROID_SURFACE_EXTENSION_NAME );
-#elif defined( VK_USE_PLATFORM_METAL_EXT )
+    #elif defined( VK_USE_PLATFORM_METAL_EXT )
         extensions.push_back( VK_EXT_METAL_SURFACE_EXTENSION_NAME );
-#elif defined( VK_USE_PLATFORM_VI_NN )
+    #elif defined( VK_USE_PLATFORM_VI_NN )
         extensions.push_back( VK_NN_VI_SURFACE_EXTENSION_NAME );
-#elif defined( VK_USE_PLATFORM_WAYLAND_KHR )
+    #elif defined( VK_USE_PLATFORM_WAYLAND_KHR )
         extensions.push_back( VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME );
-#elif defined( VK_USE_PLATFORM_WIN32_KHR )
+    #elif defined( VK_USE_PLATFORM_WIN32_KHR )
         extensions.emplace_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME );
-#elif defined( VK_USE_PLATFORM_XCB_KHR )
+    #elif defined( VK_USE_PLATFORM_XCB_KHR )
         extensions.push_back( VK_KHR_XCB_SURFACE_EXTENSION_NAME );
-#elif defined( VK_USE_PLATFORM_XLIB_KHR )
+    #elif defined( VK_USE_PLATFORM_XLIB_KHR )
         extensions.push_back( VK_KHR_XLIB_SURFACE_EXTENSION_NAME );
-#elif defined( VK_USE_PLATFORM_XLIB_XRANDR_EXT )
+    #elif defined( VK_USE_PLATFORM_XLIB_XRANDR_EXT )
         extensions.push_back( VK_EXT_ACQUIRE_XLIB_DISPLAY_EXTENSION_NAME );
-#endif
+    #endif
         return extensions;
     }
 
@@ -63,58 +67,58 @@ export namespace ufox::gpu::vulkan {
     {
         switch (layout)
         {
-            case vk::ImageLayout::eUndefined:
-            case vk::ImageLayout::ePresentSrcKHR:
-                return {};
-            case vk::ImageLayout::ePreinitialized:
-                return vk::AccessFlagBits2::eHostWrite;
-            case vk::ImageLayout::eColorAttachmentOptimal:
-                return vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite;
-            case vk::ImageLayout::eDepthAttachmentOptimal:
-                return vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-            case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
-                return vk::AccessFlagBits2::eFragmentShadingRateAttachmentReadKHR;
-            case vk::ImageLayout::eShaderReadOnlyOptimal:
-                return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eInputAttachmentRead;
-            case vk::ImageLayout::eTransferSrcOptimal:
-                return vk::AccessFlagBits2::eTransferRead;
-            case vk::ImageLayout::eTransferDstOptimal:
-                return vk::AccessFlagBits2::eTransferWrite;
-            case vk::ImageLayout::eGeneral:
-                assert(false && "Don't know how to get a meaningful VkAccessFlags for VK_IMAGE_LAYOUT_GENERAL! Don't use it!");
-                return {};
-            default:
-                assert(false);
-                return {};
+        case vk::ImageLayout::eUndefined:
+        case vk::ImageLayout::ePresentSrcKHR:
+            return {};
+        case vk::ImageLayout::ePreinitialized:
+            return vk::AccessFlagBits2::eHostWrite;
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            return vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite;
+        case vk::ImageLayout::eDepthAttachmentOptimal:
+            return vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+        case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
+            return vk::AccessFlagBits2::eFragmentShadingRateAttachmentReadKHR;
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eInputAttachmentRead;
+        case vk::ImageLayout::eTransferSrcOptimal:
+            return vk::AccessFlagBits2::eTransferRead;
+        case vk::ImageLayout::eTransferDstOptimal:
+            return vk::AccessFlagBits2::eTransferWrite;
+        case vk::ImageLayout::eGeneral:
+            assert(false && "Don't know how to get a meaningful VkAccessFlags for VK_IMAGE_LAYOUT_GENERAL! Don't use it!");
+            return {};
+        default:
+            assert(false);
+            return {};
         }
     }
 
     vk::PipelineStageFlags2 GetPipelineStageFlags2(const vk::ImageLayout& layout) {
         switch (layout)
         {
-            case vk::ImageLayout::eUndefined:
-                return vk::PipelineStageFlagBits2::eTopOfPipe;
-            case vk::ImageLayout::ePreinitialized:
-                return vk::PipelineStageFlagBits2::eHost;
-            case vk::ImageLayout::eTransferDstOptimal:
-            case vk::ImageLayout::eTransferSrcOptimal:
-                return vk::PipelineStageFlagBits2::eTransfer;
-            case vk::ImageLayout::eColorAttachmentOptimal:
-                return vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-            case vk::ImageLayout::eDepthAttachmentOptimal:
-                return vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests;
-            case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
-                return vk::PipelineStageFlagBits2::eFragmentShadingRateAttachmentKHR;
-            case vk::ImageLayout::eShaderReadOnlyOptimal:
-                return vk::PipelineStageFlagBits2::eVertexShader | vk::PipelineStageFlagBits2::eFragmentShader;
-            case vk::ImageLayout::ePresentSrcKHR:
-                return vk::PipelineStageFlagBits2::eBottomOfPipe;
-            case vk::ImageLayout::eGeneral:
-                assert(false && "Don't know how to get a meaningful VkPipelineStageFlags for VK_IMAGE_LAYOUT_GENERAL! Don't use it!");
-                return {};
-            default:
-                assert(false);
-                return {};
+        case vk::ImageLayout::eUndefined:
+            return vk::PipelineStageFlagBits2::eTopOfPipe;
+        case vk::ImageLayout::ePreinitialized:
+            return vk::PipelineStageFlagBits2::eHost;
+        case vk::ImageLayout::eTransferDstOptimal:
+        case vk::ImageLayout::eTransferSrcOptimal:
+            return vk::PipelineStageFlagBits2::eTransfer;
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            return vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+        case vk::ImageLayout::eDepthAttachmentOptimal:
+            return vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests;
+        case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
+            return vk::PipelineStageFlagBits2::eFragmentShadingRateAttachmentKHR;
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            return vk::PipelineStageFlagBits2::eVertexShader | vk::PipelineStageFlagBits2::eFragmentShader;
+        case vk::ImageLayout::ePresentSrcKHR:
+            return vk::PipelineStageFlagBits2::eBottomOfPipe;
+        case vk::ImageLayout::eGeneral:
+            assert(false && "Don't know how to get a meaningful VkPipelineStageFlags for VK_IMAGE_LAYOUT_GENERAL! Don't use it!");
+            return {};
+        default:
+            assert(false);
+            return {};
         }
     }
 
@@ -478,11 +482,11 @@ export namespace ufox::gpu::vulkan {
         for ( size_t i = 0; i < bindingData.size(); i++ )
         {
             bindings[i] = vk::DescriptorSetLayoutBinding{}
-                .setBinding( utilities::CheckedCast<uint32_t>( i ) )
-                .setDescriptorType( std::get<0>( bindingData[i] ) )
-                .setDescriptorCount( std::get<1>( bindingData[i] ) )
-                .setStageFlags( std::get<2>( bindingData[i] ) )
-                .setPImmutableSamplers( std::get<3>(bindingData[i]) );
+            .setBinding( utilities::CheckedCast<uint32_t>( i ) )
+            .setDescriptorType( std::get<0>( bindingData[i] ) )
+            .setDescriptorCount( std::get<1>( bindingData[i] ) )
+            .setStageFlags( std::get<2>( bindingData[i] ) )
+            .setPImmutableSamplers( std::get<3>(bindingData[i]) );
         }
         vk::DescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo( flags, bindings );
         return {*gpu.device, descriptorSetLayoutCreateInfo };
@@ -498,7 +502,7 @@ export namespace ufox::gpu::vulkan {
         return { *gpu.device, descriptorPoolCreateInfo };
     }
 
-    constexpr vk::raii::ShaderModule CreateShaderModule(const GPUResources& gpu, const std::vector<char>& code) {
+    vk::raii::ShaderModule CreateShaderModule(const GPUResources& gpu, const std::vector<char>& code) {
         vk::ShaderModuleCreateInfo createInfo{};
         createInfo
             .setCodeSize(code.size() * sizeof(char))
@@ -534,11 +538,11 @@ export namespace ufox::gpu::vulkan {
                                                bool                                                 depthBuffered,
                                                vk::raii::PipelineLayout const &                     pipelineLayout,
                                                vk::raii::RenderPass const &                         renderPass )
-      {
+    {
         std::array pipelineShaderStageCreateInfos = {
-          vk::PipelineShaderStageCreateInfo( {}, vk::ShaderStageFlagBits::eVertex, vertexShaderModule, "main", vertexShaderSpecializationInfo ),
-          vk::PipelineShaderStageCreateInfo( {}, vk::ShaderStageFlagBits::eFragment, fragmentShaderModule, "main", fragmentShaderSpecializationInfo )
-        };
+            vk::PipelineShaderStageCreateInfo( {}, vk::ShaderStageFlagBits::eVertex, vertexShaderModule, "main", vertexShaderSpecializationInfo ),
+            vk::PipelineShaderStageCreateInfo( {}, vk::ShaderStageFlagBits::eFragment, fragmentShaderModule, "main", fragmentShaderSpecializationInfo )
+          };
 
         std::vector<vk::VertexInputAttributeDescription> vertexInputAttributeDescriptions;
         vk::PipelineVertexInputStateCreateInfo           pipelineVertexInputStateCreateInfo;
@@ -546,13 +550,13 @@ export namespace ufox::gpu::vulkan {
 
         if ( 0 < vertexStride )
         {
-          vertexInputAttributeDescriptions.reserve( vertexInputAttributeFormatOffset.size() );
-          for ( uint32_t i = 0; i < vertexInputAttributeFormatOffset.size(); i++ )
-          {
-            vertexInputAttributeDescriptions.emplace_back( i, 0, vertexInputAttributeFormatOffset[i].first, vertexInputAttributeFormatOffset[i].second );
-          }
-          pipelineVertexInputStateCreateInfo.setVertexBindingDescriptions( vertexInputBindingDescription );
-          pipelineVertexInputStateCreateInfo.setVertexAttributeDescriptions( vertexInputAttributeDescriptions );
+            vertexInputAttributeDescriptions.reserve( vertexInputAttributeFormatOffset.size() );
+            for ( uint32_t i = 0; i < vertexInputAttributeFormatOffset.size(); i++ )
+            {
+                vertexInputAttributeDescriptions.emplace_back( i, 0, vertexInputAttributeFormatOffset[i].first, vertexInputAttributeFormatOffset[i].second );
+            }
+            pipelineVertexInputStateCreateInfo.setVertexBindingDescriptions( vertexInputBindingDescription );
+            pipelineVertexInputStateCreateInfo.setVertexAttributeDescriptions( vertexInputAttributeDescriptions );
         }
 
         vk::PipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo( vk::PipelineInputAssemblyStateCreateFlags(),
@@ -609,7 +613,7 @@ export namespace ufox::gpu::vulkan {
                                                                    renderPass );
 
         return { device, pipelineCache, graphicsPipelineCreateInfo };
-      }
+    }
 
     void TransitionImageLayout(const vk::raii::CommandBuffer& cmb, const vk::Image& image,
         const vk::PipelineStageFlags2& srcStageMask, const vk::PipelineStageFlags2& dstStageMask,
@@ -649,23 +653,21 @@ export namespace ufox::gpu::vulkan {
         TransitionImageLayout(cmb, image, srcStageMask, dstStageMask, srcAccessMask, dstAccessMask, oldLayout, newLayout, range);
     }
 
-    vk::raii::CommandBuffer BeginSingleTimeCommands(const vk::raii::Device& device, const vk::raii::CommandPool& commandPool)  {
+
+
+    vk::raii::CommandBuffer BeginSingleTimeCommands(const GPUResources& gpu) {
         vk::CommandBufferAllocateInfo allocInfo{};
         allocInfo.setLevel(vk::CommandBufferLevel::ePrimary)
-                 .setCommandPool(commandPool)
+                 .setCommandPool(gpu.commandPool.value())
                  .setCommandBufferCount(1);
 
-        vk::raii::CommandBuffer cmd = std::move(device.allocateCommandBuffers(allocInfo).front());
+        vk::raii::CommandBuffer cmd = std::move(gpu.device.value().allocateCommandBuffers(allocInfo).front());
         vk::CommandBufferBeginInfo beginInfo{};
         beginInfo.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
         cmd.begin(beginInfo);
 
         return cmd;
-    }
-
-    vk::raii::CommandBuffer BeginSingleTimeCommands(const GPUResources& gpu) {
-        return BeginSingleTimeCommands(*gpu.device, *gpu.commandPool);
     }
 
     void EndSingleTimeCommands(const vk::raii::CommandBuffer &cmd, const vk::raii::Queue& graphicsQueue) {
@@ -685,11 +687,11 @@ export namespace ufox::gpu::vulkan {
         const vk::ImageViewType type = vk::ImageViewType::e2D,
         const vk::ImageSubresourceRange &subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 } ) {
         vk::ImageViewCreateInfo createInfo{};
-                                createInfo
-                                    .setImage(image)
-                                    .setViewType(type)
-                                    .setFormat(format)
-                                    .setSubresourceRange(subresourceRange);
+        createInfo
+            .setImage(image)
+            .setViewType(type)
+            .setFormat(format)
+            .setSubresourceRange(subresourceRange);
 
         return { device, createInfo };
     }
@@ -708,61 +710,45 @@ export namespace ufox::gpu::vulkan {
         image.view.emplace(*gpu.device, createInfo);
     }
 
-    constexpr Buffer MakeBuffer(const GPUResources& gpu, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage, const vk::MemoryPropertyFlags& properties) {
-        Buffer buffer{};
+
+    void MakeBuffer(Buffer& buffer,const GPUResources& gpu, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage, const vk::MemoryPropertyFlags& properties, const vk::SharingMode& shareMode = vk::SharingMode::eExclusive) noexcept {
+        if (!gpu.device || !gpu.physicalDevice || size == 0 || !usage) return ;
+
         vk::BufferCreateInfo bufferInfo{};
         bufferInfo.setSize(size)
                   .setUsage(usage)
-                  .setSharingMode(vk::SharingMode::eExclusive);
+                  .setSharingMode(shareMode);
 
         buffer.data.emplace(*gpu.device, bufferInfo);
 
-        vk::MemoryRequirements memoryRequirements = buffer.data->getMemoryRequirements();
-        vk::MemoryAllocateInfo memoryAllocateInfo( memoryRequirements.size, FindMemoryType( *gpu.physicalDevice->getMemoryProperties(),
-                                                   memoryRequirements.memoryTypeBits, properties ) );
-        buffer.memory.emplace(*gpu.device, memoryAllocateInfo);
-        buffer.data->bindMemory( *buffer.memory, 0 );
-        return buffer;
+        const vk::MemoryRequirements reqs = buffer.data->getMemoryRequirements();
+        buffer.memory.emplace(AllocateDeviceMemory(
+            *gpu.device,
+            *gpu.physicalDevice->getMemoryProperties(),
+            reqs,
+            properties));
+
+        buffer.data->bindMemory(*buffer.memory, 0);
     }
 
-    void CopyBuffer(const vk::raii::Device& device, const vk::raii::CommandPool& commandPool,const vk::raii::Queue& graphicsQueue , const Buffer& srcBuffer, const Buffer& dstBuffer, const vk::DeviceSize& size) {
-        vk::raii::CommandBuffer cmd = BeginSingleTimeCommands(device, commandPool);
+
+    template <typename T>
+    void CopyToDevice(const vk::raii::DeviceMemory& deviceMemory,const T* pData, const vk::DeviceSize& size ) {
+        void* data = deviceMemory.mapMemory(0, size);
+        memcpy(data, pData, size);
+        deviceMemory.unmapMemory();
+    }
+
+
+    void CopyBuffer(const GPUResources& gpu,  const Buffer& srcBuffer, const Buffer& dstBuffer, const vk::DeviceSize& size) {
+        vk::raii::CommandBuffer cmd = BeginSingleTimeCommands(gpu);
 
         vk::BufferCopy copyRegion{};
         copyRegion.setSize(size);
         cmd.copyBuffer(*srcBuffer.data, *dstBuffer.data, { copyRegion });
 
-        EndSingleTimeCommands(cmd, graphicsQueue);
+        EndSingleTimeCommands(gpu, cmd);
     }
-
-    void CopyBuffer(const GPUResources& gpu,  const Buffer& srcBuffer, const Buffer& dstBuffer, const vk::DeviceSize& size) {
-        CopyBuffer(*gpu.device, *gpu.commandPool, *gpu.graphicsQueue, srcBuffer, dstBuffer, size);
-    }
-
-    void CopyBufferToImage(const vk::raii::Device& device, const vk::raii::CommandPool& commandPool, const vk::raii::Queue& graphicsQueue, const Buffer& buffer, const TextureImage& image,
-        const vk::Extent3D extent, const vk::ImageSubresourceLayers& subresourceLayers = {vk::ImageAspectFlagBits::eColor,0,0,1}, const vk::Offset3D& offset = {0,0,0},
-        vk::DeviceSize bufferOffset = 0, const uint32_t& bufferRowLength = 0, const uint32_t& bufferImageHeight = 0) {
-        const vk::raii::CommandBuffer cmd = BeginSingleTimeCommands(device, commandPool);
-
-        vk::BufferImageCopy region{};
-                            region
-                            .setImageSubresource( subresourceLayers)
-                                  .setImageOffset(offset)
-                                  .setImageExtent(extent)
-                                  .setBufferOffset(bufferOffset)
-                                  .setBufferRowLength(bufferRowLength)
-                                  .setBufferImageHeight(bufferImageHeight);
-
-        cmd.copyBufferToImage(*buffer.data, *image.data, vk::ImageLayout::eTransferDstOptimal, { region });
-
-        EndSingleTimeCommands(cmd, graphicsQueue);
-    }
-
-    void CopyBufferToImage(const GPUResources& gpu, const Buffer& buffer, const TextureImage& image, const vk::Extent3D extent, const vk::ImageSubresourceLayers& subresourceLayers = {vk::ImageAspectFlagBits::eColor,0,0,1}, const vk::Offset3D& offset = {0,0,0},
-        vk::DeviceSize bufferOffset = 0, const uint32_t& bufferRowLength = 0, const uint32_t& bufferImageHeight = 0) {
-        CopyBufferToImage(*gpu.device, *gpu.commandPool, *gpu.graphicsQueue, buffer, image, extent, subresourceLayers, offset, bufferOffset, bufferRowLength, bufferImageHeight);
-    }
-
 
     void SetImageLayout(vk::raii::CommandBuffer const & commandBuffer, const TextureImage& image, const vk::Format& format, vk::ImageLayout oldImageLayout, vk::ImageLayout newImageLayout )
       {
@@ -850,18 +836,26 @@ export namespace ufox::gpu::vulkan {
         return commandBuffer.pipelineBarrier( sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier );
       }
 
+    GraphicDeviceCreateInfo CreateGraphicDeviceInfo() {
+        GraphicDeviceCreateInfo createInfo{};
+        createInfo.appInfo.pApplicationName = "UFox";
+        createInfo.appInfo.applicationVersion = vk::makeVersion(1, 0, 0);
+        createInfo.appInfo.pEngineName = "UFox Engine";
+        createInfo.appInfo.engineVersion = vk::makeVersion(1, 0, 0);
+        createInfo.appInfo.apiVersion = vk::ApiVersion14;
+        createInfo.instanceExtensions = GetInstanceExtensions();
+        createInfo.deviceExtensions = GetDeviceExtensions();
+        createInfo.enableDynamicRendering = true;
+        createInfo.enableExtendedDynamicState = true;
+        createInfo.enableSynchronization2 = true;
+        createInfo.commandPoolCreateFlags = vk::CommandPoolCreateFlags{
+            vk::CommandPoolCreateFlagBits::eResetCommandBuffer |
+            vk::CommandPoolCreateFlagBits::eTransient
+        };
 
-    template<typename BufferData, size_t Size>
-    constexpr void CreateAndCopyBuffer(const GPUResources& gpu, const BufferData(&data)[Size], vk::DeviceSize bufferSize, std::optional<Buffer>& buffer) {
-        const Buffer stagingBuffer = MakeBuffer(gpu, bufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-
-        const auto pData = static_cast<uint8_t*>(stagingBuffer.memory->mapMemory(0, bufferSize));
-        memcpy(pData, data, bufferSize);
-        stagingBuffer.memory->unmapMemory();
-
-        buffer.emplace(MakeBuffer(gpu, bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal));
-
-        CopyBuffer(gpu, stagingBuffer, *buffer, bufferSize);
+        return createInfo;
     }
 
+    inline auto COLOR_IMAGE_USAGE_FLAG = vk::ImageUsageFlags{ vk::ImageUsageFlagBits::eColorAttachment };
+    inline auto SIGNALED_FENCE_CREATE_FLAG = vk::FenceCreateFlags{vk::FenceCreateFlagBits::eSignaled};
 }
