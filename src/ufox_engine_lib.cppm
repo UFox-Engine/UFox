@@ -1,6 +1,7 @@
 module;
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <optional>
 #include <string>
 #include <vulkan/vulkan_raii.hpp>
@@ -21,13 +22,17 @@ export namespace ufox::engine {
   using ContentVersion = uint16_t;
   using ResizeEventHandler = void(*)(const float& w, const float& h, void* user);
   using SystemInitEventHandler = void(*)(void* user);
-  using ResourceInitEventHandler = void(*)(void* user);
+  using ResourceInitEventHandler = void(*)(const float& w, const float& h, void* user);
   using StartEventHandler = void(*)(void* user);
   using UpdateBufferEventHandler = void(*)(const uint32_t& currentImage, void* user);
   using DrawCanvasEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource, void* user );
 
   constexpr ContentIndex   INVALID_INDEX   = 0xFFFFFFFFu;
   constexpr ContentVersion INVALID_VERSION = 0u;
+
+  constexpr auto SCREEN_VIEW_METRIX = glm::mat4(1.0f);
+  constexpr vk::DeviceSize MAT4_BUFFER_SIZE = sizeof(glm::mat4);
+  constexpr auto SCREEN_VIEW_PROJECTION_BUFFER_TYPE = vk::DescriptorType::eUniformBuffer;
 
   template<typename T>
   concept Arithmetic = std::is_arithmetic_v<T>;
@@ -49,8 +54,13 @@ export namespace ufox::engine {
     ePortIn    = 1,
   };
 
-  struct Content {
-    virtual ~Content() = default;
+  enum class ViewProjectionType : uint8_t {
+    ePerspective = 0,
+    eOrthographic = 1,
+  };
+
+  struct UFoxContentAsset {
+    virtual ~UFoxContentAsset() = default;
 
     std::string               name;
     const ContentID           cid;
@@ -60,7 +70,7 @@ export namespace ufox::engine {
     uint64_t                  lastModifiedMs  {0};
     size_t                    memoryFootprint {0};
 
-    explicit Content(const std::string_view name_view,
+    explicit UFoxContentAsset(const std::string_view name_view,
                      const ContentSourceType src,
                      const std::string_view cat,  const ContentID& cid_)
         : name(name_view), cid(cid_), sourceType(src), category(cat) {}
@@ -74,8 +84,18 @@ export namespace ufox::engine {
   };
 
   struct Transform {
-    glm::vec3 position;
-    glm::vec3 scale;
-    glm::vec3 rotation;
+    glm::vec3             position{0.0f};
+    glm::quat             rotation{glm::vec3{0.0f}};
+    glm::vec3             scale{1.0f};
+  };
+
+  struct Camera {
+    Transform             transform{};
+    ViewProjectionType  projectionType{ViewProjectionType::ePerspective};
+    float                 nearPlane{0.1f};
+    float                 farPlane{5000.0f};
+    float                 fov{90.0f};
+    float                 orthoSize{10.0f};
+    float                 aspectRatio{1.0f};
   };
 }

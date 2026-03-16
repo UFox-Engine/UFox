@@ -55,6 +55,23 @@ CPMAddPackage(NAME nlohmann_json VERSION 3.12.0
 )
 CPMAddPackage(NAME Discadelta GITHUB_REPOSITORY UFox-Engine/Discadelta GIT_TAG 1.2.6 OPTIONS "DISCADELTA_SAMPLES OFF")
 CPMAddPackage(NAME SDL3_image GITHUB_REPOSITORY libsdl-org/SDL_image GIT_TAG release-3.4.0)
+CPMAddPackage(NAME tinyobjloader GITHUB_REPOSITORY tinyobjloader/tinyobjloader GIT_TAG v1.0.6 DOWNLOAD_ONLY YES)
+
+if(tinyobjloader_ADDED)
+    # Because it's header-only we just create an interface target
+    add_library(tinyobjloader INTERFACE)
+    target_include_directories(tinyobjloader
+            INTERFACE
+            "${tinyobjloader_SOURCE_DIR}"
+    )
+
+    # Optional: very common defines used in many projects
+    target_compile_definitions(tinyobjloader
+            INTERFACE
+            TINYOBJLOADER_IMPLEMENTATION   # if you want to compile .cc in one TU
+            # TINYOBJLOADER_USE_DOUBLE     # ← uncomment if you need double precision
+    )
+endif()
 
 
 if (nlohmann_json_ADDED)
@@ -98,7 +115,7 @@ target_compile_definitions(Discadelta-module PUBLIC HAS_VULKAN=1)
 
 
 set(LIBS)
-list(APPEND LIBS Vulkan-Headers Freetype::Freetype ktx nlohmann_json Discadelta-module glfw glm-module SDL3_image::SDL3_image SDL3::SDL3)
+list(APPEND LIBS Vulkan-Headers Freetype::Freetype ktx nlohmann_json Discadelta-module glfw glm-module SDL3_image::SDL3_image SDL3::SDL3 tinyobjloader)
 
 
 

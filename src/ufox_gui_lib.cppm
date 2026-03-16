@@ -14,10 +14,10 @@ using namespace ufox::geometry;
 
 export namespace ufox::gui {
   Vertex RectVertices[]{
-    {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-    {{1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-    {{1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-    {{0.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+    {{0.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.001f, 0.001f}, {1.0f, 0.0f, 0.0f}},
+    {{1.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.999f, 0.001f}, {0.0f, 1.0f, 0.0f}},
+    {{1.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.999f, 0.999f}, {0.0f, 0.0f, 1.0f}},
+    {{0.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.001f, 0.999f}, {1.0f, 1.0f, 1.0f}},
   };
 
   uint16_t RectIndices[]{
@@ -27,16 +27,11 @@ export namespace ufox::gui {
   constexpr auto RECT_MESH_NAME = "gui_rect_mesh";
 
 
-  struct Viewpanel;
 
-  struct VisualElement {
-    Viewpanel* panel = nullptr;
-    discadelta::RectSegmentContextHandler rect{nullptr, discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
-  };
 
-  struct Viewpanel {
-    discadelta::RectSegmentContextHandler rect{nullptr, discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
-    VisualElement rootElement{};
+  struct StorageBufferIndices {
+    uint32_t bgImageIndex{0};
+    uint32_t parentElementIndex{0};
   };
 
 
@@ -46,8 +41,8 @@ export namespace ufox::gui {
     std::optional<vk::raii::DescriptorSetLayout>    descriptorSetLayout{};
     std::optional<vk::raii::PipelineLayout>         pipelineLayout{};
     std::optional<vk::raii::DescriptorPool>         descriptorPool{};
-    std::vector<gpu::vulkan::Buffer> uniformBuffers{};
-    std::vector<void*> uniformBuffersMapped{};
-    std::vector<vk::raii::DescriptorSet> descriptorSets{};
+    std::vector<gpu::vulkan::Buffer>                rectBuffers{};
+    std::vector<void*>                              rectBuffersMapped{};
+    std::vector<vk::raii::DescriptorSet>            descriptorSets{};
   };
 }

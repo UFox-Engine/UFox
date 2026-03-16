@@ -2,6 +2,10 @@ module;
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan_raii.hpp>
+#include <filesystem>
+#include <chrono>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
 
 export module ufox_geometry_lib;
 
@@ -10,115 +14,223 @@ import ufox_graphic_device;
 import ufox_engine_lib;
 
 export namespace ufox::geometry {
+    struct Vertex
+    {
+        glm::vec3 pos{0.0f};
+        glm::vec3 normal{0.0f};
+        glm::vec2 texCoord{0.0f};
+        glm::vec3 color{0.0f};
 
-        struct Vertex
-        {
-            glm::vec3 pos;
-            glm::vec3 color;
-            glm::vec2 texCoord;
+        bool operator==(const Vertex& other) const {
+            return pos == other.pos &&
+                   color == other.color &&
+                   texCoord == other.texCoord;
+        }
 
-            static vk::VertexInputBindingDescription getBindingDescription(){ return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};}
+        static vk::VertexInputBindingDescription getBindingDescription(){ return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};}
 
-            static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions(){
-                return {
-                    vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, pos)),
-                    vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color)),
-                    vk::VertexInputAttributeDescription(2, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, texCoord))};
-            }
-        };
-
-        vk::DeviceSize VERTEX_BUFFER_SIZE         = sizeof(Vertex);
-
-        Vertex QuadVertices[]{
-            {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-            {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-            {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-            {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-          };
-
-        uint16_t QuadIndices[]{
-            0, 1, 2, 2, 3, 0
-          };
-
-        constexpr auto DEFAULT_QUAD_MESH_NAME = "default_quad_mesh";
+        static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions(){
+            return {
+                vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, pos)),
+                vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, normal)),
+                vk::VertexInputAttributeDescription(2, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, texCoord)),
+                vk::VertexInputAttributeDescription(3, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color))};
+        }
+    };
 
 
-        Vertex CubeVertices[] = {
-            // Back face (z = -0.5)
-            {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.2f, 0.2f}, {0.0f, 0.0f}},   // 0 – reddish
-            {{ 0.5f, -0.5f, -0.5f}, {0.2f, 1.0f, 0.2f}, {1.0f, 0.0f}},   // 1 – greenish
-            {{ 0.5f,  0.5f, -0.5f}, {0.2f, 0.2f, 1.0f}, {1.0f, 1.0f}},   // 2 – blueish
-            {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 0.2f}, {0.0f, 1.0f}},   // 3 – yellowish
 
-            // Front face (z = +0.5)
-            {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},   // 4 – magenta
-            {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},   // 5 – cyan
-            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // 6 – white
-            {{-0.5f,  0.5f,  0.5f}, {0.7f, 0.7f, 0.7f}, {0.0f, 1.0f}},   // 7 – light gray
-        };
 
-        uint16_t CubeIndices[] = {
-            0, 1, 2,    2, 3, 0,      // back
-            4, 5, 6,    6, 7, 4,      // front
-            0, 1, 5,    5, 4, 0,      // bottom
-            3, 2, 6,    6, 7, 3,      // top
-            0, 3, 7,    7, 4, 0,      // left
-            1, 2, 6,    6, 5, 1       // right
-        };
 
-        constexpr auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";
+    struct Vertex2D{
+        glm::vec3 pos;
+        glm::vec2 texCoord;
+        glm::vec3 color;
 
-        constexpr auto QUAD = "Quad";
-        constexpr auto CUBE = "Cube";
+        static vk::VertexInputBindingDescription getBindingDescription(){ return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};}
 
-        struct Mesh final : engine::Content {
-            std::vector<Vertex>                     vertices{};
-            std::vector<uint16_t>                   indices{};
+        static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions(){
+            return {
+                vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, pos)),
+                vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, texCoord)),
+                vk::VertexInputAttributeDescription(2, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color))};
+        }
+    };
 
-            gpu::vulkan::Buffer                     vertexBuffer{};
-            gpu::vulkan::Buffer                     indexBuffer{};
+    vk::DeviceSize VERTEX_BUFFER_SIZE         = sizeof(Vertex);
 
-            explicit Mesh(const std::string_view name_view, const engine::ContentSourceType src, const std::string_view category_view, const engine::ContentID& cid_): Content(name_view, src, category_view, cid_){}
+    Vertex QuadVertices[]{
+        {{-0.5f, -0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, -0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+        {{0.5f, 0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f, 0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},
+      };
 
-            [[nodiscard]] bool hasValidGeometry() const noexcept { return !vertices.empty(); }
-            [[nodiscard]] bool hasBuffer() const noexcept { return !vertexBuffer.isDataEmpty() && !indexBuffer.isDataEmpty(); }
-            [[nodiscard]] uint32_t vertexCount() const noexcept { return static_cast<uint32_t>(vertices.size()); }
-            [[nodiscard]] uint32_t indexCount() const noexcept { return static_cast<uint32_t>(indices.size()); }
+    uint16_t QuadIndices[]{
+        0, 1, 2, 2, 3, 0
+      };
 
-            void releaseGpuResources() noexcept {
-                vertexBuffer.clear();
-                indexBuffer.clear();
-            }
+    constexpr auto DEFAULT_QUAD_MESH_NAME = "default_quad_mesh";
 
-        };
 
-        struct MeshUser {
-            const engine::ContentID* id = nullptr;
-            Mesh* mesh = nullptr;
+    Vertex CubeVertices[] = {
+        // Back face (z = -0.5)
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.2f, 0.2f}, {0.0f, 0.0f}},   // 0 – reddish
+        {{ 0.5f, -0.5f, -0.5f}, {0.2f, 1.0f, 0.2f}, {1.0f, 0.0f}},   // 1 – greenish
+        {{ 0.5f,  0.5f, -0.5f}, {0.2f, 0.2f, 1.0f}, {1.0f, 1.0f}},   // 2 – blueish
+        {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 0.2f}, {0.0f, 1.0f}},   // 3 – yellowish
 
-            MeshUser() = default;
-            ~MeshUser() = default;
-            MeshUser(const engine::ContentID* id, Mesh* mesh) : id(id), mesh(mesh) {}
+        // Front face (z = +0.5)
+        {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},   // 4 – magenta
+        {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},   // 5 – cyan
+        {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // 6 – white
+        {{-0.5f,  0.5f,  0.5f}, {0.7f, 0.7f, 0.7f}, {0.0f, 1.0f}},   // 7 – light gray
+    };
 
-            void setNewTarget(const engine::ContentID* id, Mesh* mesh) {
-                this->id = id;
-                this->mesh = mesh;
-            }
+    uint16_t CubeIndices[] = {
+        0, 1, 2,    2, 3, 0,      // back
+        4, 5, 6,    6, 7, 4,      // front
+        0, 1, 5,    5, 4, 0,      // bottom
+        3, 2, 6,    6, 7, 3,      // top
+        0, 3, 7,    7, 4, 0,      // left
+        1, 2, 6,    6, 5, 1       // right
+    };
 
-            void clear() {
-                id = nullptr;
-                mesh = nullptr;
-            }
-        };
+    constexpr auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";
 
-        struct MeshContainerSlot {
-            std::unique_ptr<Mesh>  mesh{nullptr};
-            engine::ContentVersion         version{1};
-            bool                   occupied{false};
-            std::vector<MeshUser*> users{};
-        };
+    constexpr auto QUAD = "Quad";
+    constexpr auto CUBE = "Cube";
+
+    struct Mesh final : engine::UFoxContentAsset {
+        std::vector<Vertex>                     vertices{};
+        std::vector<uint16_t>                   indices{};
+
+        std::optional<gpu::vulkan::Buffer>      vertexBuffer{};
+        std::optional<gpu::vulkan::Buffer>      indexBuffer{};
+
+        explicit Mesh(const std::string_view name_view, const engine::ContentSourceType src, const std::string_view category_view, const engine::ContentID& cid_): UFoxContentAsset(name_view, src, category_view, cid_){}
+
+        [[nodiscard]] bool hasValidGeometry() const noexcept { return !vertices.empty(); }
+        [[nodiscard]] bool hasBuffer() const noexcept { return vertexBuffer.has_value() && indexBuffer.has_value(); }
+        [[nodiscard]] uint32_t vertexCount() const noexcept { return static_cast<uint32_t>(vertices.size()); }
+        [[nodiscard]] uint32_t indexCount() const noexcept { return static_cast<uint32_t>(indices.size()); }
+
+        void releaseGpuResources() noexcept {
+            vertexBuffer.reset();
+            indexBuffer.reset();
+        }
+
+    };
+
+    struct MeshUser {
+        const engine::ContentID* id = nullptr;
+        Mesh* mesh = nullptr;
+
+        MeshUser() = default;
+        ~MeshUser() = default;
+        MeshUser(const engine::ContentID* id, Mesh* mesh) : id(id), mesh(mesh) {}
+
+        void setNewTarget(const engine::ContentID* id, Mesh* mesh) {
+            this->id = id;
+            this->mesh = mesh;
+        }
+
+        void clear() {
+            id = nullptr;
+            mesh = nullptr;
+        }
+    };
+
+    struct MeshContainerSlot {
+        std::string                             name{"empty"};
+        std::unique_ptr<Mesh>                   mesh{nullptr};
+        engine::ContentVersion                  version{1};
+        bool                                    occupied{false};
+        std::vector<MeshUser*>                  users{};
+        std::filesystem::path                   sourcePath{};
+        std::string                             sourceHash{};
+        std::chrono::file_clock::time_point     lastImportTime{};
+        std::filesystem::path                   assetPath{};
+        std::filesystem::path                   metaDataPath{};
+
+        [[nodiscard]] bool isPortInMesh() const noexcept {
+            return !sourcePath.empty() && !name.empty();
+        }
+
+        [[nodiscard]] bool hasCacheFiles() const noexcept {
+            return !assetPath.empty() &&
+                   !metaDataPath.empty() &&
+                   std::filesystem::exists(assetPath) &&
+                   std::filesystem::exists(metaDataPath);
+        }
+
+        void setCacheFilenames(const std::filesystem::path& baseDir) {
+            if (name.empty()) return;
+            std::string stem = name; // ← TODO: later add sanitization
+            assetPath    = baseDir / (stem + ".ufoxmesh");
+            metaDataPath = baseDir / (stem + ".ufoxmeta.json");
+        }
+
+        void clear() noexcept {
+            mesh.reset();
+            users.clear();
+            occupied = false;
+            version  = 1;
+            sourcePath.clear();
+            sourceHash.clear();
+            assetPath.clear();
+            metaDataPath.clear();
+        }
+    };
 }
 
+export namespace ufox::geometry::gltf {
 
+    constexpr uint32_t GLB_MAGIC           = 0x46546C67u;   // "glTF"
+    constexpr uint32_t GLB_VERSION         = 2u;
+    constexpr uint32_t CHUNK_TYPE_JSON     = 0x4E4F534Au;   // "JSON"
+    constexpr uint32_t CHUNK_TYPE_BIN      = 0x004E4942u;   // "BIN\0"
+
+    struct GlbHeader {
+        uint32_t magic   {0};
+        uint32_t version {0};
+        uint32_t length  {0};       // total file size
+    };
+
+    struct GlbChunkHeader {
+        uint32_t chunkLength {0};
+        uint32_t chunkType   {0};
+    };
+
+    enum class ComponentType : uint16_t {
+        eByte           = 5120,
+        eUnsignedByte   = 5121,
+        eShort          = 5122,
+        eUnsignedShort  = 5123,
+        eUnsignedInt    = 5125,
+        eFloat          = 5126,
+    };
+
+    enum class AccessorType : uint8_t {
+        eScalar = 1,
+        eVec2   = 2,
+        eVec3   = 3,
+        eVec4   = 4,
+        // matrices skipped for now
+    };
+
+}
+namespace std {
+    template <>
+    struct hash<ufox::geometry::Vertex>
+    {
+        size_t operator()(ufox::geometry::Vertex const &vertex) const noexcept
+        {
+            return (hash<glm::vec3>()(vertex.pos) ^
+                  hash<glm::vec3>()(vertex.color) << 1) >>
+                     1 ^ hash<glm::vec2>()(vertex.texCoord) << 1;
+        }
+    };
+}
 
 

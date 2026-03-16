@@ -651,12 +651,17 @@ export namespace ufox {
 
             // Getters
             [[nodiscard]] WindowHandle* getHandle() const { return handle.get(); }
-            bool getExtent(int& width, int& height) const {
+
+            template<mathf::Arithmetic T>
+            bool getExtent(T& width, T& height) const {
+                int _width, _height;
 #ifdef USE_SDL
-                SDL_GetWindowSize(handle.get(), &width, &height);
+                SDL_GetWindowSize(handle.get(), &_width, &_height);
 #else
-                glfwGetFramebufferSize(handle.get(), &width, &height);
+                glfwGetFramebufferSize(handle.get(), &_width, &_height);
 #endif
+                width = static_cast<T>(_width);
+                height = static_cast<T>(_height);
 
                 return height < 1 || width < 1;
             }

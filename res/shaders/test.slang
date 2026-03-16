@@ -4,24 +4,28 @@ struct VSInput {
     float2 inTexCoord;
 };
 
-struct UniformBuffer {
+struct RectData{
     float4x4 model;
-    float4x4 view;
-    float4x4 proj;
 };
-ConstantBuffer<UniformBuffer> ubo;
 
-struct VSOutput
-{
+struct ScreenBuffer {
+    float4x4 viewProjection;
+};
+
+StructuredBuffer<RectData> rectBuffer;
+ConstantBuffer<ScreenBuffer> sb;
+
+struct VSOutput{
     float4 pos : SV_Position;
     float3 fragColor;
     float2 fragTexCoord;
 };
 
 [shader("vertex")]
-VSOutput vertMain(VSInput input) {
+VSOutput vertMain(VSInput input, uint instanceID : SV_InstanceID) {
     VSOutput output;
-        output.pos = mul(ubo.proj, mul(ubo.view, mul(ubo.model, float4(input.inPos, 1.0))));
+        RectData rect = rectBuffer[instanceID];
+        output.pos = mul(sb.viewProjection, mul(rect.model, float4(input.inPos, 1.0)));
         output.fragColor = input.inColor;
         output.fragTexCoord = input.inTexCoord;
         return output;

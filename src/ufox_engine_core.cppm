@@ -4,6 +4,7 @@
 
 module;
 
+
 #include <fstream>
 #include <memory>
 
@@ -18,6 +19,9 @@ module;
 #include <optional>
 #include <string>
 #include <vulkan/vulkan_raii.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include "glm/gtc/quaternion.hpp"
 
 export module ufox_engine_core;
 
@@ -28,13 +32,94 @@ import ufox_graphic_device;
 
 export namespace ufox::engine {
 
-
 #ifdef USE_SDL
-constexpr bool FramebufferResizeCallback(void* userData,SDL_Event* event);
+  constexpr bool FramebufferResizeCallback(void* userData,SDL_Event* event);
 #else
-constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int height);
+  constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int height);
 #endif
 
+  template<Arithmetic T>
+  constexpr void CalculateAspectRatio(const T& width, const T& height, float& data) noexcept{
+    data = height == 0 ? 1.0f : static_cast<float>(width) / static_cast<float>(height);
+  }
+
+  constexpr void CalculateAspectRatio(const vk::Extent2D& extent, float& data) noexcept {
+    CalculateAspectRatio(extent.width, extent.height, data);
+  }
+
+  [[nodiscard]] constexpr
+  glm::vec3 GetForwardVector(const Transform& transform) noexcept {
+    // -Z forward (standard in right-handed Vulkan/OpenGL convention)
+    return glm::normalize(transform.rotation * glm::vec3(0.0f, 0.0f, -1.0f));
+  }
+
+  [[nodiscard]] constexpr
+  glm::vec3 GetBackwardVector(const Transform& transform) noexcept {
+    return -GetForwardVector(transform);
+  }
+
+  [[nodiscard]] constexpr
+  glm::vec3 GetUpVector(const Transform& transform) noexcept {
+    return glm::normalize(transform.rotation * glm::vec3(0.0f, 1.0f, 0.0f));
+  }
+
+  [[nodiscard]] constexpr
+  glm::vec3 GetDownVector(const Transform& transform) noexcept {
+    return -GetUpVector(transform);
+  }
+
+  [[nodiscard]] constexpr
+  glm::vec3 GetRightVector(const Transform& transform) noexcept {
+    return glm::normalize(transform.rotation * glm::vec3(1.0f, 0.0f, 0.0f));
+  }
+
+  [[nodiscard]] constexpr
+  glm::vec3 GetLeftVector(const Transform& transform) noexcept {
+    return -GetRightVector(transform);
+  }
+
+  [[nodiscard]] constexpr glm::mat4 MakeTransformModel(const glm::vec3& position, const glm::quat& quaternion, const glm::vec3& scale = glm::vec3(1.0f)){
+    return glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(quaternion) * glm::scale(glm::mat4(1.0f), scale) ;
+  }
+
+  [[nodiscard]] constexpr glm::mat4 MakeTransformModel(const glm::vec3& position, const glm::vec3& eulerDegrees, const glm::vec3& scale = glm::vec3(1.0f)){
+    return MakeTransformModel(position, glm::quat(glm::radians(eulerDegrees)), scale);
+  }
+
+  [[nodiscard]] constexpr glm::mat4 MakeTransformModel(const Transform& transform) {
+    return MakeTransformModel(transform.position, transform.rotation, transform.scale);
+  }
+
+  [[nodiscard]] constexpr glm::mat4 CalculateViewMatrix(const Transform& transform) noexcept {
+    const glm::vec3 eye    = transform.position;
+    const glm::vec3 center = eye + GetForwardVector(transform);
+    const glm::vec3 up     = GetUpVector(transform);
+
+    return glm::lookAt(eye, center, up);
+  }
+
+  [[nodiscard]] constexpr glm::mat4 CalculateViewMatrix(const Camera& camera) noexcept {
+    return CalculateViewMatrix(camera.transform);
+  }
+
+  [[nodiscard]] constexpr glm::mat4 CalculateViewProjectionMatrix(const ViewProjectionType& type,
+    const float& fov, const float& orthoSize, const float& aspectRatio, const float& nearPlane, const float& farPlane) noexcept {
+    switch (type) {
+    case ViewProjectionType::ePerspective: {
+      return glm::perspective(glm::radians(fov),aspectRatio,nearPlane,farPlane);
+    }
+    case ViewProjectionType::eOrthographic: {
+      const float halfW = orthoSize * aspectRatio * 0.5f;
+      const float halfH = orthoSize * 0.5f;
+      return glm::ortho(-halfW, halfW, -halfH, halfH,nearPlane, farPlane);
+    }
+    default: return {1.0f};
+    }
+  }
+
+  [[nodiscard]] constexpr auto CalculateScreenProjectionMatrix(const float& width, const float& height) noexcept {
+    return glm::ortho(0.0f, width, 0.0f, height, -1.0f, 0.0f);
+  }
 
 
   class UFoxWindow {
@@ -43,6 +128,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     gpu::vulkan::GPUResources                       gpuResource{};
     std::optional<windowing::WindowResource>        windowResource{};
     std::optional<gpu::vulkan::FrameResource>       frameResource{};
+
 
     [[nodiscard]] constexpr bool isRunning() const { return running; }
 
@@ -94,22 +180,38 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       std::erase_if(renderPassEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
-    static std::vector<char> ReadFile(const std::string& filename) {
+
+    template<typename T>
+    [[nodiscard]] static std::vector<T> ReadFileImpl(const std::string& filename) {
       std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
       if (!file.is_open()) {
-        throw std::runtime_error("failed to open file!");
+        debug::log(debug::LogLevel::eError, "Failed to open file: " + filename);
+        return {};
       }
 
-      std::vector<char> buffer(file.tellg());
+      const auto size = static_cast<std::size_t>(file.tellg());
+      std::vector<T> buffer(size / sizeof(T));
 
       file.seekg(0, std::ios::beg);
-      file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+      file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(size));
 
-      file.close();
+      if (!file) {
+        debug::log(debug::LogLevel::eError, "Failed to read file: " + filename);
+        return {};
+      }
 
       return buffer;
     }
+
+    [[nodiscard]] static std::vector<char> ReadFileChar(const std::string& filename) {
+      return ReadFileImpl<char>(filename);
+    }
+
+    [[nodiscard]] static std::vector<std::byte> ReadFileBinary(const std::string& filename) {
+      return ReadFileImpl<std::byte>(filename);
+    }
+
 
     [[nodiscard]] uint32_t getImageCount() const {
       return windowResource->swapchainResource.value().getImageCount();
@@ -119,27 +221,16 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       pauseRendering = true;
     }
 
-    template<Arithmetic T>
-    void onSize(const T& width, const T& height) {
-      const auto fw = static_cast<float>(width);
-      const auto fh = static_cast<float>(height);
-
-      framebufferResized = true;
-      recreateSwapchain();
-
-      for (auto [callback, used] : resizeEventHandlers) {
-        if (callback) callback(fw, fh, used);
-      }
-      drawFrame();
-    }
-
     void run() {
 #ifdef USE_SDL
       running = true;
       SDL_Event event;
 
+      float width, height = 0;
+      windowResource->getExtent(width, height);
+
       executeInitEvents();
-      executeResourceInitEvents();
+      executeResourceInitEvents(width,height);
 
       while (running) {
         executeStartEvents();
@@ -155,32 +246,73 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         glfwPollEvents();
         drawFrame();
       }
-    }
 #endif
-  }
+    }
+
+    template<Arithmetic T>
+    void executeResizeEvents(const T& width, const T& height) {
+      const auto fw = static_cast<float>(width);
+      const auto fh = static_cast<float>(height);
+
+      framebufferResized = true;
+      recreateSwapchain();
+      updateScreenProjectionBuffer(fw, fh);
+
+      for (auto [callback, used] : resizeEventHandlers) {
+        if (callback) callback(fw, fh, used);
+      }
+
+      drawFrame();
+    }
+
+    [[nodiscard]] vk::DescriptorBufferInfo MakeScreenViewProjectionBufferInfo() const {
+      vk::DescriptorBufferInfo bufferInfo{};
+      bufferInfo
+        .setBuffer(*screenViewProjectionBuffer.value().data)
+        .setOffset(0)
+        .setRange(MAT4_BUFFER_SIZE);
+      return bufferInfo;
+    }
 
   private:
-    std::vector<std::pair<SystemInitEventHandler, void*>> systemInitEventHandlers{};
-    std::vector<std::pair<ResourceInitEventHandler, void*>> resourceInitEventHandlers{};
-    std::vector<std::pair<ResizeEventHandler, void*>> resizeEventHandlers{};
-    std::vector<std::pair<StartEventHandler, void*>> startEventHandlers{};
-    std::vector<std::pair<UpdateBufferEventHandler, void*>> updateBufferEventHandlers{};
-    std::vector<std::pair<DrawCanvasEventHandler, void*>> renderPassEventHandlers{};
+    std::vector<std::pair<SystemInitEventHandler, void*>>         systemInitEventHandlers{};
+    std::vector<std::pair<ResourceInitEventHandler, void*>>       resourceInitEventHandlers{};
+    std::vector<std::pair<ResizeEventHandler, void*>>             resizeEventHandlers{};
+    std::vector<std::pair<StartEventHandler, void*>>              startEventHandlers{};
+    std::vector<std::pair<UpdateBufferEventHandler, void*>>       updateBufferEventHandlers{};
+    std::vector<std::pair<DrawCanvasEventHandler, void*>>         renderPassEventHandlers{};
 
-    bool running {false};
-    bool framebufferResized {false};
-    bool pauseRendering {false};
-    bool startFrameExecuted {false};
+    bool                                                          running {false};
+    bool                                                          framebufferResized {false};
+    bool                                                          pauseRendering {false};
+    bool                                                          startFrameExecuted {false};
+
+    std::optional<gpu::vulkan::Buffer>                            screenViewProjectionBuffer{};
+
+    void initGPUBufferResource() {
+      gpu::vulkan::MakeBuffer(screenViewProjectionBuffer,gpuResource, MAT4_BUFFER_SIZE, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+      float width, height = 0;
+      windowResource->getExtent(width, height);
+      updateScreenProjectionBuffer(width, height);
+    }
+
+    void updateScreenProjectionBuffer(const float& width, const float& height) const {
+      if (screenViewProjectionBuffer.has_value()) {
+        const glm::mat4 viewProject = SCREEN_VIEW_METRIX * CalculateScreenProjectionMatrix(width, height);
+        gpu::vulkan::CopyToDevice(*screenViewProjectionBuffer->memory,&viewProject, MAT4_BUFFER_SIZE);
+      }
+    }
 
     void executeInitEvents() {
+      initGPUBufferResource();
       for (auto [callback, used] : systemInitEventHandlers) {
         if (callback) callback(used);
       }
     }
 
-    void executeResourceInitEvents() {
+    void executeResourceInitEvents(const float& width, const float& height) {
       for (auto [callback, used] : resourceInitEventHandlers) {
-        if (callback) callback(used);
+        if (callback) callback(width, height, used);
       }
     }
 
@@ -208,7 +340,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       std::array<vk::ClearValue, 2> clearValues{};
       clearValues[0].color        = vk::ClearColorValue{0.0f, 0.0f, 0.0f,1.0f};
       clearValues[1].depthStencil = vk::ClearDepthStencilValue{0.0f, 0};
-      vk::Extent2D extent = windowResource->extent;
+
       cmb.begin({});
       vk::ImageSubresourceRange range{};
       range.aspectMask     = vk::ImageAspectFlagBits::eColor;
@@ -235,20 +367,20 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     }
 
     vk::Extent2D recreateSwapchain() {
-        // Handle window minimization
-        int width = 0, height = 0;
-        pauseRendering = windowResource->getExtent(width, height);
-        const auto size = vk::Extent2D{static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+      // Handle window minimization
+      int width = 0, height = 0;
+      pauseRendering = windowResource->getExtent(width, height);
+      const auto size = vk::Extent2D{static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
 
-        if (pauseRendering) return size;
+      if (pauseRendering) return size;
 
-        gpuResource.device->waitIdle();
-        windowResource->extent = size;
-        windowResource->swapchainResource->Clear();
-        gpu::vulkan::ReMakeSwapchainResource(*windowResource->swapchainResource, gpuResource, *windowResource, vk::ImageUsageFlagBits::eColorAttachment);
+      gpuResource.device->waitIdle();
+      windowResource->extent = size;
+      windowResource->swapchainResource->Clear();
+      gpu::vulkan::ReMakeSwapchainResource(*windowResource->swapchainResource, gpuResource, *windowResource, vk::ImageUsageFlagBits::eColorAttachment);
 
-        return size;
-      }
+      return size;
+    }
 
     void drawFrame() {
       while ( vk::Result::eTimeout == gpuResource.device->waitForFences( *frameResource->getCurrentDrawFence(), vk::True, UINT64_MAX ) )
@@ -367,18 +499,18 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   };
 
 #ifdef USE_SDL
-  constexpr bool FramebufferResizeCallback(void* userData,SDL_Event* event) {
-    if (event->type == SDL_EVENT_WINDOW_RESIZED) {
-      auto* app = static_cast<UFoxWindow*>(userData);
-      app->onSize(event->window.data1, event->window.data2);
-    }
-    return true;
+constexpr bool FramebufferResizeCallback(void* userData,SDL_Event* event) {
+  if (event->type == SDL_EVENT_WINDOW_RESIZED) {
+    auto* app = static_cast<UFoxWindow*>(userData);
+    app->executeResizeEvents(event->window.data1, event->window.data2);
   }
+  return true;
+}
 #else
-  constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int height) {
-    auto app = static_cast<UFoxWindow*>(glfwGetWindowUserPointer(window));
-    app->onSize(width, height);
-  }
+constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int height) {
+  auto app = static_cast<UFoxWindow*>(glfwGetWindowUserPointer(window));
+  app->executeResizeEvents(width, height);
+}
 #endif
 
 

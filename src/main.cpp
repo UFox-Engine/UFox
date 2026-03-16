@@ -1,6 +1,7 @@
 #include <exception>
 #include <iostream>
 #include <thread>
+#include <filesystem>
 
 import ufox_engine_lib;
 import ufox_engine_core;
@@ -8,19 +9,61 @@ import ufox_gui_lib;
 import ufox_gui_core;
 import ufox_geometry_core;
 import ufox_geometry_lib;
+import ufox_lib;
 
 int main() {
   try {
     auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
     ufox::geometry::MeshManager meshManager{window->gpuResource};
     ufox::gui::Document doc(window.get(), &meshManager);
-    // ufox::geometry::DefaultMeshesResources default_meshes_resources = ufox::geometry::CreateDefaultMeshResources(meshManager);
-    // auto quadIt = default_meshes_resources.find("quad");
-    // if (quadIt != default_meshes_resources.end()) {
-    //   const ufox::engine::ContentID * quadId = quadIt->second;
-    //   meshManager.useMesh(*quadId, window->gpuResource);
-    // }
+    ufox::engine::Camera mainCamera{};
+
+
     window->addStartEventHandlers([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
+    window->addResizeEventHandlers([](const float& w, const float& h, void* user) {
+      auto* camera = static_cast<ufox::engine::Camera*>(user);
+      ufox::engine::CalculateAspectRatio(w,h, camera->aspectRatio);
+    }, &mainCamera);
+
+    std::filesystem::path modelPath = "res/meshes/boxu.glb";
+
+    auto glbBytes = window->ReadFileBinary(modelPath.string());
+
+    if (glbBytes.empty())
+    {
+      ufox::debug::log(ufox::debug::LogLevel::eError, "Failed to load glTF file: {}", modelPath.string());
+      return EXIT_FAILURE;
+    }
+
+    ufox::debug::log(ufox::debug::LogLevel::eInfo, "Loaded glTF file ({} bytes): {}", glbBytes.size(), modelPath.string());
+
+    if (auto* cid = CreateMeshFromFirstGlbPrimitive(
+                meshManager,
+                std::span<const std::byte>{glbBytes},
+                "BoxFromGlTF"))
+    {
+      ufox::debug::log(ufox::debug::LogLevel::eInfo, "Successfully parsed glTF mesh! ID = {}", cid->index);
+
+      // Example: create a MeshUser for later rendering / usage
+      ufox::geometry::MeshUser boxMesh;
+      boxMesh.setNewTarget(cid, meshManager.get(*cid));
+
+      // Optional: log some stats
+      if (boxMesh.mesh)
+      {
+        ufox::debug::log(ufox::debug::LogLevel::eInfo,
+                   "Mesh stats : vertices: {}, indices: {}, has buffers: {}",
+                   boxMesh.mesh->vertexCount(),
+                   boxMesh.mesh->indexCount(),
+                   boxMesh.mesh->hasBuffer());
+      }
+
+      // ... later in your rendering loop, use boxMesh.mesh->vertexBuffer etc.
+    }
+    else
+    {
+      ufox::debug::log(ufox::debug::LogLevel::eWarning, "glTF parsing failed (likely missing data or unsupported format)");
+    }
 
     window->run();
 

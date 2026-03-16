@@ -328,17 +328,19 @@ export namespace ufox::gpu::vulkan {
     }
 
     vk::raii::Device MakeDevice(const GPUResources& gpu, const GraphicDeviceCreateInfo& info) {
-
-        auto features = gpu.physicalDevice->getFeatures2();
+        auto features2 = gpu.physicalDevice->getFeatures2();
+        vk::PhysicalDeviceVulkan11Features vulkan11Features;
+        vulkan11Features.shaderDrawParameters = vk::True;
         vk::PhysicalDeviceVulkan13Features vulkan13Features;
         vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures;
         vulkan13Features.dynamicRendering = info.enableDynamicRendering ? vk::True : vk::False;
         vulkan13Features.synchronization2 = info.enableSynchronization2 ? vk::True : vk::False;
         extendedDynamicStateFeatures.extendedDynamicState = info.enableExtendedDynamicState ? vk::True : vk::False;
         vulkan13Features.pNext = &extendedDynamicStateFeatures;
-        features.pNext = &vulkan13Features;
+        vulkan11Features.pNext = &vulkan13Features;
+        features2.pNext = &vulkan11Features;
 
-        return MakeDevice(*gpu.physicalDevice, gpu.queueFamilyIndices->graphicsFamily, info.deviceExtensions, nullptr, features);
+        return MakeDevice(*gpu.physicalDevice, gpu.queueFamilyIndices->graphicsFamily, info.deviceExtensions, nullptr, features2);
     }
 
     vk::raii::CommandPool MakeCommandPool(const vk::raii::Device& device, const QueueFamilyIndices& queueFamilyIndices,
@@ -731,6 +733,12 @@ export namespace ufox::gpu::vulkan {
         buffer.data->bindMemory(*buffer.memory, 0);
     }
 
+    void MakeBuffer(std::optional<Buffer>& buffer,const GPUResources& gpu, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage, const vk::MemoryPropertyFlags& properties, const vk::SharingMode& shareMode = vk::SharingMode::eExclusive) {
+        Buffer rawBuffer{};
+        MakeBuffer(rawBuffer, gpu, size, usage, properties, shareMode);
+        buffer.emplace(std::move(rawBuffer));
+    }
+
 
     template <typename T>
     void CopyToDevice(const vk::raii::DeviceMemory& deviceMemory,const T* pData, const vk::DeviceSize& size ) {
@@ -748,6 +756,56 @@ export namespace ufox::gpu::vulkan {
         cmd.copyBuffer(*srcBuffer.data, *dstBuffer.data, { copyRegion });
 
         EndSingleTimeCommands(gpu, cmd);
+    }
+
+    template <typename T>
+    void MakeAndCopyBuffer(const GPUResources& gpu, std::span<const T> sources, const vk::BufferUsageFlags& finalUsage, std::optional<Buffer>& destinationBuffer) {
+        if (sources.empty()) return;
+
+        if (destinationBuffer.has_value()) {
+            destinationBuffer.reset();
+        }
+
+        const vk::DeviceSize bufferSize = sizeof(T) * sources.size();
+
+        std::optional<Buffer> stagingBuffer{};
+        MakeBuffer(
+            stagingBuffer,
+            gpu,
+            bufferSize,
+            vk::BufferUsageFlagBits::eTransferSrc,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+        CopyToDevice(stagingBuffer->memory.value(), sources.data(), bufferSize);
+
+        MakeBuffer(
+            destinationBuffer,
+            gpu,
+            bufferSize,
+            finalUsage | vk::BufferUsageFlagBits::eTransferDst,
+            vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+        CopyBuffer(gpu, stagingBuffer.value(), destinationBuffer.value(), bufferSize);
+    }
+
+    template <typename T, size_t N>
+    void MakeAndCopyBuffer(const GPUResources& gpu,const T (&array)[N], const vk::BufferUsageFlags& finalUsage, std::optional<Buffer>& destinationBuffer){
+        MakeAndCopyBuffer(gpu, std::span<const T>{array}, finalUsage, destinationBuffer);
+    }
+
+    template <typename T, size_t N>
+    void MakeAndCopyBuffer(const GPUResources& gpu, const std::array<T, N>& arr, const vk::BufferUsageFlags& finalUsage, std::optional<Buffer>& destinationBuffer){
+        MakeAndCopyBuffer(gpu, std::span<const T>{arr}, finalUsage, destinationBuffer);
+    }
+
+    template <typename T>
+    void MakeAndCopyBuffer(const GPUResources& gpu,const std::vector<T>& vec, const vk::BufferUsageFlags& finalUsage, std::optional<Buffer>& destinationBuffer){
+        MakeAndCopyBuffer(gpu, std::span<const T>{vec}, finalUsage, destinationBuffer);
+    }
+
+    template <typename T>
+    void MakeAndCopyBuffer(const GPUResources& gpu,const T& source, const vk::BufferUsageFlags& finalUsage, std::optional<Buffer>& destinationBuffer) {
+        MakeAndCopyBuffer(gpu, std::span<const T>{&source, 1}, finalUsage, destinationBuffer);
     }
 
     void SetImageLayout(vk::raii::CommandBuffer const & commandBuffer, const TextureImage& image, const vk::Format& format, vk::ImageLayout oldImageLayout, vk::ImageLayout newImageLayout )
@@ -854,6 +912,19 @@ export namespace ufox::gpu::vulkan {
         };
 
         return createInfo;
+    }
+
+    [[nodiscard]] vk::WriteDescriptorSet MakeWriteDescriptorSet(const vk::raii::DescriptorSet& set, const vk::DescriptorBufferInfo& info,
+    const uint32_t binding, const vk::DescriptorType type, const uint32_t descriptorCount = 1, const uint32_t arrayElement = 0) {
+        vk::WriteDescriptorSet writeDescriptorSet{};
+        writeDescriptorSet
+          .setDstSet(*set)
+          .setDstBinding(binding)
+          .setDstArrayElement(arrayElement)
+          .setDescriptorType(type)
+          .setDescriptorCount(descriptorCount)
+          .setPBufferInfo(&info);
+        return writeDescriptorSet;
     }
 
     inline auto COLOR_IMAGE_USAGE_FLAG = vk::ImageUsageFlags{ vk::ImageUsageFlagBits::eColorAttachment };
