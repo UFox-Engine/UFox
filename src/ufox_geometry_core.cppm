@@ -17,7 +17,7 @@ module;
 #include <nlohmann/json.hpp>
 #include <tiny_obj_loader.h>
 #include <string>
-#include <unordered_map>
+
 
 export module ufox_geometry_core;
 
@@ -30,14 +30,17 @@ import ufox_graphic_device;
 using namespace ufox::engine;
 
 export namespace ufox::geometry {
+    class MeshManager;
+
+    bool SaveSlotMetadataToJson(const MeshContainerSlot& slot);
+    [[nodiscard]] const ContentID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
 
     class MeshManager final {
     public:
         static constexpr std::string_view kDefaultMeshName{"unnamed_mesh"};
         static constexpr std::string_view kDefaultCategory{"Miscellaneous"};
 
-        explicit MeshManager(const gpu::vulkan::GPUResources& gpu) noexcept
-            : gpuResources(&gpu) {}
+        explicit MeshManager(const gpu::vulkan::GPUResources& gpu) noexcept : gpuResources(&gpu) {}
 
         MeshManager(const MeshManager&) = delete;
         MeshManager& operator=(const MeshManager&) = delete;
@@ -46,11 +49,55 @@ export namespace ufox::geometry {
             clearAllGpuResources();
         }
 
-        const ContentID* createMesh(std::string_view name = kDefaultMeshName, ContentSourceType src = ContentSourceType::eBuiltIn, std::string_view category = kDefaultCategory) {
+        void Init() const {
+            try {
+                if (!std::filesystem::exists(meshDirectory)) {
+                    std::filesystem::create_directories(meshDirectory);
+                    // Optional: very useful during development
+                    debug::log(debug::LogLevel::eInfo, "Created mesh directory: {}", meshDirectory.string());
+                }
+                else if (!std::filesystem::is_directory(meshDirectory)) {
+                    throw std::runtime_error(std::format(
+                        "Path {} exists but is not a directory!", meshDirectory.string()));
+                }
+            }
+            catch (const std::filesystem::filesystem_error& e) {
+                std::cerr << std::format("Filesystem error creating meshes folder: {}\n", e.what());
+            }
+            catch (const std::exception& e) {
+                std::cerr << std::format("Error creating meshes folder: {}\n", e.what());
+            }
+
+            LoadMetaData();
+        }
+
+        void LoadMetaData() const {
+
+        }
+
+        void SaveMetaData() const {
+        }
+
+        void ImportMesh(const std::filesystem::path& sourceFilePath, const std::string_view& displayName = kDefaultMeshName, const std::string_view& category = kDefaultCategory) {
+
+
+        }
+
+        [[nodiscard]] const std::filesystem::path& GetMeshDirectory() const noexcept {
+            return meshDirectory;
+        }
+
+        const ContentID* createMesh(std::string_view name,  const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourType = ContentSourceType::eBuiltIn, const std::string_view& category = kDefaultCategory, const std::filesystem::path& path ="") {
             const ContentIndex idx = acquireSlot();
             auto& slot = slots[idx];
-            slot.mesh = std::make_unique<Mesh>(name, src, category, ContentID{idx, slot.version});
-            return &slot.mesh->cid;
+            slot.name = name;
+            slot.sourceType = sourType;
+            slot.category = category;
+            slot.sourcePath = path;
+            slot.dataPtr = std::make_unique<Mesh>(name, vertices, indices, ContentID{idx, slot.version});
+            slot.lastImportTime = std::chrono::file_clock::now();
+            SaveSlotMetadataToJson(slot);
+            return &slot.dataPtr->cid;
         }
 
         void destroy(const ContentID id, MeshContainerSlot& slot) {
@@ -59,19 +106,17 @@ export namespace ufox::geometry {
 
         void destroy(const ContentID id) {
             auto* slot = tryGetSlot(id);
-            if (slot == nullptr || slot->mesh == nullptr) return;
+            if (slot == nullptr || slot->dataPtr == nullptr) return;
 
             releaseMeshSlot(id.index, *slot);
         }
 
-        Mesh* get(const ContentID id) {
-          const auto * slot = tryGetSlot(id);
-            return slot && slot->mesh ? slot->mesh.get() : nullptr;
-        }
-
-        [[nodiscard]] const Mesh* get(const ContentID id) const {
+        [[nodiscard]] Mesh* get(const ContentID id) const {
             const auto* slot = tryGetSlot(id);
-            return slot && slot->mesh ? slot->mesh.get() : nullptr;
+            if (slot == nullptr || slot->dataPtr == nullptr) return nullptr;
+
+            auto* mesh = dynamic_cast<Mesh*>(slot->dataPtr.get());
+            return mesh;
         }
 
         [[nodiscard]] size_t getUsage(const ContentID& id) const {
@@ -79,27 +124,24 @@ export namespace ufox::geometry {
             return slot ? slot->users.size() : 0;
         }
 
-        [[nodiscard]] size_t aliveCount() const noexcept {
-            return aliveMeshes;
-        }
-
         void useMesh(MeshUser& user) {
             if (user.id == nullptr) return;
-
             auto* slot = tryGetSlot(*user.id);
-            if (slot == nullptr || slot->mesh == nullptr) return;
+            if (slot == nullptr || slot->dataPtr == nullptr) return;
 
-            Mesh& mesh = *slot->mesh;
-            user.mesh = &mesh;
+            auto* mesh = slot->dataPtr->getContent<Mesh>();
 
+            if (mesh == nullptr) return;
+
+            user.mesh = mesh;
             if (const auto it = std::ranges::find(slot->users, &user); it == slot->users.end()) {
                 slot->users.push_back(&user);
             }
 
-            ensureMeshBuffers(mesh);
+            ensureMeshBuffers(user.mesh);
         }
 
-        void unuseMesh(MeshUser& user, const bool destroyLast = false) {
+        void unuseMesh(MeshUser& user) {
             if (user.id == nullptr) return;
             user.mesh = nullptr;
 
@@ -111,22 +153,11 @@ export namespace ufox::geometry {
                 slot->users.erase(it);
             }
 
-            if (!slot->users.empty()) return;
+            if (!slot->users.empty() || slot->dataPtr == nullptr) return;
 
-
-            if (destroyLast) {
-                destroy(*user.id, *slot);
-                return;
-            }
-
-            if (slot->mesh == nullptr) return;
-            Mesh& mesh = *slot->mesh;
-
-            if (mesh.hasBuffer()) {
-                mesh.releaseGpuResources();
-                debug::log(debug::LogLevel::eInfo,
-                           "MeshManager: unuseMesh [{}]: mesh released buffers",
-                           mesh.name);
+            if (slot->dataPtr->hasBuffer()) {
+                slot->dataPtr->releaseGpuResources();
+                debug::log(debug::LogLevel::eInfo, "MeshManager: unuseMesh [{}]: mesh released buffers", slot->dataPtr->name);
             }
         }
 
@@ -134,14 +165,14 @@ export namespace ufox::geometry {
             size_t clearedCount = 0;
 
             for (auto& slot : slots) {
-                if (!slot.occupied || !slot.mesh || !slot.mesh->hasBuffer()) continue;
+                if (!slot.occupied || !slot.dataPtr || !slot.dataPtr->hasBuffer()) continue;
 
-                slot.mesh->releaseGpuResources();
+                slot.dataPtr->releaseGpuResources();
                 ++clearedCount;
 
                 debug::log(debug::LogLevel::eInfo,
                            "MeshManager: clearAllGpuResources: cleared mesh GPU resources for mesh: {}",
-                           slot.mesh->name);
+                           slot.dataPtr->name);
             }
 
             if (clearedCount > 0) {
@@ -151,18 +182,8 @@ export namespace ufox::geometry {
             }
         }
 
-        void debugPrintStatus(std::ostream& os = std::cout) const {
-            os << "MeshManager status:\n"
-               << "  Alive meshes   : " << aliveMeshes << "\n"
-               << "  Total slots    : " << slots.size() << "\n"
-               << "  Free slots     : " << freeSlots.size() << "\n"
-               << "  Fragmentation  : " << (slots.size() - aliveMeshes) << " holes\n";
-        }
 
     private:
-
-
-
         static void createVertexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
             gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.vertices, vk::BufferUsageFlagBits::eVertexBuffer, mesh.vertexBuffer);
         }
@@ -171,10 +192,11 @@ export namespace ufox::geometry {
             gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.indices, vk::BufferUsageFlagBits::eIndexBuffer, mesh.indexBuffer);
         }
 
-        void ensureMeshBuffers(Mesh& mesh) const {
-            if (mesh.hasBuffer()) return;
-            createVertexBuffer(*gpuResources, mesh);
-            createIndexBuffer(*gpuResources, mesh);
+        void ensureMeshBuffers(Mesh* mesh) const {
+            if (!mesh) return;
+            if (mesh->hasBuffer()) return;
+            createVertexBuffer(*gpuResources, *mesh);
+            createIndexBuffer(*gpuResources, *mesh);
         }
 
         [[nodiscard]] bool isAlive(const ContentID& id) const noexcept {
@@ -206,43 +228,37 @@ export namespace ufox::geometry {
             auto& slot = slots[idx];
             slot.occupied = true;
             slot.version = nextVersion++;
-            ++aliveMeshes;
             return idx;
         }
 
         void releaseMeshSlot(const ContentIndex idx, MeshContainerSlot& slot) {
-            if (slot.mesh) {
+            if (slot.dataPtr) {
                 for (const std::span users{slot.users.data(), slot.users.size()};
                    MeshUser * other : users) {
-                    if (other) unuseMesh(*other, false);
+                    if (other) unuseMesh(*other);
                    }
 
-                const std::string_view meshName = slot.mesh->name;
-                slot.mesh->releaseGpuResources();
-                slot.mesh.reset();
+                const std::string_view meshName = slot.dataPtr->name;
+                slot.dataPtr->releaseGpuResources();
+                slot.dataPtr.reset();
 
                 debug::log(debug::LogLevel::eInfo,"MeshManager: Destroy and Release Buffer [{}]",meshName);
             }
 
             slot.users.clear();
             slot.occupied = false;
-            --aliveMeshes;
             freeSlots.push_back(idx);
         }
 
         const gpu::vulkan::GPUResources* gpuResources{nullptr};
         std::vector<MeshContainerSlot> slots{};
         std::vector<ContentIndex> freeSlots{};
-        size_t aliveMeshes{0};
         ContentVersion nextVersion{1};
+        const std::filesystem::path meshDirectory = MESH_RESOURCE_PATH;
     };
 
-    const ContentID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourType = ContentSourceType::eBuiltIn, const std::string_view& category = "Miscellaneous") {
-        const ContentID* id = manager.createMesh(name, sourType, category);
-        Mesh* m = manager.get(*id);
-        if (!m) return nullptr;
-        m->vertices.assign(std::begin(vertices), std::end(vertices));
-        m->indices.assign(std::begin(indices), std::end(indices));
+    const ContentID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourceType = ContentSourceType::eBuiltIn, const std::string_view& category = "Miscellaneous", const std::filesystem::path& path = "") {
+        const ContentID* id = manager.createMesh(name, vertices, indices, sourceType, category, path);
         return id;
     }
 
@@ -261,54 +277,7 @@ export namespace ufox::geometry {
                 {"cube", CreateCube(manager)}};
     }
 
-    // const ContentID* CreatePortInMesh(MeshManager& manager,std::string_view displayName,const std::filesystem::path& sourceFilePath,std::string_view category = "Imported")
-    // {
-    //     if (!std::filesystem::exists(sourceFilePath)) {
-    //         debug::log(debug::LogLevel::eError, "Source mesh not found: {}", sourceFilePath.string());
-    //         return nullptr;
-    //     }
-    //
-    //     std::string slotName = std::string(displayName);
-    //     if (slotName.empty()) {
-    //         slotName = sourceFilePath.stem().string();
-    //     }
-    //
-    //     ContentIndex idx = manager.acquireSlot(slotName);
-    //     auto& slot = manager.slots[idx];
-    //
-    //     const auto contentRoot = paths::GetMeshContentRoot();
-    //     std::filesystem::create_directories(contentRoot);
-    //
-    //     slot.setCacheFilenames(contentRoot);
-    //
-    //     slot.name           = slotName;
-    //     slot.sourcePath     = sourceFilePath;
-    //     slot.lastImportTime = std::chrono::file_clock::now();
-    //     // slot.sourceHash     = ComputeFileHash(sourceFilePath);   // ← to be added
-    //
-    //     slot.mesh = std::make_unique<Mesh>(
-    //         displayName.empty() ? slotName : displayName,
-    //         ContentSourceType::ePortIn,
-    //         category,
-    //         ContentID{idx, slot.version}
-    //     );
-    //
-    //     // Save initial metadata even before geometry import
-    //     SaveSlotMetadataToJson(slot, slot.metaDataPath);
-    //
-    //     debug::log(debug::LogLevel::eInfo,
-    //                "Created port-in mesh slot: \"{}\" from \"{}\"",
-    //                slot.name, sourceFilePath.string());
-    //
-    //     return &slot.mesh->cid;
-    // }
-
-    // Loads the FIRST primitive of the FIRST mesh from a .glb file.
-    // Currently supports:
-    //   - POSITION attribute (required)
-    //   - indices (optional, UNSIGNED_SHORT only)
-    // Returns ContentID* on success, nullptr on any failure.
-    [[nodiscard]] const engine::ContentID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name = "gltf_mesh") {
+    [[nodiscard]] const ContentID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name = "gltf_mesh", const std::filesystem::path& path = "") {
         // ────────────────────────────────────────────────────────────────
         // Step 1: Basic validation of input data size
         // ────────────────────────────────────────────────────────────────
@@ -600,7 +569,7 @@ export namespace ufox::geometry {
                         else
                         {
                             indices.resize(idxCount);
-                            const uint16_t* srcIdx = reinterpret_cast<const uint16_t*>(
+                            const auto* srcIdx = reinterpret_cast<const uint16_t*>(
                                 binary.data() + finalIdxStart);
 
                             std::copy(srcIdx, srcIdx + idxCount, indices.begin());
@@ -625,12 +594,13 @@ export namespace ufox::geometry {
             name,
             std::span(vertices),
             std::span(indices),
-            engine::ContentSourceType::ePortIn,
-            "glTF import"
+            ContentSourceType::ePortIn,
+            MeshManager::kDefaultCategory,
+            path
         );
     }
 
-void LoadOBJ(std::string_view MODEL_PATH,
+    void LoadOBJ(std::string_view MODEL_PATH,
          std::vector<Vertex>& vertices,
          std::vector<uint16_t>& indices) {
         tinyobj::attrib_t attrib;
@@ -674,5 +644,73 @@ void LoadOBJ(std::string_view MODEL_PATH,
                 indices.push_back(uniqueVertices[vertex]);
             }
         }
+    }
+
+    std::string TimePointToIso8601(const std::chrono::file_clock::time_point& tp)
+        {
+            auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(tp);
+            auto timeT   = std::chrono::system_clock::to_time_t(sysTime);
+
+            std::tm utcTime{};
+    #if defined(_WIN32)
+            gmtime_s(&utcTime, &timeT);
+    #else
+            gmtime_r(&timeT, &utcTime);
+    #endif
+
+            std::ostringstream oss;
+            oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
+            return oss.str();
+        }
+
+    bool SaveSlotMetadataToJson(const MeshContainerSlot& slot){
+        if (slot.sourceType == ContentSourceType::eBuiltIn) return false;
+        if (slot.name.empty())
+        {
+            debug::log(debug::LogLevel::eWarning, "Cannot save metadata: slot name is empty");
+            return false;
+        }
+
+        const std::string filename = slot.name + ".ufox.meta";
+        const auto metaPath = std::filesystem::path{MESH_RESOURCE_PATH} / filename;
+
+        nlohmann::json j;
+
+        j["name"]                   = slot.name;
+        j["sourcePath"]             = slot.sourcePath.string();
+        j["category"]               = slot.category;
+        j["lastImportTime"]         = slot.lastImportTime == std::chrono::file_clock::time_point{}? "": TimePointToIso8601(slot.lastImportTime);
+        j["version"]                = slot.version;
+        j["assetPath"]              = slot.assetPath.empty()    ? "" : slot.assetPath.filename().string();
+
+
+        // Write file with indentation for readability
+        std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
+        if (!file.is_open())
+        {
+            debug::log(debug::LogLevel::eError,
+                       "Failed to open metadata file for writing: {}",
+                       metaPath.string());
+            return false;
+        }
+
+        try
+        {
+            file << std::setw(2) << j << std::endl;
+            file.close();
+        }
+        catch (const std::exception& e)
+        {
+            debug::log(debug::LogLevel::eError,
+                       "Exception while writing JSON {} : {}",
+                       metaPath.string(), e.what());
+            return false;
+        }
+
+        debug::log(debug::LogLevel::eInfo,
+                   "Saved mesh metadata: \"{}\" → {}",
+                   slot.name, metaPath.string());
+
+        return true;
     }
 }

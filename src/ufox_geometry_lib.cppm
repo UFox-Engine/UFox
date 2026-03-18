@@ -14,6 +14,8 @@ import ufox_graphic_device;
 import ufox_engine_lib;
 
 export namespace ufox::geometry {
+    constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
+
     struct Vertex
     {
         glm::vec3 pos{0.0f};
@@ -101,21 +103,24 @@ export namespace ufox::geometry {
     constexpr auto QUAD = "Quad";
     constexpr auto CUBE = "Cube";
 
-    struct Mesh final : engine::UFoxContentAsset {
+    struct Mesh final : engine::UFoxContentData {
         std::vector<Vertex>                     vertices{};
         std::vector<uint16_t>                   indices{};
 
         std::optional<gpu::vulkan::Buffer>      vertexBuffer{};
         std::optional<gpu::vulkan::Buffer>      indexBuffer{};
 
-        explicit Mesh(const std::string_view name_view, const engine::ContentSourceType src, const std::string_view category_view, const engine::ContentID& cid_): UFoxContentAsset(name_view, src, category_view, cid_){}
+        explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::ContentID& cid_): UFoxContentData(name_view, cid_) {
+            vertices.assign(std::begin(_vertices), std::end(_vertices));
+            indices.assign(std::begin(_indices), std::end(_indices));
+        }
 
         [[nodiscard]] bool hasValidGeometry() const noexcept { return !vertices.empty(); }
-        [[nodiscard]] bool hasBuffer() const noexcept { return vertexBuffer.has_value() && indexBuffer.has_value(); }
+        [[nodiscard]] bool hasBuffer() const noexcept override { return vertexBuffer.has_value() && indexBuffer.has_value(); }
         [[nodiscard]] uint32_t vertexCount() const noexcept { return static_cast<uint32_t>(vertices.size()); }
         [[nodiscard]] uint32_t indexCount() const noexcept { return static_cast<uint32_t>(indices.size()); }
 
-        void releaseGpuResources() noexcept {
+        void releaseGpuResources() noexcept override{
             vertexBuffer.reset();
             indexBuffer.reset();
         }
@@ -142,44 +147,24 @@ export namespace ufox::geometry {
     };
 
     struct MeshContainerSlot {
-        std::string                             name{"empty"};
-        std::unique_ptr<Mesh>                   mesh{nullptr};
-        engine::ContentVersion                  version{1};
-        bool                                    occupied{false};
-        std::vector<MeshUser*>                  users{};
-        std::filesystem::path                   sourcePath{};
-        std::string                             sourceHash{};
-        std::chrono::file_clock::time_point     lastImportTime{};
-        std::filesystem::path                   assetPath{};
-        std::filesystem::path                   metaDataPath{};
-
-        [[nodiscard]] bool isPortInMesh() const noexcept {
-            return !sourcePath.empty() && !name.empty();
-        }
-
-        [[nodiscard]] bool hasCacheFiles() const noexcept {
-            return !assetPath.empty() &&
-                   !metaDataPath.empty() &&
-                   std::filesystem::exists(assetPath) &&
-                   std::filesystem::exists(metaDataPath);
-        }
-
-        void setCacheFilenames(const std::filesystem::path& baseDir) {
-            if (name.empty()) return;
-            std::string stem = name; // ← TODO: later add sanitization
-            assetPath    = baseDir / (stem + ".ufoxmesh");
-            metaDataPath = baseDir / (stem + ".ufoxmeta.json");
-        }
+        std::string                                 name{"empty"};
+        engine::ContentSourceType                   sourceType;
+        std::string                                 category;
+        std::unique_ptr<engine::UFoxContentData>    dataPtr{nullptr};
+        engine::ContentVersion                      version{1};
+        bool                                        occupied{false};
+        std::vector<MeshUser*>                      users{};
+        std::filesystem::path                       sourcePath{};
+        std::filesystem::path                       assetPath{};
+        std::chrono::file_clock::time_point         lastImportTime{};
 
         void clear() noexcept {
-            mesh.reset();
+            dataPtr.reset();
             users.clear();
             occupied = false;
             version  = 1;
             sourcePath.clear();
-            sourceHash.clear();
             assetPath.clear();
-            metaDataPath.clear();
         }
     };
 }

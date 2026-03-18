@@ -396,7 +396,7 @@ export namespace ufox::gui {
             }
 
             if (meshManager != nullptr) {
-                meshManager->unuseMesh(meshUser, true);
+                meshManager->unuseMesh(meshUser);
                 meshManager = nullptr;
             }
 

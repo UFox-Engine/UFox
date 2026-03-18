@@ -15,6 +15,8 @@ int main() {
   try {
     auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
     ufox::geometry::MeshManager meshManager{window->gpuResource};
+    meshManager.Init();
+
     ufox::gui::Document doc(window.get(), &meshManager);
     ufox::engine::Camera mainCamera{};
 
@@ -40,23 +42,13 @@ int main() {
     if (auto* cid = CreateMeshFromFirstGlbPrimitive(
                 meshManager,
                 std::span<const std::byte>{glbBytes},
-                "BoxFromGlTF"))
+                "BoxFromGlTF", modelPath))
     {
       ufox::debug::log(ufox::debug::LogLevel::eInfo, "Successfully parsed glTF mesh! ID = {}", cid->index);
 
-      // Example: create a MeshUser for later rendering / usage
-      ufox::geometry::MeshUser boxMesh;
-      boxMesh.setNewTarget(cid, meshManager.get(*cid));
 
-      // Optional: log some stats
-      if (boxMesh.mesh)
-      {
-        ufox::debug::log(ufox::debug::LogLevel::eInfo,
-                   "Mesh stats : vertices: {}, indices: {}, has buffers: {}",
-                   boxMesh.mesh->vertexCount(),
-                   boxMesh.mesh->indexCount(),
-                   boxMesh.mesh->hasBuffer());
-      }
+
+
 
       // ... later in your rendering loop, use boxMesh.mesh->vertexBuffer etc.
     }

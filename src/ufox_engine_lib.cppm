@@ -59,22 +59,24 @@ export namespace ufox::engine {
     eOrthographic = 1,
   };
 
-  struct UFoxContentAsset {
-    virtual ~UFoxContentAsset() = default;
+  struct UFoxContentData {
+    virtual ~UFoxContentData() = default;
 
     std::string               name;
     const ContentID           cid;
-    const ContentSourceType   sourceType;
-    std::string               category;
 
-    uint64_t                  lastModifiedMs  {0};
-    size_t                    memoryFootprint {0};
 
-    explicit UFoxContentAsset(const std::string_view name_view,
-                     const ContentSourceType src,
-                     const std::string_view cat,  const ContentID& cid_)
-        : name(name_view), cid(cid_), sourceType(src), category(cat) {}
+    explicit UFoxContentData(const std::string_view name_view,const ContentID& cid_)
+        : name(name_view), cid(cid_){}
 
+    [[nodiscard]] virtual bool hasBuffer() const noexcept=0;
+
+    virtual void releaseGpuResources() noexcept =0;
+
+    template<typename T>
+    T* getContent() {
+      return dynamic_cast<T*>(this);
+    }
   };
 
   struct UniformBufferObject {
