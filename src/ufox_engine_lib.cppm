@@ -37,17 +37,17 @@ export namespace ufox::engine {
   template<typename T>
   concept Arithmetic = std::is_arithmetic_v<T>;
 
-  struct ContentID final {
+  struct ResourceID final {
     ContentIndex   index   { INVALID_INDEX };
     ContentVersion version { INVALID_VERSION };
 
     [[nodiscard]] constexpr bool IsValid() const noexcept { return index != INVALID_INDEX; }
     [[nodiscard]] constexpr explicit operator bool() const noexcept { return IsValid(); }
 
-    [[nodiscard]] constexpr bool operator==(const ContentID& o) const noexcept = default;
+    [[nodiscard]] constexpr bool operator==(const ResourceID& o) const noexcept = default;
   };
 
-  inline constexpr ContentID INVALID_CONTENT_ID {};
+  inline constexpr ResourceID INVALID_CONTENT_ID {};
 
   enum class ContentSourceType : uint8_t {
     eBuiltIn   = 0,
@@ -59,14 +59,14 @@ export namespace ufox::engine {
     eOrthographic = 1,
   };
 
-  struct UFoxContentData {
-    virtual ~UFoxContentData() = default;
+  struct ResourceBase {
+    virtual ~ResourceBase() = default;
 
     std::string               name;
-    const ContentID           cid;
+    const ResourceID           cid;
 
 
-    explicit UFoxContentData(const std::string_view name_view,const ContentID& cid_)
+    explicit ResourceBase(const std::string_view name_view,const ResourceID& cid_)
         : name(name_view), cid(cid_){}
 
     [[nodiscard]] virtual bool hasBuffer() const noexcept=0;
@@ -78,6 +78,17 @@ export namespace ufox::engine {
       return dynamic_cast<T*>(this);
     }
   };
+
+struct ResourceUserBase {
+  virtual ~ResourceUserBase() = default;
+  ResourceUserBase() = default;
+  explicit ResourceUserBase(const ResourceID* _id) : id(_id){}
+
+  const ResourceID* id = nullptr;
+
+  virtual void setNewTarget(const ResourceID* id, void* target) = 0;
+  virtual void clear() = 0;
+};
 
   struct UniformBufferObject {
     glm::mat4 model;

@@ -103,14 +103,14 @@ export namespace ufox::geometry {
     constexpr auto QUAD = "Quad";
     constexpr auto CUBE = "Cube";
 
-    struct Mesh final : engine::UFoxContentData {
+    struct Mesh final : engine::ResourceBase {
         std::vector<Vertex>                     vertices{};
         std::vector<uint16_t>                   indices{};
 
         std::optional<gpu::vulkan::Buffer>      vertexBuffer{};
         std::optional<gpu::vulkan::Buffer>      indexBuffer{};
 
-        explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::ContentID& cid_): UFoxContentData(name_view, cid_) {
+        explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::ResourceID& cid_): ResourceBase(name_view, cid_) {
             vertices.assign(std::begin(_vertices), std::end(_vertices));
             indices.assign(std::begin(_indices), std::end(_indices));
         }
@@ -127,20 +127,18 @@ export namespace ufox::geometry {
 
     };
 
-    struct MeshUser {
-        const engine::ContentID* id = nullptr;
+    struct MeshUser final : engine::ResourceUserBase {
         Mesh* mesh = nullptr;
-
         MeshUser() = default;
-        ~MeshUser() = default;
-        MeshUser(const engine::ContentID* id, Mesh* mesh) : id(id), mesh(mesh) {}
 
-        void setNewTarget(const engine::ContentID* id, Mesh* mesh) {
+        MeshUser(const engine::ResourceID* _id, Mesh* mesh) : ResourceUserBase(_id), mesh(mesh) {}
+
+        void setNewTarget(const engine::ResourceID* id, void* mesh) override{
             this->id = id;
-            this->mesh = mesh;
+            this->mesh = static_cast<Mesh*>(mesh);
         }
 
-        void clear() {
+        void clear() override {
             id = nullptr;
             mesh = nullptr;
         }
@@ -150,7 +148,7 @@ export namespace ufox::geometry {
         std::string                                 name{"empty"};
         engine::ContentSourceType                   sourceType;
         std::string                                 category;
-        std::unique_ptr<engine::UFoxContentData>    dataPtr{nullptr};
+        std::unique_ptr<engine::ResourceBase>    dataPtr{nullptr};
         engine::ContentVersion                      version{1};
         bool                                        occupied{false};
         std::vector<MeshUser*>                      users{};

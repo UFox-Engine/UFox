@@ -145,8 +145,6 @@ target_sources(UFox-modules
         src/ufox_render_core.cppm
         src/ufox_gui_lib.cppm
         src/ufox_gui_core.cppm
-        src/ufox_engine.cppm
-        src/ufox_resource_manager.cppm
 )
 
 target_link_libraries(UFox-modules PRIVATE ${LIBS})

@@ -33,7 +33,7 @@ export namespace ufox::geometry {
     class MeshManager;
 
     bool SaveSlotMetadataToJson(const MeshContainerSlot& slot);
-    [[nodiscard]] const ContentID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
+    [[nodiscard]] const ResourceID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
 
     class MeshManager final {
     public:
@@ -87,31 +87,31 @@ export namespace ufox::geometry {
             return meshDirectory;
         }
 
-        const ContentID* createMesh(std::string_view name,  const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourType = ContentSourceType::eBuiltIn, const std::string_view& category = kDefaultCategory, const std::filesystem::path& path ="") {
+        const ResourceID* createMesh(std::string_view name,  const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourType = ContentSourceType::eBuiltIn, const std::string_view& category = kDefaultCategory, const std::filesystem::path& path ="") {
             const ContentIndex idx = acquireSlot();
             auto& slot = slots[idx];
             slot.name = name;
             slot.sourceType = sourType;
             slot.category = category;
             slot.sourcePath = path;
-            slot.dataPtr = std::make_unique<Mesh>(name, vertices, indices, ContentID{idx, slot.version});
+            slot.dataPtr = std::make_unique<Mesh>(name, vertices, indices, ResourceID{idx, slot.version});
             slot.lastImportTime = std::chrono::file_clock::now();
             SaveSlotMetadataToJson(slot);
             return &slot.dataPtr->cid;
         }
 
-        void destroy(const ContentID id, MeshContainerSlot& slot) {
+        void destroy(const ResourceID id, MeshContainerSlot& slot) {
             releaseMeshSlot(id.index, slot);
         }
 
-        void destroy(const ContentID id) {
+        void destroy(const ResourceID id) {
             auto* slot = tryGetSlot(id);
             if (slot == nullptr || slot->dataPtr == nullptr) return;
 
             releaseMeshSlot(id.index, *slot);
         }
 
-        [[nodiscard]] Mesh* get(const ContentID id) const {
+        [[nodiscard]] Mesh* get(const ResourceID id) const {
             const auto* slot = tryGetSlot(id);
             if (slot == nullptr || slot->dataPtr == nullptr) return nullptr;
 
@@ -119,7 +119,7 @@ export namespace ufox::geometry {
             return mesh;
         }
 
-        [[nodiscard]] size_t getUsage(const ContentID& id) const {
+        [[nodiscard]] size_t getUsage(const ResourceID& id) const {
             const auto* slot = tryGetSlot(id);
             return slot ? slot->users.size() : 0;
         }
@@ -199,18 +199,18 @@ export namespace ufox::geometry {
             createIndexBuffer(*gpuResources, *mesh);
         }
 
-        [[nodiscard]] bool isAlive(const ContentID& id) const noexcept {
+        [[nodiscard]] bool isAlive(const ResourceID& id) const noexcept {
             return id.IsValid() && id.index < slots.size();
         }
 
-        [[nodiscard]] MeshContainerSlot* tryGetSlot(const ContentID& id) noexcept {
+        [[nodiscard]] MeshContainerSlot* tryGetSlot(const ResourceID& id) noexcept {
             if (!isAlive(id)) return nullptr;
             MeshContainerSlot* slot = &slots[id.index];
 
             return slot->occupied && slot->version == id.version ? slot : nullptr;
         }
 
-        [[nodiscard]] const MeshContainerSlot* tryGetSlot(const ContentID& id) const noexcept {
+        [[nodiscard]] const MeshContainerSlot* tryGetSlot(const ResourceID& id) const noexcept {
             return isAlive(id) ? &slots[id.index] : nullptr;
         }
 
@@ -257,27 +257,27 @@ export namespace ufox::geometry {
         const std::filesystem::path meshDirectory = MESH_RESOURCE_PATH;
     };
 
-    const ContentID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourceType = ContentSourceType::eBuiltIn, const std::string_view& category = "Miscellaneous", const std::filesystem::path& path = "") {
-        const ContentID* id = manager.createMesh(name, vertices, indices, sourceType, category, path);
+    const ResourceID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourceType = ContentSourceType::eBuiltIn, const std::string_view& category = "Miscellaneous", const std::filesystem::path& path = "") {
+        const ResourceID* id = manager.createMesh(name, vertices, indices, sourceType, category, path);
         return id;
     }
 
-    const ContentID* CreateQuad(MeshManager& manager) {
+    const ResourceID* CreateQuad(MeshManager& manager) {
         return CreateMeshContent(manager, DEFAULT_QUAD_MESH_NAME, QuadVertices, QuadIndices, ContentSourceType::eBuiltIn, "Default");
     }
 
-    const ContentID* CreateCube(MeshManager& manager) {
+    const ResourceID* CreateCube(MeshManager& manager) {
         return CreateMeshContent(manager, DEFAULT_CUBE_MESH_NAME, CubeVertices, CubeIndices, ContentSourceType::eBuiltIn, "Default");
     }
 
-    using DefaultMeshesResources = std::unordered_map<std::string, const ContentID*>;
+    using DefaultMeshesResources = std::unordered_map<std::string, const ResourceID*>;
 
     DefaultMeshesResources CreateDefaultMeshResources(MeshManager &manager) {
         return {{"quad", CreateQuad(manager)},
                 {"cube", CreateCube(manager)}};
     }
 
-    [[nodiscard]] const ContentID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name = "gltf_mesh", const std::filesystem::path& path = "") {
+    [[nodiscard]] const ResourceID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name = "gltf_mesh", const std::filesystem::path& path = "") {
         // ────────────────────────────────────────────────────────────────
         // Step 1: Basic validation of input data size
         // ────────────────────────────────────────────────────────────────

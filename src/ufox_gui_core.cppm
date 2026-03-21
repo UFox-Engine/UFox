@@ -471,7 +471,7 @@ export namespace ufox::gui {
     private:
         engine::UFoxWindow* window = nullptr;
         MeshManager* meshManager = nullptr;
-        MeshUser meshUser{};
+        MeshUser meshUser{nullptr,nullptr};
 
         RenderResource renderResource{};
         std::unique_ptr<render::Texture2D> textureImage{};
