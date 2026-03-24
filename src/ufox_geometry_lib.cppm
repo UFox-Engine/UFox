@@ -40,10 +40,6 @@ export namespace ufox::geometry {
         }
     };
 
-
-
-
-
     struct Vertex2D{
         glm::vec3 pos;
         glm::vec2 texCoord;
@@ -103,6 +99,9 @@ export namespace ufox::geometry {
     constexpr auto QUAD = "Quad";
     constexpr auto CUBE = "Cube";
 
+    constexpr engine::ResourceID BUILTIN_QUAD_ID  {"quad"};
+    constexpr engine::ResourceID BUILTIN_CUBE_ID  {"cube"};
+
     struct Mesh final : engine::ResourceBase {
         std::vector<Vertex>                     vertices{};
         std::vector<uint16_t>                   indices{};
@@ -141,28 +140,6 @@ export namespace ufox::geometry {
         void clear() override {
             id = nullptr;
             mesh = nullptr;
-        }
-    };
-
-    struct MeshContainerSlot {
-        std::string                                 name{"empty"};
-        engine::ContentSourceType                   sourceType;
-        std::string                                 category;
-        std::unique_ptr<engine::ResourceBase>    dataPtr{nullptr};
-        engine::ContentVersion                      version{1};
-        bool                                        occupied{false};
-        std::vector<MeshUser*>                      users{};
-        std::filesystem::path                       sourcePath{};
-        std::filesystem::path                       assetPath{};
-        std::chrono::file_clock::time_point         lastImportTime{};
-
-        void clear() noexcept {
-            dataPtr.reset();
-            users.clear();
-            occupied = false;
-            version  = 1;
-            sourcePath.clear();
-            assetPath.clear();
         }
     };
 }
@@ -205,10 +182,8 @@ export namespace ufox::geometry::gltf {
 }
 namespace std {
     template <>
-    struct hash<ufox::geometry::Vertex>
-    {
-        size_t operator()(ufox::geometry::Vertex const &vertex) const noexcept
-        {
+    struct hash<ufox::geometry::Vertex>{
+        size_t operator()(ufox::geometry::Vertex const &vertex) const noexcept{
             return (hash<glm::vec3>()(vertex.pos) ^
                   hash<glm::vec3>()(vertex.color) << 1) >>
                      1 ^ hash<glm::vec2>()(vertex.texCoord) << 1;

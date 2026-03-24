@@ -7,6 +7,8 @@ module;
 
 #include <fstream>
 #include <memory>
+#include <nlohmann/json.hpp>
+#include <chrono>
 
 #ifdef USE_SDL
 #include <SDL3/SDL.h>
@@ -539,5 +541,63 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 #endif
 
     return window;
+  }
+
+  std::string TimePointToIso8601(const std::chrono::file_clock::time_point& tp){
+    const auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(tp);
+    auto timeT   = std::chrono::system_clock::to_time_t(sysTime);
+
+    std::tm utcTime{};
+  #if defined(_WIN32)
+    gmtime_s(&utcTime, &timeT);
+  #else
+    gmtime_r(&timeT, &utcTime);
+  #endif
+
+    std::ostringstream oss;
+    oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+  }
+
+  bool SaveSlotMetadataToJson(const ResourceContext& context, const std::string_view& path){
+    if (context.sourceType == ContentSourceType::eBuiltIn) return false;
+    if (context.name.empty()){
+      debug::log(debug::LogLevel::eWarning, "Cannot save metadata: slot name is empty");
+      return false;
+    }
+
+    const std::string filename = context.name + ".ufox.meta";
+    const auto metaPath = std::filesystem::path{path} / filename;
+    const auto* content = &context.dataPtr;
+
+    const nlohmann::json doc{
+       { META_TAG_RESOURCE_CONTEXT, {
+           { "name", context.name },
+           { "id", content? content->get()->iD.view(): ""},
+           { "sourcePath", context.sourcePath.string() },
+           { "category", context.category },
+           { "lastImportTime", context.lastImportTime == std::chrono::file_clock::time_point{}? "": TimePointToIso8601(context.lastImportTime) },
+           { "assetPath", context.assetPath.empty()    ? "" : context.assetPath.filename().string()}
+       }}
+    };
+
+    std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
+    if (!file.is_open()){
+      debug::log(debug::LogLevel::eError, "Failed to open metadata file for writing: {}", metaPath.string());
+      return false;
+    }
+
+    try{
+      file << std::setw(2) << doc << std::endl;
+      file.close();
+    }
+    catch (const std::exception& e){
+      debug::log(debug::LogLevel::eError, "Exception while writing JSON {} : {}", metaPath.string(), e.what());
+      return false;
+    }
+
+    debug::log(debug::LogLevel::eInfo, "Saved mesh metadata: \"{}\" → {}", context.name, metaPath.string());
+
+    return true;
   }
 }

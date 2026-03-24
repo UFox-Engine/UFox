@@ -114,13 +114,11 @@ target_link_libraries(Discadelta-module PUBLIC Vulkan-Headers)
 target_compile_definitions(Discadelta-module PUBLIC HAS_VULKAN=1)
 
 
+
 set(LIBS)
 list(APPEND LIBS Vulkan-Headers Freetype::Freetype ktx nlohmann_json Discadelta-module glfw glm-module SDL3_image::SDL3_image SDL3::SDL3 tinyobjloader)
 
-
-
 add_executable(UFoxEngine)
-
 
 # Regular sources
 target_sources(UFoxEngine
@@ -145,6 +143,7 @@ target_sources(UFox-modules
         src/ufox_render_core.cppm
         src/ufox_gui_lib.cppm
         src/ufox_gui_core.cppm
+        src/ufox_nanoid.cppm
 )
 
 target_link_libraries(UFox-modules PRIVATE ${LIBS})
@@ -159,8 +158,9 @@ endif()
 # Link everything
 target_link_libraries(UFoxEngine PRIVATE ${LIBS} UFox-modules)
 
-
-
+add_subdirectory(thirdparty/nanoid)
+add_dependencies(UFoxEngine nanoid)
+target_link_libraries(UFox-modules PRIVATE nanoid)
 
 find_program(GLSL_VALIDATOR glslangValidator HINTS $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 find_program(SLANGC_EXECUTABLE slangc HINTS $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
@@ -189,8 +189,6 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
             DEPENDS ${GLSL})
     list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)
-
-
 
 function (add_slang_shader_target TARGET)
     cmake_parse_arguments ("SHADER" "" "" "SOURCES" ${ARGN})

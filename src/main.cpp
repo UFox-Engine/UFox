@@ -2,6 +2,7 @@
 #include <iostream>
 #include <thread>
 #include <filesystem>
+#include <string>
 
 import ufox_engine_lib;
 import ufox_engine_core;
@@ -27,35 +28,6 @@ int main() {
       ufox::engine::CalculateAspectRatio(w,h, camera->aspectRatio);
     }, &mainCamera);
 
-    std::filesystem::path modelPath = "res/meshes/boxu.glb";
-
-    auto glbBytes = window->ReadFileBinary(modelPath.string());
-
-    if (glbBytes.empty())
-    {
-      ufox::debug::log(ufox::debug::LogLevel::eError, "Failed to load glTF file: {}", modelPath.string());
-      return EXIT_FAILURE;
-    }
-
-    ufox::debug::log(ufox::debug::LogLevel::eInfo, "Loaded glTF file ({} bytes): {}", glbBytes.size(), modelPath.string());
-
-    if (auto* cid = CreateMeshFromFirstGlbPrimitive(
-                meshManager,
-                std::span<const std::byte>{glbBytes},
-                "BoxFromGlTF", modelPath))
-    {
-      ufox::debug::log(ufox::debug::LogLevel::eInfo, "Successfully parsed glTF mesh! ID = {}", cid->index);
-
-
-
-
-
-      // ... later in your rendering loop, use boxMesh.mesh->vertexBuffer etc.
-    }
-    else
-    {
-      ufox::debug::log(ufox::debug::LogLevel::eWarning, "glTF parsing failed (likely missing data or unsupported format)");
-    }
 
     window->run();
 

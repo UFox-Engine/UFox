@@ -22,8 +22,6 @@ module;
 
 #include <glm/glm.hpp>
 
-
-
 #ifdef USE_SDL
 
 #include <SDL3/SDL.h>

@@ -19,21 +19,34 @@ module;
 #include <string>
 
 
+
 export module ufox_geometry_core;
 
 import ufox_lib;
 import ufox_engine_lib;
+import ufox_engine_core;
 import ufox_geometry_lib;
 import ufox_input;
 import ufox_graphic_device;
+import ufox_nanoid;
 
 using namespace ufox::engine;
 
 export namespace ufox::geometry {
     class MeshManager;
+    const ResourceID* CreateQuad(MeshManager& manager);
+    const ResourceID* CreateCube(MeshManager& manager);
+    bool LoadMeshFromFile(const std::filesystem::path& sourcePath,std::vector<Vertex>& outVertices,std::vector<uint16_t>& outIndices);
+    const ResourceID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourceType, const std::string_view& category, const ResourceID& builtInID, const std::filesystem::path& path);
 
-    bool SaveSlotMetadataToJson(const MeshContainerSlot& slot);
-    [[nodiscard]] const ResourceID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
+    using DefaultMeshesResources = std::unordered_map<std::string, const ResourceID*>;
+
+    DefaultMeshesResources CreateDefaultMeshResources(MeshManager &manager) {
+        return {{"quad", CreateQuad(manager)},
+                {"cube", CreateCube(manager)}};
+    }
+
+    [[nodiscard]] const ResourceID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
 
     class MeshManager final {
     public:
@@ -49,7 +62,7 @@ export namespace ufox::geometry {
             clearAllGpuResources();
         }
 
-        void Init() const {
+        void Init() {
             try {
                 if (!std::filesystem::exists(meshDirectory)) {
                     std::filesystem::create_directories(meshDirectory);
@@ -68,11 +81,72 @@ export namespace ufox::geometry {
                 std::cerr << std::format("Error creating meshes folder: {}\n", e.what());
             }
 
+            primitiveMeshes = CreateDefaultMeshResources(*this);
+
             LoadMetaData();
         }
 
-        void LoadMetaData() const {
+        void LoadMetaData() {
+            namespace fs = std::filesystem;
 
+            if (!fs::exists(meshDirectory) || !fs::is_directory(meshDirectory)) {
+                debug::log(debug::LogLevel::eWarning, "Mesh directory not found, skipping metadata load: {}", meshDirectory.string());
+                return;
+            }
+
+            for (const auto& entry : fs::directory_iterator(meshDirectory)) {
+                if (!entry.is_regular_file()) continue;
+                const auto& path = entry.path();
+                const auto& ext = path.extension();
+                if (ext != ".ufox.meta") continue;
+
+                try {
+                    std::ifstream file(path);
+                    if (!file.is_open()) {
+                        debug::log(debug::LogLevel::eWarning, "Failed to open metadata file: {}", path.string());
+                        continue;
+                    }
+
+                    nlohmann::json doc;
+                    file >> doc;
+                    auto ctx = doc.value(META_TAG_RESOURCE_CONTEXT, nlohmann::json());
+                    if (ctx.is_null() || !ctx.is_object()){
+                        debug::log(debug::LogLevel::eWarning,"Invalid metadata format: {}", path.string());
+                        continue;
+                    }
+
+                    std::string name        = ctx.value("name", "");
+                    std::string idStr       = ctx.value("id", "");
+                    std::string sourcePathStr = ctx.value("sourcePath", "");
+                    std::string category    = ctx.value("category", kDefaultCategory.data());
+                    std::string lastImportStr = ctx.value("lastImportTime", "");
+                    std::string assetPathStr  = ctx.value("assetPath", "");
+                    fs::path sourcePath = sourcePathStr;
+
+                    if (name.empty() || idStr.empty() || sourcePath.empty()){
+                        debug::log(debug::LogLevel::eWarning,"Metadata missing name or id: {}", path.string());
+                        continue;
+                    }
+
+                    ResourceID metaId{idStr};
+                    std::vector<Vertex> vertices;
+                    std::vector<uint16_t> indices;
+
+                   if (LoadMeshFromFile(sourcePath, vertices, indices)) {
+                        CreateMeshContent(*this, name, vertices, indices, ContentSourceType::ePortIn, category, metaId, sourcePath);
+                   }
+                }
+                catch (const nlohmann::json::exception& e)
+                {
+                    debug::log(debug::LogLevel::eError,
+                               "JSON parse error in {} : {}", path.string(), e.what());
+                }
+                catch (const std::exception& e)
+                {
+                    debug::log(debug::LogLevel::eError,
+                               "Error loading metadata {} : {}", path.string(), e.what());
+                }
+            }
         }
 
         void SaveMetaData() const {
@@ -83,59 +157,66 @@ export namespace ufox::geometry {
 
         }
 
-        [[nodiscard]] const std::filesystem::path& GetMeshDirectory() const noexcept {
+        [[nodiscard]] const std::filesystem::path& getMeshDirectory() const noexcept {
             return meshDirectory;
         }
 
-        const ResourceID* createMesh(std::string_view name,  const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourType = ContentSourceType::eBuiltIn, const std::string_view& category = kDefaultCategory, const std::filesystem::path& path ="") {
-            const ContentIndex idx = acquireSlot();
-            auto& slot = slots[idx];
-            slot.name = name;
-            slot.sourceType = sourType;
-            slot.category = category;
-            slot.sourcePath = path;
-            slot.dataPtr = std::make_unique<Mesh>(name, vertices, indices, ResourceID{idx, slot.version});
-            slot.lastImportTime = std::chrono::file_clock::now();
-            SaveSlotMetadataToJson(slot);
-            return &slot.dataPtr->cid;
+        [[nodiscard]] bool isBuiltInMesh(const ResourceID& id) const noexcept {
+            const auto it = ctxMap.find(id);
+            if (it == ctxMap.end()) {
+                return false;
+            }
+            return it->second.sourceType == ContentSourceType::eBuiltIn;
         }
 
-        void destroy(const ResourceID id, MeshContainerSlot& slot) {
-            releaseMeshSlot(id.index, slot);
+        const ResourceID* createMesh(std::string_view name,  const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourType = ContentSourceType::eBuiltIn, const std::string_view& category = kDefaultCategory, const ResourceID& builtInId = {}, const std::filesystem::path& path ="") {
+            const ResourceID& id = acquireContext(builtInId);
+            auto& ctx = ctxMap[id];
+            ctx.name = name;
+            ctx.sourceType = sourType;
+            ctx.category = category;
+            ctx.sourcePath = path;
+            ctx.dataPtr = std::make_unique<Mesh>(name, vertices, indices, id);
+            ctx.lastImportTime = std::chrono::file_clock::now();
+            SaveSlotMetadataToJson(ctx, MESH_RESOURCE_PATH);
+            return &ctx.dataPtr->iD;
         }
 
-        void destroy(const ResourceID id) {
-            auto* slot = tryGetSlot(id);
-            if (slot == nullptr || slot->dataPtr == nullptr) return;
+        void destroy(const ResourceID& id) {
 
-            releaseMeshSlot(id.index, *slot);
+            if (isBuiltInMesh(id)) {
+                debug::log(debug::LogLevel::eWarning, "MeshManager: destroy: built-in mesh cannot be destroyed");
+                return;
+            }
+
+            releaseResource(id);
         }
 
-        [[nodiscard]] Mesh* get(const ResourceID id) const {
-            const auto* slot = tryGetSlot(id);
-            if (slot == nullptr || slot->dataPtr == nullptr) return nullptr;
+        [[nodiscard]] Mesh* get(const ResourceID& id) {
+            const auto* ctx = tryGetContext(id);
+            if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
 
-            auto* mesh = dynamic_cast<Mesh*>(slot->dataPtr.get());
+            auto* mesh = dynamic_cast<Mesh*>(ctx->dataPtr.get());
             return mesh;
         }
 
-        [[nodiscard]] size_t getUsage(const ResourceID& id) const {
-            const auto* slot = tryGetSlot(id);
-            return slot ? slot->users.size() : 0;
+        [[nodiscard]] size_t getUsage(const ResourceID& id) {
+            const auto* ctx = tryGetContext(id);
+            return ctx ? ctx->users.size() : 0;
         }
 
         void useMesh(MeshUser& user) {
             if (user.id == nullptr) return;
-            auto* slot = tryGetSlot(*user.id);
-            if (slot == nullptr || slot->dataPtr == nullptr) return;
+            auto* ctx = tryGetContext(*user.id);
+            if (ctx == nullptr || ctx->dataPtr == nullptr) return;
 
-            auto* mesh = slot->dataPtr->getContent<Mesh>();
+            auto* mesh = ctx->dataPtr->getContent<Mesh>();
 
             if (mesh == nullptr) return;
 
             user.mesh = mesh;
-            if (const auto it = std::ranges::find(slot->users, &user); it == slot->users.end()) {
-                slot->users.push_back(&user);
+            if (const auto it = std::ranges::find(ctx->users, &user); it == ctx->users.end()) {
+                ctx->users.push_back(&user);
             }
 
             ensureMeshBuffers(user.mesh);
@@ -145,34 +226,34 @@ export namespace ufox::geometry {
             if (user.id == nullptr) return;
             user.mesh = nullptr;
 
-            auto* slot = tryGetSlot(*user.id);
-            if (slot == nullptr) return;
+            auto* ctx = tryGetContext(*user.id);
+            if (ctx == nullptr) return;
 
 
-            if (const auto it = std::ranges::find(slot->users, &user); it != slot->users.end()) {
-                slot->users.erase(it);
+            if (const auto it = std::ranges::find(ctx->users, &user); it != ctx->users.end()) {
+                ctx->users.erase(it);
             }
 
-            if (!slot->users.empty() || slot->dataPtr == nullptr) return;
+            if (!ctx->users.empty() || ctx->dataPtr == nullptr) return;
 
-            if (slot->dataPtr->hasBuffer()) {
-                slot->dataPtr->releaseGpuResources();
-                debug::log(debug::LogLevel::eInfo, "MeshManager: unuseMesh [{}]: mesh released buffers", slot->dataPtr->name);
+            if (ctx->dataPtr->hasBuffer()) {
+                ctx->dataPtr->releaseGpuResources();
+                debug::log(debug::LogLevel::eInfo, "MeshManager: unuseMesh [{}]: mesh released buffers", ctx->dataPtr->name);
             }
         }
 
         void clearAllGpuResources() const {
             size_t clearedCount = 0;
 
-            for (auto& slot : slots) {
-                if (!slot.occupied || !slot.dataPtr || !slot.dataPtr->hasBuffer()) continue;
+            for (const auto &ctx : ctxMap | std::views::values) {
+                if (!ctx.dataPtr || !ctx.dataPtr->hasBuffer()) continue;
 
-                slot.dataPtr->releaseGpuResources();
+                ctx.dataPtr->releaseGpuResources();
                 ++clearedCount;
 
                 debug::log(debug::LogLevel::eInfo,
                            "MeshManager: clearAllGpuResources: cleared mesh GPU resources for mesh: {}",
-                           slot.dataPtr->name);
+                           ctx.dataPtr->name);
             }
 
             if (clearedCount > 0) {
@@ -199,85 +280,62 @@ export namespace ufox::geometry {
             createIndexBuffer(*gpuResources, *mesh);
         }
 
-        [[nodiscard]] bool isAlive(const ResourceID& id) const noexcept {
-            return id.IsValid() && id.index < slots.size();
+        [[nodiscard]] ResourceContext* tryGetContext(const ResourceID& id) noexcept {
+            if (!id.IsValid() || !ctxMap.contains(id)) {
+                return nullptr;
+            }
+            return &ctxMap.at(id);
         }
 
-        [[nodiscard]] MeshContainerSlot* tryGetSlot(const ResourceID& id) noexcept {
-            if (!isAlive(id)) return nullptr;
-            MeshContainerSlot* slot = &slots[id.index];
-
-            return slot->occupied && slot->version == id.version ? slot : nullptr;
+        ResourceID acquireContext(const ResourceID& builtInId = {}) {
+            const auto& id = builtInId.IsValid()? builtInId : ResourceID(nanoid::generate(12));
+            auto [it, inserted] = ctxMap.try_emplace(id, ResourceContext{});
+            auto& slot = it->second;
+            slot.lastImportTime = std::chrono::file_clock::now();
+            return id;
         }
 
-        [[nodiscard]] const MeshContainerSlot* tryGetSlot(const ResourceID& id) const noexcept {
-            return isAlive(id) ? &slots[id.index] : nullptr;
-        }
+        void releaseResource(const ResourceID& id) {
+            auto* ctx = tryGetContext(id);
+            if (!ctx || !ctx->dataPtr) return;
 
-        ContentIndex acquireSlot() {
-            ContentIndex idx;
+            // notify & clear users
+            for (ResourceUserBase* user : ctx->users) {
+                const auto meshUser = dynamic_cast<MeshUser*>(user);
+                if (user) unuseMesh(*meshUser);
+            }
+            ctx->users.clear();
 
-            if (!freeSlots.empty()) {
-                idx = freeSlots.back();
-                freeSlots.pop_back();
-            } else {
-                idx = static_cast<ContentIndex>(slots.size());
-                slots.emplace_back();
+            if (ctx->dataPtr) {
+                ctx->dataPtr->releaseGpuResources();
+                debug::log(debug::LogLevel::eInfo, "Released buffers for mesh: {}", ctx->dataPtr->name);
+                ctx->dataPtr.reset();
             }
 
-            auto& slot = slots[idx];
-            slot.occupied = true;
-            slot.version = nextVersion++;
-            return idx;
-        }
-
-        void releaseMeshSlot(const ContentIndex idx, MeshContainerSlot& slot) {
-            if (slot.dataPtr) {
-                for (const std::span users{slot.users.data(), slot.users.size()};
-                   MeshUser * other : users) {
-                    if (other) unuseMesh(*other);
-                   }
-
-                const std::string_view meshName = slot.dataPtr->name;
-                slot.dataPtr->releaseGpuResources();
-                slot.dataPtr.reset();
-
-                debug::log(debug::LogLevel::eInfo,"MeshManager: Destroy and Release Buffer [{}]",meshName);
-            }
-
-            slot.users.clear();
-            slot.occupied = false;
-            freeSlots.push_back(idx);
+            ctxMap.erase(id);
         }
 
         const gpu::vulkan::GPUResources* gpuResources{nullptr};
-        std::vector<MeshContainerSlot> slots{};
-        std::vector<ContentIndex> freeSlots{};
-        ContentVersion nextVersion{1};
+        std::unordered_map<ResourceID, ResourceContext> ctxMap{};
         const std::filesystem::path meshDirectory = MESH_RESOURCE_PATH;
+        DefaultMeshesResources primitiveMeshes{};
     };
 
-    const ResourceID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourceType = ContentSourceType::eBuiltIn, const std::string_view& category = "Miscellaneous", const std::filesystem::path& path = "") {
-        const ResourceID* id = manager.createMesh(name, vertices, indices, sourceType, category, path);
+    const ResourceID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourceType = ContentSourceType::eBuiltIn, const std::string_view& category = "Miscellaneous", const ResourceID& builtInID = {}, const std::filesystem::path& path = "") {
+        const ResourceID* id = manager.createMesh(name, vertices, indices, sourceType, category, builtInID, path);
         return id;
     }
 
     const ResourceID* CreateQuad(MeshManager& manager) {
-        return CreateMeshContent(manager, DEFAULT_QUAD_MESH_NAME, QuadVertices, QuadIndices, ContentSourceType::eBuiltIn, "Default");
+        return CreateMeshContent(manager, DEFAULT_QUAD_MESH_NAME, QuadVertices, QuadIndices, ContentSourceType::eBuiltIn , "Standard", BUILTIN_QUAD_ID);
     }
 
     const ResourceID* CreateCube(MeshManager& manager) {
-        return CreateMeshContent(manager, DEFAULT_CUBE_MESH_NAME, CubeVertices, CubeIndices, ContentSourceType::eBuiltIn, "Default");
+        return CreateMeshContent(manager, DEFAULT_CUBE_MESH_NAME, CubeVertices, CubeIndices, ContentSourceType::eBuiltIn, "Standard", BUILTIN_CUBE_ID);
     }
 
-    using DefaultMeshesResources = std::unordered_map<std::string, const ResourceID*>;
 
-    DefaultMeshesResources CreateDefaultMeshResources(MeshManager &manager) {
-        return {{"quad", CreateQuad(manager)},
-                {"cube", CreateCube(manager)}};
-    }
-
-    [[nodiscard]] const ResourceID* CreateMeshFromFirstGlbPrimitive(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name = "gltf_mesh", const std::filesystem::path& path = "") {
+    [[nodiscard]] const ResourceID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name = "gltf_mesh", const std::filesystem::path& path = "") {
         // ────────────────────────────────────────────────────────────────
         // Step 1: Basic validation of input data size
         // ────────────────────────────────────────────────────────────────
@@ -345,7 +403,7 @@ export namespace ufox::geometry {
             return nullptr;
         }
 
-        std::span<const std::byte> binary{
+        std::span binary{
             glbData.data() + sizeof(gltf::GlbChunkHeader),
             binChunk->chunkLength
         };
@@ -495,7 +553,7 @@ export namespace ufox::geometry {
 
         for (uint32_t i = 0; i < count; ++i)
         {
-            const glm::vec3* posPtr = reinterpret_cast<const glm::vec3*>(
+            const auto* posPtr = reinterpret_cast<const glm::vec3*>(
                 srcData + i * byteStride);
 
             Vertex v{};
@@ -596,13 +654,277 @@ export namespace ufox::geometry {
             std::span(indices),
             ContentSourceType::ePortIn,
             MeshManager::kDefaultCategory,
+            {},
             path
         );
     }
 
-    void LoadOBJ(std::string_view MODEL_PATH,
-         std::vector<Vertex>& vertices,
-         std::vector<uint16_t>& indices) {
+    void LoadGLTF(std::string_view MODEL_PATH,std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
+
+        auto glbBytes = UFoxWindow::ReadFileBinary(MODEL_PATH.data());
+
+        if (glbBytes.empty()){
+            debug::log(debug::LogLevel::eError, "Failed to load glTF file: {}", MODEL_PATH.data() );
+            return;
+        }
+
+        debug::log(debug::LogLevel::eInfo, "Loaded glTF file ({} bytes): {}", glbBytes.size(), MODEL_PATH.data());
+
+        std::span<const std::byte> glbData = glbBytes;
+
+        // ────────────────────────────────────────────────────────────────
+        // Step 1: Basic validation of input data size
+        // ────────────────────────────────────────────────────────────────
+        if (glbData.size() < 20){
+            debug::log(debug::LogLevel::eError, "glTF invalid size");
+            return;
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        // Step 2: Validate GLB header (magic, version, total length)
+        // ────────────────────────────────────────────────────────────────
+        if (glbData.size() < sizeof(gltf::GlbHeader)){
+            debug::log(debug::LogLevel::eError, "Data smaller than GLB header");
+            return ;
+        }
+
+        auto header = reinterpret_cast<const gltf::GlbHeader*>(glbData.data());
+        if (header->magic   != gltf::GLB_MAGIC   ||header->version != gltf::GLB_VERSION ||header->length  != glbData.size()){
+            debug::log(debug::LogLevel::eError, "Invalid GLB header (magic/version/length mismatch)");
+            return;
+        }
+
+        glbData = glbData.subspan(sizeof(gltf::GlbHeader));
+
+        // ────────────────────────────────────────────────────────────────
+        // Step 3: Extract JSON chunk
+        // ────────────────────────────────────────────────────────────────
+        if (glbData.size() < sizeof(gltf::GlbChunkHeader)){
+            debug::log(debug::LogLevel::eError, "Data too short for JSON chunk header");
+            return;
+        }
+
+        auto jsonChunk = reinterpret_cast<const gltf::GlbChunkHeader*>(glbData.data());
+        if (jsonChunk->chunkType != gltf::CHUNK_TYPE_JSON){
+            debug::log(debug::LogLevel::eError, "First chunk is not JSON");
+            return;
+        }
+
+        std::string_view jsonView{
+            reinterpret_cast<const char*>(glbData.data() + sizeof(gltf::GlbChunkHeader)),
+            jsonChunk->chunkLength
+        };
+
+        glbData = glbData.subspan(sizeof(gltf::GlbChunkHeader) + jsonChunk->chunkLength);
+
+        // ────────────────────────────────────────────────────────────────
+        // Step 4: Extract BIN chunk (raw vertex/index data)
+        // ────────────────────────────────────────────────────────────────
+        if (glbData.size() < sizeof(gltf::GlbChunkHeader)){
+            debug::log(debug::LogLevel::eError, "Data too short for BIN chunk header");
+            return;
+        }
+
+        auto binChunk = reinterpret_cast<const gltf::GlbChunkHeader*>(glbData.data());
+        if (binChunk->chunkType != gltf::CHUNK_TYPE_BIN){
+            debug::log(debug::LogLevel::eError, "Second chunk is not BIN");
+            return;
+        }
+
+        std::span binary{
+            glbData.data() + sizeof(gltf::GlbChunkHeader),
+            binChunk->chunkLength
+        };
+
+        // ────────────────────────────────────────────────────────────────
+        // Step 5: Parse JSON using nlohmann::json
+        // ────────────────────────────────────────────────────────────────
+        nlohmann::json gltfJson;
+        try{
+            gltfJson = nlohmann::json::parse(jsonView);
+        }
+        catch (const nlohmann::json::parse_error& e){
+            debug::log(debug::LogLevel::eError,"JSON parse error at byte {}: {}", e.byte, e.what());
+            return ;
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        // Step 6: Navigate to first mesh → first primitive → attributes
+        //         Extract POSITION and optional indices accessor indices
+        // ────────────────────────────────────────────────────────────────
+        uint32_t positionAccessorIndex = UINT32_MAX;
+        std::optional<uint32_t> optIndicesAccessor;
+
+        try{
+            const auto& meshes = gltfJson.at("meshes");
+            if (!meshes.is_array() || meshes.empty()){
+                debug::log(debug::LogLevel::eWarning, "No meshes array or empty");
+                return;
+            }
+
+            const auto& firstMesh = meshes[0];
+            const auto& primitives = firstMesh.at("primitives");
+            if (!primitives.is_array() || primitives.empty()){
+                debug::log(debug::LogLevel::eWarning, "No primitives in first mesh");
+                return;
+            }
+
+            const auto& firstPrim = primitives[0];
+            const auto& attributes = firstPrim.at("attributes");
+
+            if (!attributes.contains("POSITION")){
+                debug::log(debug::LogLevel::eWarning, "First primitive has no POSITION attribute");
+                return;
+            }
+
+            positionAccessorIndex = attributes["POSITION"].get<uint32_t>();
+            debug::log(debug::LogLevel::eInfo, "POSITION accessor index = {}", positionAccessorIndex);
+
+            if (firstPrim.contains("indices")){
+                optIndicesAccessor = firstPrim["indices"].get<uint32_t>();
+                debug::log(debug::LogLevel::eInfo, "Indices accessor index = {}", *optIndicesAccessor);
+            }
+        }
+        catch (const std::exception& e){
+            debug::log(debug::LogLevel::eError, "Failed to read mesh/primitive/attributes: {}", e.what());
+            return;
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        // Step 7: Load POSITION attribute (vertices)
+        // ────────────────────────────────────────────────────────────────
+        if (!gltfJson.contains("accessors") ||!gltfJson["accessors"].is_array() ||positionAccessorIndex >= gltfJson["accessors"].size()){
+            debug::log(debug::LogLevel::eError, "Invalid or missing accessors array for POSITION");
+            return;
+        }
+
+        const auto& posAccessor = gltfJson["accessors"][positionAccessorIndex];
+
+        // Required fields check
+        if (!posAccessor.contains("bufferView") ||!posAccessor.contains("count") ||!posAccessor.contains("type") ||!posAccessor.contains("componentType")){
+            debug::log(debug::LogLevel::eError, "POSITION accessor missing required fields");
+            return;
+        }
+
+        uint32_t bufferViewIdx      = posAccessor["bufferView"].get<uint32_t>();
+        uint32_t accessorByteOffset = posAccessor.value("byteOffset", 0u);
+        uint32_t count              = posAccessor["count"].get<uint32_t>();
+        std::string typeStr         = posAccessor["type"].get<std::string>();
+        uint32_t compType           = posAccessor["componentType"].get<uint32_t>();
+
+        // Only support FLOAT VEC3 right now
+        if (typeStr != "VEC3" || compType != 5126){
+            debug::log(debug::LogLevel::eError,"Unsupported POSITION format: type={}, componentType={}", typeStr, compType);
+            return;
+        }
+
+        if (count == 0 || count > 1'000'000){
+            debug::log(debug::LogLevel::eError, "Invalid POSITION count: {}", count);
+            return;
+        }
+
+        // ─── Get bufferView info ───────────────────────────────────────
+        if (!gltfJson.contains("bufferViews") ||bufferViewIdx >= gltfJson["bufferViews"].size()){
+            debug::log(debug::LogLevel::eError, "Invalid bufferView index: {}", bufferViewIdx);
+            return;
+        }
+
+        const auto& bufferView = gltfJson["bufferViews"][bufferViewIdx];
+
+        uint32_t viewByteOffset = bufferView.value("byteOffset", 0u);
+        uint32_t byteStride     = bufferView.value("byteStride", 12u); // default packed vec3
+
+        if (byteStride != 12){
+            debug::log(debug::LogLevel::eWarning,"Non-packed stride {} for POSITION — assuming interleaved (may need adjustment)",byteStride);
+        }
+
+        // Final memory range check
+        size_t finalStart = viewByteOffset + accessorByteOffset;
+        size_t finalSize  = count * byteStride;
+
+        if (finalStart + finalSize > binary.size()){
+            debug::log(debug::LogLevel::eError,"POSITION data out of binary bounds (start={}, size={})", finalStart, finalSize);
+            return;
+        }
+
+        // ─── Copy real positions into vertices ─────────────────────────
+        vertices.reserve(count);
+
+        const std::byte* srcData = binary.data() + finalStart;
+
+        for (uint32_t i = 0; i < count; ++i){
+            const auto* posPtr = reinterpret_cast<const glm::vec3*>(srcData + i * byteStride);
+
+            Vertex v{};
+            v.pos      = *posPtr;
+            v.color    = {1.0f, 1.0f, 1.0f};  // white default
+            v.texCoord = {0.0f, 0.0f};        // zero default
+            vertices.push_back(v);
+        }
+
+        debug::log(debug::LogLevel::eInfo, "Successfully loaded {} real vertex positions", count);
+
+        // ────────────────────────────────────────────────────────────────
+        // Step 8: Load indices (if present)
+        // ────────────────────────────────────────────────────────────────
+
+        if (optIndicesAccessor){
+            uint32_t idxAccessorIdx = *optIndicesAccessor;
+
+            if (!gltfJson.contains("accessors") ||idxAccessorIdx >= gltfJson["accessors"].size()){
+                debug::log(debug::LogLevel::eWarning, "Invalid indices accessor index: {}", idxAccessorIdx);
+            }
+            else{
+                const auto& idxAccessor = gltfJson["accessors"][idxAccessorIdx];
+
+                if (!idxAccessor.contains("bufferView") ||!idxAccessor.contains("count") ||!idxAccessor.contains("componentType")){
+                    debug::log(debug::LogLevel::eWarning, "Indices accessor missing required fields");
+                }else{
+                    uint32_t idxBufferView  = idxAccessor["bufferView"].get<uint32_t>();
+                    uint32_t idxByteOffset  = idxAccessor.value("byteOffset", 0u);
+                    uint32_t idxCount       = idxAccessor["count"].get<uint32_t>();
+                    uint32_t idxCompType    = idxAccessor["componentType"].get<uint32_t>();
+
+                    // Only UNSIGNED_SHORT (5123) supported for now
+                    if (idxCompType != 5123){
+                        debug::log(debug::LogLevel::eWarning,"Unsupported indices componentType: {} (only UNSIGNED_SHORT supported)",idxCompType);
+                    }
+                    else if (idxCount == 0 || idxCount > 100'000){
+                        debug::log(debug::LogLevel::eError, "Invalid indices count: {}", idxCount);
+                    }
+                    else if (!gltfJson.contains("bufferViews") ||idxBufferView >= gltfJson["bufferViews"].size()){
+                        debug::log(debug::LogLevel::eError, "Invalid indices bufferView: {}", idxBufferView);
+                    }else{
+                        const auto& idxView = gltfJson["bufferViews"][idxBufferView];
+                        uint32_t viewOffset = idxView.value("byteOffset", 0u);
+
+                        size_t finalIdxStart = viewOffset + idxByteOffset;
+                        size_t finalIdxSize  = idxCount * sizeof(uint16_t);
+
+                        if (finalIdxStart + finalIdxSize > binary.size())
+                        {
+                            debug::log(debug::LogLevel::eError, "Indices data out of bounds");
+                        }
+                        else
+                        {
+                            indices.resize(idxCount);
+                            const auto* srcIdx = reinterpret_cast<const uint16_t*>(
+                                binary.data() + finalIdxStart);
+
+                            std::copy(srcIdx, srcIdx + idxCount, indices.begin());
+
+                            debug::log(debug::LogLevel::eInfo,
+                                       "Loaded {} real indices (uint16)", idxCount);
+                        }
+                    }
+                }
+            }
+        }else{
+            debug::log(debug::LogLevel::eInfo, "No indices found — mesh will be rendered without indexing");
+        }
+    }
+
+    void LoadOBJ(std::string_view MODEL_PATH, std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
         tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
         std::vector<tinyobj::material_t> materials;
@@ -646,71 +968,40 @@ export namespace ufox::geometry {
         }
     }
 
-    std::string TimePointToIso8601(const std::chrono::file_clock::time_point& tp)
+    bool LoadMeshFromFile(const std::filesystem::path& sourcePath,std::vector<Vertex>& outVertices,std::vector<uint16_t>& outIndices){
+        if (!std::filesystem::exists(sourcePath))
         {
-            auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(tp);
-            auto timeT   = std::chrono::system_clock::to_time_t(sysTime);
-
-            std::tm utcTime{};
-    #if defined(_WIN32)
-            gmtime_s(&utcTime, &timeT);
-    #else
-            gmtime_r(&timeT, &utcTime);
-    #endif
-
-            std::ostringstream oss;
-            oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
-            return oss.str();
-        }
-
-    bool SaveSlotMetadataToJson(const MeshContainerSlot& slot){
-        if (slot.sourceType == ContentSourceType::eBuiltIn) return false;
-        if (slot.name.empty())
-        {
-            debug::log(debug::LogLevel::eWarning, "Cannot save metadata: slot name is empty");
+            debug::log(debug::LogLevel::eWarning,
+                       "Mesh source file missing: {}", sourcePath.string());
             return false;
         }
 
-        const std::string filename = slot.name + ".ufox.meta";
-        const auto metaPath = std::filesystem::path{MESH_RESOURCE_PATH} / filename;
+        const auto ext = sourcePath.extension().string();
 
-        nlohmann::json j;
-
-        j["name"]                   = slot.name;
-        j["sourcePath"]             = slot.sourcePath.string();
-        j["category"]               = slot.category;
-        j["lastImportTime"]         = slot.lastImportTime == std::chrono::file_clock::time_point{}? "": TimePointToIso8601(slot.lastImportTime);
-        j["version"]                = slot.version;
-        j["assetPath"]              = slot.assetPath.empty()    ? "" : slot.assetPath.filename().string();
-
-
-        // Write file with indentation for readability
-        std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
-        if (!file.is_open())
-        {
-            debug::log(debug::LogLevel::eError,
-                       "Failed to open metadata file for writing: {}",
-                       metaPath.string());
+        if (ext == ".obj"){
+            try{
+                LoadOBJ(sourcePath.string(), outVertices, outIndices);
+                return true;
+            }
+            catch (const std::exception& e){
+                debug::log(debug::LogLevel::eError,
+                           "Failed to load OBJ {} : {}", sourcePath.string(), e.what());
+                return false;
+            }
+        }
+        if (ext == ".glb" || ext == ".gltf") {
+          try {
+            LoadGLTF(sourcePath.string(), outVertices, outIndices);
+            return true;
+          } catch (const std::exception &e) {
+            debug::log(debug::LogLevel::eError, "Failed to load GLTF {} : {}",
+                       sourcePath.string(), e.what());
             return false;
+          }
         }
 
-        try
-        {
-            file << std::setw(2) << j << std::endl;
-            file.close();
-        }
-        catch (const std::exception& e)
-        {
-            debug::log(debug::LogLevel::eError,
-                       "Exception while writing JSON {} : {}",
-                       metaPath.string(), e.what());
-            return false;
-        }
-
-        debug::log(debug::LogLevel::eInfo,
-                   "Saved mesh metadata: \"{}\" → {}",
-                   slot.name, metaPath.string());
-
-        return true;
+        debug::log(debug::LogLevel::eWarning,
+                   "Unsupported mesh format: {}", ext);
+        return false;
     }
 }
