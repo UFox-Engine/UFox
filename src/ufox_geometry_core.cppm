@@ -37,7 +37,7 @@ export namespace ufox::geometry {
     const ResourceID* CreateQuad(MeshManager& manager);
     const ResourceID* CreateCube(MeshManager& manager);
     bool LoadMeshFromFile(const std::filesystem::path& sourcePath,std::vector<Vertex>& outVertices,std::vector<uint16_t>& outIndices);
-    const ResourceID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourceType, const std::string_view& category, const ResourceID& builtInID, const std::filesystem::path& path);
+    const ResourceID* CreateMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info);
 
     using DefaultMeshesResources = std::unordered_map<std::string, const ResourceID*>;
 
@@ -87,74 +87,18 @@ export namespace ufox::geometry {
         }
 
         void LoadMetaData() {
-            namespace fs = std::filesystem;
-
-            if (!fs::exists(meshDirectory) || !fs::is_directory(meshDirectory)) {
-                debug::log(debug::LogLevel::eWarning, "Mesh directory not found, skipping metadata load: {}", meshDirectory.string());
-                return;
-            }
-
-            for (const auto& entry : fs::directory_iterator(meshDirectory)) {
-                if (!entry.is_regular_file()) continue;
-                const auto& path = entry.path();
-                const auto& ext = path.extension();
-                if (ext != ".ufox.meta") continue;
-
-                try {
-                    std::ifstream file(path);
-                    if (!file.is_open()) {
-                        debug::log(debug::LogLevel::eWarning, "Failed to open metadata file: {}", path.string());
-                        continue;
-                    }
-
-                    nlohmann::json doc;
-                    file >> doc;
-                    auto ctx = doc.value(META_TAG_RESOURCE_CONTEXT, nlohmann::json());
-                    if (ctx.is_null() || !ctx.is_object()){
-                        debug::log(debug::LogLevel::eWarning,"Invalid metadata format: {}", path.string());
-                        continue;
-                    }
-
-                    std::string name        = ctx.value("name", "");
-                    std::string idStr       = ctx.value("id", "");
-                    std::string sourcePathStr = ctx.value("sourcePath", "");
-                    std::string category    = ctx.value("category", kDefaultCategory.data());
-                    std::string lastImportStr = ctx.value("lastImportTime", "");
-                    std::string assetPathStr  = ctx.value("assetPath", "");
-                    fs::path sourcePath = sourcePathStr;
-
-                    if (name.empty() || idStr.empty() || sourcePath.empty()){
-                        debug::log(debug::LogLevel::eWarning,"Metadata missing name or id: {}", path.string());
-                        continue;
-                    }
-
-                    ResourceID metaId{idStr};
-                    std::vector<Vertex> vertices;
-                    std::vector<uint16_t> indices;
-
-                   if (LoadMeshFromFile(sourcePath, vertices, indices)) {
-                        CreateMeshContent(*this, name, vertices, indices, ContentSourceType::ePortIn, category, metaId, sourcePath);
-                   }
-                }
-                catch (const nlohmann::json::exception& e)
-                {
-                    debug::log(debug::LogLevel::eError,
-                               "JSON parse error in {} : {}", path.string(), e.what());
-                }
-                catch (const std::exception& e)
-                {
-                    debug::log(debug::LogLevel::eError,
-                               "Error loading metadata {} : {}", path.string(), e.what());
-                }
-            }
+            std::string extensions[] = {".glb", ".obj"};
+            ReadResourceContextMetaData(meshDirectory,extensions, resourceContextCreateHandler,this);
         }
 
-        void SaveMetaData() const {
-        }
+        static void createResourceEvent(const ResourceContextCreateInfo& info,void* userData) {
+            std::vector<Vertex> vertices;
+            std::vector<uint16_t> indices;
 
-        void ImportMesh(const std::filesystem::path& sourceFilePath, const std::string_view& displayName = kDefaultMeshName, const std::string_view& category = kDefaultCategory) {
-
-
+            if (LoadMeshFromFile(info.sourcePath, vertices, indices)) {
+                const auto manager = static_cast<MeshManager*>(userData);
+                CreateMeshContent(*manager, vertices, indices, info);
+            }
         }
 
         [[nodiscard]] const std::filesystem::path& getMeshDirectory() const noexcept {
@@ -166,19 +110,20 @@ export namespace ufox::geometry {
             if (it == ctxMap.end()) {
                 return false;
             }
-            return it->second.sourceType == ContentSourceType::eBuiltIn;
+            return it->second.sourceType == SourceType::eBuiltIn;
         }
 
-        const ResourceID* createMesh(std::string_view name,  const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourType = ContentSourceType::eBuiltIn, const std::string_view& category = kDefaultCategory, const ResourceID& builtInId = {}, const std::filesystem::path& path ="") {
-            const ResourceID& id = acquireContext(builtInId);
+        const ResourceID* createMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
+            const ResourceID& id = acquireContext(info.id);
             auto& ctx = ctxMap[id];
-            ctx.name = name;
-            ctx.sourceType = sourType;
-            ctx.category = category;
-            ctx.sourcePath = path;
-            ctx.dataPtr = std::make_unique<Mesh>(name, vertices, indices, id);
+            ctx.name = info.name;
+            ctx.sourceType = info.sourceType;
+            ctx.category = info.category;
+            ctx.sourcePath = info.sourcePath;
+            ctx.dataPtr = std::make_unique<Mesh>(info.name, vertices, indices, id);
             ctx.lastImportTime = std::chrono::file_clock::now();
-            SaveSlotMetadataToJson(ctx, MESH_RESOURCE_PATH);
+            ctx.lastWriteTime = info.lastWriteTimeFromMeta;
+            WriteResourceContextMetaData(ctx);
             return &ctx.dataPtr->iD;
         }
 
@@ -263,6 +208,7 @@ export namespace ufox::geometry {
             }
         }
 
+        const std::filesystem::path& getMeshDirectory() noexcept{ return meshDirectory;}
 
     private:
         static void createVertexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
@@ -319,344 +265,30 @@ export namespace ufox::geometry {
         std::unordered_map<ResourceID, ResourceContext> ctxMap{};
         const std::filesystem::path meshDirectory = MESH_RESOURCE_PATH;
         DefaultMeshesResources primitiveMeshes{};
+        const ResourceContextCreateEventHandler resourceContextCreateHandler{createResourceEvent};
     };
 
-    const ResourceID* CreateMeshContent(MeshManager& manager, const std::string_view& name, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ContentSourceType& sourceType = ContentSourceType::eBuiltIn, const std::string_view& category = "Miscellaneous", const ResourceID& builtInID = {}, const std::filesystem::path& path = "") {
-        const ResourceID* id = manager.createMesh(name, vertices, indices, sourceType, category, builtInID, path);
+    const ResourceID* CreateMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
+        const ResourceID* id = manager.createMesh(vertices, indices, info);
         return id;
     }
 
     const ResourceID* CreateQuad(MeshManager& manager) {
-        return CreateMeshContent(manager, DEFAULT_QUAD_MESH_NAME, QuadVertices, QuadIndices, ContentSourceType::eBuiltIn , "Standard", BUILTIN_QUAD_ID);
+        ResourceContextCreateInfo info{};
+        info.setName(DEFAULT_QUAD_MESH_NAME)
+            .setSourceType(SourceType::eBuiltIn)
+            .setCategory("Standard")
+            .setID(BUILTIN_QUAD_ID);
+        return CreateMeshContent(manager, QuadVertices, QuadIndices, info);
     }
 
     const ResourceID* CreateCube(MeshManager& manager) {
-        return CreateMeshContent(manager, DEFAULT_CUBE_MESH_NAME, CubeVertices, CubeIndices, ContentSourceType::eBuiltIn, "Standard", BUILTIN_CUBE_ID);
-    }
-
-
-    [[nodiscard]] const ResourceID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name = "gltf_mesh", const std::filesystem::path& path = "") {
-        // ────────────────────────────────────────────────────────────────
-        // Step 1: Basic validation of input data size
-        // ────────────────────────────────────────────────────────────────
-        if (glbData.size() < 20){
-            debug::log(debug::LogLevel::eError, "glTF invalid size");
-            return nullptr;
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        // Step 2: Validate GLB header (magic, version, total length)
-        // ────────────────────────────────────────────────────────────────
-        if (glbData.size() < sizeof(gltf::GlbHeader))
-        {
-            debug::log(debug::LogLevel::eError, "Data smaller than GLB header");
-            return nullptr;
-        }
-
-        auto header = reinterpret_cast<const gltf::GlbHeader*>(glbData.data());
-        if (header->magic   != gltf::GLB_MAGIC   ||
-            header->version != gltf::GLB_VERSION ||
-            header->length  != glbData.size())
-        {
-            debug::log(debug::LogLevel::eError, "Invalid GLB header (magic/version/length mismatch)");
-            return nullptr;
-        }
-
-        glbData = glbData.subspan(sizeof(gltf::GlbHeader));
-
-        // ────────────────────────────────────────────────────────────────
-        // Step 3: Extract JSON chunk
-        // ────────────────────────────────────────────────────────────────
-        if (glbData.size() < sizeof(gltf::GlbChunkHeader))
-        {
-            debug::log(debug::LogLevel::eError, "Data too short for JSON chunk header");
-            return nullptr;
-        }
-
-        auto jsonChunk = reinterpret_cast<const gltf::GlbChunkHeader*>(glbData.data());
-        if (jsonChunk->chunkType != gltf::CHUNK_TYPE_JSON)
-        {
-            debug::log(debug::LogLevel::eError, "First chunk is not JSON");
-            return nullptr;
-        }
-
-        std::string_view jsonView{
-            reinterpret_cast<const char*>(glbData.data() + sizeof(gltf::GlbChunkHeader)),
-            jsonChunk->chunkLength
-        };
-
-        glbData = glbData.subspan(sizeof(gltf::GlbChunkHeader) + jsonChunk->chunkLength);
-
-        // ────────────────────────────────────────────────────────────────
-        // Step 4: Extract BIN chunk (raw vertex/index data)
-        // ────────────────────────────────────────────────────────────────
-        if (glbData.size() < sizeof(gltf::GlbChunkHeader))
-        {
-            debug::log(debug::LogLevel::eError, "Data too short for BIN chunk header");
-            return nullptr;
-        }
-
-        auto binChunk = reinterpret_cast<const gltf::GlbChunkHeader*>(glbData.data());
-        if (binChunk->chunkType != gltf::CHUNK_TYPE_BIN)
-        {
-            debug::log(debug::LogLevel::eError, "Second chunk is not BIN");
-            return nullptr;
-        }
-
-        std::span binary{
-            glbData.data() + sizeof(gltf::GlbChunkHeader),
-            binChunk->chunkLength
-        };
-
-        // ────────────────────────────────────────────────────────────────
-        // Step 5: Parse JSON using nlohmann::json
-        // ────────────────────────────────────────────────────────────────
-        nlohmann::json gltfJson;
-        try
-        {
-            gltfJson = nlohmann::json::parse(jsonView);
-        }
-        catch (const nlohmann::json::parse_error& e)
-        {
-            debug::log(debug::LogLevel::eError,
-                       "JSON parse error at byte {}: {}", e.byte, e.what());
-            return nullptr;
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        // Step 6: Navigate to first mesh → first primitive → attributes
-        //         Extract POSITION and optional indices accessor indices
-        // ────────────────────────────────────────────────────────────────
-        uint32_t positionAccessorIndex = UINT32_MAX;
-        std::optional<uint32_t> optIndicesAccessor;
-
-        try
-        {
-            const auto& meshes = gltfJson.at("meshes");
-            if (!meshes.is_array() || meshes.empty())
-            {
-                debug::log(debug::LogLevel::eWarning, "No meshes array or empty");
-                return nullptr;
-            }
-
-            const auto& firstMesh = meshes[0];
-            const auto& primitives = firstMesh.at("primitives");
-            if (!primitives.is_array() || primitives.empty())
-            {
-                debug::log(debug::LogLevel::eWarning, "No primitives in first mesh");
-                return nullptr;
-            }
-
-            const auto& firstPrim = primitives[0];
-            const auto& attributes = firstPrim.at("attributes");
-
-            if (!attributes.contains("POSITION"))
-            {
-                debug::log(debug::LogLevel::eWarning, "First primitive has no POSITION attribute");
-                return nullptr;
-            }
-
-            positionAccessorIndex = attributes["POSITION"].get<uint32_t>();
-            debug::log(debug::LogLevel::eInfo, "POSITION accessor index = {}", positionAccessorIndex);
-
-            if (firstPrim.contains("indices"))
-            {
-                optIndicesAccessor = firstPrim["indices"].get<uint32_t>();
-                debug::log(debug::LogLevel::eInfo, "Indices accessor index = {}", *optIndicesAccessor);
-            }
-        }
-        catch (const std::exception& e)
-        {
-            debug::log(debug::LogLevel::eError, "Failed to read mesh/primitive/attributes: {}", e.what());
-            return nullptr;
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        // Step 7: Load POSITION attribute (vertices)
-        // ────────────────────────────────────────────────────────────────
-        if (!gltfJson.contains("accessors") ||
-            !gltfJson["accessors"].is_array() ||
-            positionAccessorIndex >= gltfJson["accessors"].size())
-        {
-            debug::log(debug::LogLevel::eError, "Invalid or missing accessors array for POSITION");
-            return nullptr;
-        }
-
-        const auto& posAccessor = gltfJson["accessors"][positionAccessorIndex];
-
-        // Required fields check
-        if (!posAccessor.contains("bufferView") ||
-            !posAccessor.contains("count") ||
-            !posAccessor.contains("type") ||
-            !posAccessor.contains("componentType"))
-        {
-            debug::log(debug::LogLevel::eError, "POSITION accessor missing required fields");
-            return nullptr;
-        }
-
-        uint32_t bufferViewIdx      = posAccessor["bufferView"].get<uint32_t>();
-        uint32_t accessorByteOffset = posAccessor.value("byteOffset", 0u);
-        uint32_t count              = posAccessor["count"].get<uint32_t>();
-        std::string typeStr         = posAccessor["type"].get<std::string>();
-        uint32_t compType           = posAccessor["componentType"].get<uint32_t>();
-
-        // Only support FLOAT VEC3 right now
-        if (typeStr != "VEC3" || compType != 5126)
-        {
-            debug::log(debug::LogLevel::eError,
-                       "Unsupported POSITION format: type={}, componentType={}", typeStr, compType);
-            return nullptr;
-        }
-
-        if (count == 0 || count > 1'000'000)
-        {
-            debug::log(debug::LogLevel::eError, "Invalid POSITION count: {}", count);
-            return nullptr;
-        }
-
-        // ─── Get bufferView info ───────────────────────────────────────
-        if (!gltfJson.contains("bufferViews") ||
-            bufferViewIdx >= gltfJson["bufferViews"].size())
-        {
-            debug::log(debug::LogLevel::eError, "Invalid bufferView index: {}", bufferViewIdx);
-            return nullptr;
-        }
-
-        const auto& bufferView = gltfJson["bufferViews"][bufferViewIdx];
-
-        uint32_t viewByteOffset = bufferView.value("byteOffset", 0u);
-        uint32_t byteStride     = bufferView.value("byteStride", 12u); // default packed vec3
-
-        if (byteStride != 12)
-        {
-            debug::log(debug::LogLevel::eWarning,
-                       "Non-packed stride {} for POSITION — assuming interleaved (may need adjustment)",
-                       byteStride);
-        }
-
-        // Final memory range check
-        size_t finalStart = viewByteOffset + accessorByteOffset;
-        size_t finalSize  = count * byteStride;
-
-        if (finalStart + finalSize > binary.size())
-        {
-            debug::log(debug::LogLevel::eError,
-                       "POSITION data out of binary bounds (start={}, size={})", finalStart, finalSize);
-            return nullptr;
-        }
-
-        // ─── Copy real positions into vertices ─────────────────────────
-        std::vector<Vertex> vertices;
-        vertices.reserve(count);
-
-        const std::byte* srcData = binary.data() + finalStart;
-
-        for (uint32_t i = 0; i < count; ++i)
-        {
-            const auto* posPtr = reinterpret_cast<const glm::vec3*>(
-                srcData + i * byteStride);
-
-            Vertex v{};
-            v.pos      = *posPtr;
-            v.color    = {1.0f, 1.0f, 1.0f};  // white default
-            v.texCoord = {0.0f, 0.0f};        // zero default
-            vertices.push_back(v);
-        }
-
-        debug::log(debug::LogLevel::eInfo, "Successfully loaded {} real vertex positions", count);
-
-        // ────────────────────────────────────────────────────────────────
-        // Step 8: Load indices (if present)
-        // ────────────────────────────────────────────────────────────────
-        std::vector<uint16_t> indices;
-
-        if (optIndicesAccessor)
-        {
-            uint32_t idxAccessorIdx = *optIndicesAccessor;
-
-            if (!gltfJson.contains("accessors") ||
-                idxAccessorIdx >= gltfJson["accessors"].size())
-            {
-                debug::log(debug::LogLevel::eWarning, "Invalid indices accessor index: {}", idxAccessorIdx);
-            }
-            else
-            {
-                const auto& idxAccessor = gltfJson["accessors"][idxAccessorIdx];
-
-                if (!idxAccessor.contains("bufferView") ||
-                    !idxAccessor.contains("count") ||
-                    !idxAccessor.contains("componentType"))
-                {
-                    debug::log(debug::LogLevel::eWarning, "Indices accessor missing required fields");
-                }
-                else
-                {
-                    uint32_t idxBufferView  = idxAccessor["bufferView"].get<uint32_t>();
-                    uint32_t idxByteOffset  = idxAccessor.value("byteOffset", 0u);
-                    uint32_t idxCount       = idxAccessor["count"].get<uint32_t>();
-                    uint32_t idxCompType    = idxAccessor["componentType"].get<uint32_t>();
-
-                    // Only UNSIGNED_SHORT (5123) supported for now
-                    if (idxCompType != 5123)
-                    {
-                        debug::log(debug::LogLevel::eWarning,
-                                   "Unsupported indices componentType: {} (only UNSIGNED_SHORT supported)",
-                                   idxCompType);
-                    }
-                    else if (idxCount == 0 || idxCount > 100'000)
-                    {
-                        debug::log(debug::LogLevel::eError, "Invalid indices count: {}", idxCount);
-                    }
-                    else if (!gltfJson.contains("bufferViews") ||
-                             idxBufferView >= gltfJson["bufferViews"].size())
-                    {
-                        debug::log(debug::LogLevel::eError, "Invalid indices bufferView: {}", idxBufferView);
-                    }
-                    else
-                    {
-                        const auto& idxView = gltfJson["bufferViews"][idxBufferView];
-                        uint32_t viewOffset = idxView.value("byteOffset", 0u);
-
-                        size_t finalIdxStart = viewOffset + idxByteOffset;
-                        size_t finalIdxSize  = idxCount * sizeof(uint16_t);
-
-                        if (finalIdxStart + finalIdxSize > binary.size())
-                        {
-                            debug::log(debug::LogLevel::eError, "Indices data out of bounds");
-                        }
-                        else
-                        {
-                            indices.resize(idxCount);
-                            const auto* srcIdx = reinterpret_cast<const uint16_t*>(
-                                binary.data() + finalIdxStart);
-
-                            std::copy(srcIdx, srcIdx + idxCount, indices.begin());
-
-                            debug::log(debug::LogLevel::eInfo,
-                                       "Loaded {} real indices (uint16)", idxCount);
-                        }
-                    }
-                }
-            }
-        }
-        else
-        {
-            debug::log(debug::LogLevel::eInfo, "No indices found — mesh will be rendered without indexing");
-        }
-
-        // ────────────────────────────────────────────────────────────────
-        // Step 9: Create final mesh content
-        // ────────────────────────────────────────────────────────────────
-        return CreateMeshContent(
-            manager,
-            name,
-            std::span(vertices),
-            std::span(indices),
-            ContentSourceType::ePortIn,
-            MeshManager::kDefaultCategory,
-            {},
-            path
-        );
+        ResourceContextCreateInfo info{};
+        info.setName(DEFAULT_CUBE_MESH_NAME)
+            .setSourceType(SourceType::eBuiltIn)
+            .setCategory("Standard")
+            .setID(BUILTIN_CUBE_ID);
+        return CreateMeshContent(manager, CubeVertices, CubeIndices, info);
     }
 
     void LoadGLTF(std::string_view MODEL_PATH,std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {

@@ -4,11 +4,11 @@
 
 module;
 
-
+#include <chrono>
 #include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
-#include <chrono>
+#include <unordered_set>
 
 #ifdef USE_SDL
 #include <SDL3/SDL.h>
@@ -30,7 +30,7 @@ export module ufox_engine_core;
 import ufox_lib;
 import ufox_engine_lib;
 import ufox_graphic_device;
-
+import ufox_nanoid;
 
 export namespace ufox::engine {
 
@@ -559,45 +559,183 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     return oss.str();
   }
 
-  bool SaveSlotMetadataToJson(const ResourceContext& context, const std::string_view& path){
-    if (context.sourceType == ContentSourceType::eBuiltIn) return false;
-    if (context.name.empty()){
-      debug::log(debug::LogLevel::eWarning, "Cannot save metadata: slot name is empty");
-      return false;
+  bool WriteResourceContextMetaData(const ResourceContext& context){
+      if (context.sourceType == SourceType::eBuiltIn) {
+          return false;
+      }
+
+      if (context.name.empty() || context.sourcePath.empty()) {
+          debug::log(debug::LogLevel::eWarning,"Cannot save metadata: name or sourcePath is empty");
+          return false;
+      }
+
+      const std::string filename = context.name + ".ufox.meta";
+      const auto metaPath = context.sourcePath.parent_path() / filename;
+
+      // Get source file last write time as ISO 8601 string
+      std::string lastWriteTimeStr;
+      try {
+          if (std::filesystem::exists(context.sourcePath)) {
+              auto fileTime = std::filesystem::last_write_time(context.sourcePath);
+              auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(fileTime);
+              auto timeT = std::chrono::system_clock::to_time_t(sysTime);
+
+              std::tm utcTime{};
+  #if defined(_WIN32)
+              gmtime_s(&utcTime, &timeT);
+  #else
+              gmtime_r(&timeT, &utcTime);
+  #endif
+              std::ostringstream oss;
+              oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
+              lastWriteTimeStr = oss.str();
+          }
+      }
+      catch (...) {
+          debug::log(debug::LogLevel::eWarning,"Failed to read last write time for: {}", context.sourcePath.string());
+      }
+
+      const nlohmann::json doc = {
+          { META_TAG_RESOURCE_CONTEXT, {
+              { "name",          context.name },
+              { "id",            context.dataPtr ? context.dataPtr->iD.view() : "" },
+              { "sourcePath",    context.sourcePath.string() },
+              { "category",      context.category },
+              { "lastImportTime", context.lastImportTime == std::chrono::file_clock::time_point{}
+                                  ? ""
+                                  : TimePointToIso8601(context.lastImportTime) },
+              { "lastWriteTime", lastWriteTimeStr }     // ← saved from source file
+          }}
+      };
+
+      std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
+      if (!file.is_open()) {
+          debug::log(debug::LogLevel::eError,
+                     "Failed to open metadata file for writing: {}", metaPath.string());
+          return false;
+      }
+
+      try {
+          file << std::setw(2) << doc << std::endl;
+          file.close();
+
+          return true;
+      }
+      catch (const std::exception& e) {
+          debug::log(debug::LogLevel::eError,"Exception while writing metadata {} : {}", metaPath.string(), e.what());
+          return false;
+      }
+  }
+
+  void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<std::string>& sourceExtensions,const ResourceContextCreateEventHandler& handler,void* userData = nullptr) {
+    namespace fs = std::filesystem;
+
+    if (!fs::is_directory(rootDirectory)) {
+      debug::log(debug::LogLevel::eWarning,
+                 "Root directory not found, skipping metadata load: {}",
+                 rootDirectory.string());
+      return;
     }
 
-    const std::string filename = context.name + ".ufox.meta";
-    const auto metaPath = std::filesystem::path{path} / filename;
-    const auto* content = &context.dataPtr;
-
-    const nlohmann::json doc{
-       { META_TAG_RESOURCE_CONTEXT, {
-           { "name", context.name },
-           { "id", content? content->get()->iD.view(): ""},
-           { "sourcePath", context.sourcePath.string() },
-           { "category", context.category },
-           { "lastImportTime", context.lastImportTime == std::chrono::file_clock::time_point{}? "": TimePointToIso8601(context.lastImportTime) },
-           { "assetPath", context.assetPath.empty()    ? "" : context.assetPath.filename().string()}
-       }}
-    };
-
-    std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
-    if (!file.is_open()){
-      debug::log(debug::LogLevel::eError, "Failed to open metadata file for writing: {}", metaPath.string());
-      return false;
+    if (!handler) {
+      debug::log(debug::LogLevel::eWarning, "No handler provided for ReadResourceContextMetaData");
+      return;
     }
 
-    try{
-      file << std::setw(2) << doc << std::endl;
-      file.close();
-    }
-    catch (const std::exception& e){
-      debug::log(debug::LogLevel::eError, "Exception while writing JSON {} : {}", metaPath.string(), e.what());
-      return false;
+    // Collect all source files matching the extensions
+    std::unordered_set<fs::path> sourcesWithoutMeta;
+
+    for (const auto& entry : fs::recursive_directory_iterator(rootDirectory)) {
+      if (!entry.is_regular_file()) continue;
+
+      const auto& path = entry.path();
+      const std::string ext = path.extension().string();
+
+      for (const auto& allowed : sourceExtensions) {
+        if (ext == allowed ||
+            (ext.size() == allowed.size() &&
+             std::ranges::equal(ext, allowed, [](char a, char b) {
+                 return std::tolower(a) == std::tolower(b);
+             }))) {
+          sourcesWithoutMeta.insert(path);
+          break;
+             }
+      }
     }
 
-    debug::log(debug::LogLevel::eInfo, "Saved mesh metadata: \"{}\" → {}", context.name, metaPath.string());
+    // Process all .ufox.meta files recursively
+    for (const auto& entry : fs::recursive_directory_iterator(rootDirectory)) {
+      if (!entry.is_regular_file() || entry.path().extension() != ".ufox.meta")
+        continue;
 
-    return true;
+      try {
+        std::ifstream file(entry.path());
+        if (!file.is_open()) {
+          debug::log(debug::LogLevel::eWarning,
+                     "Failed to open metadata file: {}", entry.path().string());
+          continue;
+        }
+
+        nlohmann::json doc = nlohmann::json::parse(file);
+        const auto& ctx = doc.value(META_TAG_RESOURCE_CONTEXT, nlohmann::json{});
+
+        if (!ctx.is_object()) {
+          debug::log(debug::LogLevel::eWarning,
+                     "Invalid metadata format: {}", entry.path().string());
+          continue;
+        }
+
+        const std::string name          = ctx.value("name", "");
+        const std::string idStr         = ctx.value("id", "");
+        const std::string sourcePathStr = ctx.value("sourcePath", "");
+        const std::string category      = ctx.value("category", "Miscellaneous");
+        const std::string lastWriteTime = ctx.value("lastWriteTime", "");   // ← Read from meta
+
+        if (name.empty() || idStr.empty() || sourcePathStr.empty()) {
+          debug::log(debug::LogLevel::eWarning,
+                     "Metadata missing required fields: {}", entry.path().string());
+          continue;
+        }
+        ResourceContextCreateInfo info{};
+        info.setSourcePath(sourcePathStr)
+            .setName(name)
+            .setID(ResourceID{idStr})
+            .setCategory(category)
+            .setSourceType(SourceType::ePortIn)
+            .setLastWriteTime(lastWriteTime);
+
+
+        ResourceID resourceID{idStr};
+        fs::path sourcePath = sourcePathStr;
+
+        // Trigger handler with lastWriteTime from meta file
+        handler(info, userData);
+
+        // This source now has metadata
+        sourcesWithoutMeta.erase(sourcePath);
+
+      }
+      catch (const std::exception& e) {
+        debug::log(debug::LogLevel::eError,
+                   "Failed to load metadata {} : {}",
+                   entry.path().string(), e.what());
+      }
+    }
+
+    if (sourcesWithoutMeta.empty()) return;
+
+    for (const auto& source : sourcesWithoutMeta) {
+      std::string name = source.stem().string();
+      ResourceContextCreateInfo info{};
+      info.setSourcePath(source)
+          .setName(name)
+          .setID(ResourceID{})
+          .setCategory("Miscellaneous")
+          .setSourceType(SourceType::ePortIn)
+          .setLastWriteTime("");
+
+      // Call handler with empty ID and empty lastWriteTime
+      handler(info, userData);
+    }
   }
 }

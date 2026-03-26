@@ -439,7 +439,11 @@ export namespace ufox::gui {
 
         void initResource(const float& width, const float& height) {
             if (meshManager != nullptr){
-                meshUser.id = CreateMeshContent(*meshManager, RECT_MESH_NAME, RectVertices, RectIndices, engine::ContentSourceType::eBuiltIn, "GUI");
+                engine::ResourceContextCreateInfo info{};
+                info.setName(RECT_MESH_NAME)
+                    .setSourceType(engine::SourceType::eBuiltIn)
+                    .setCategory("GUI");
+                meshUser.id = CreateMeshContent(*meshManager, RectVertices, RectIndices, info);
                 if (meshUser.id != nullptr) meshManager->useMesh(meshUser);
             }
 

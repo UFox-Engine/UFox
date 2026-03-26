@@ -60,7 +60,7 @@ export namespace ufox::engine {
 
   inline constexpr ResourceID INVALID_CONTENT_ID {};
 
-  enum class ContentSourceType : uint8_t {
+  enum class SourceType : uint8_t {
     eBuiltIn   = 0,
     ePortIn    = 1,
   };
@@ -102,19 +102,20 @@ export namespace ufox::engine {
 
   struct ResourceContext {
     std::string                                 name{"empty"};
-    ContentSourceType                           sourceType;
+    SourceType                           sourceType;
     std::string                                 category;
     std::unique_ptr<ResourceBase>               dataPtr{nullptr};
     std::vector<ResourceUserBase*>              users{};
     std::filesystem::path                       sourcePath{};
-    std::filesystem::path                       assetPath{};
     std::chrono::file_clock::time_point         lastImportTime{};
+    std::string                                 lastWriteTime{};
 
     void clear() noexcept {
       dataPtr.reset();
       users.clear();
       sourcePath.clear();
-      assetPath.clear();
+      lastImportTime = {};
+      lastWriteTime.clear();
     }
   };
 
@@ -132,13 +133,43 @@ export namespace ufox::engine {
 
   struct Camera {
     Transform             transform{};
-    ViewProjectionType  projectionType{ViewProjectionType::ePerspective};
+    ViewProjectionType    projectionType{ViewProjectionType::ePerspective};
     float                 nearPlane{0.1f};
     float                 farPlane{5000.0f};
     float                 fov{90.0f};
     float                 orthoSize{10.0f};
     float                 aspectRatio{1.0f};
   };
+
+  struct ResourceContextCreateInfo {
+    std::filesystem::path sourcePath{};
+    std::string_view name{};
+    std::string_view category{};
+    std::string_view lastWriteTimeFromMeta{};
+    SourceType  sourceType{SourceType::eBuiltIn};
+    ResourceID       id{};
+
+    constexpr ResourceContextCreateInfo& setID(const ResourceID& id) noexcept {
+      this->id = id; return *this;
+    }
+    constexpr ResourceContextCreateInfo& setSourcePath(const std::filesystem::path& path) noexcept {
+      this->sourcePath = path; return *this;
+    }
+    constexpr ResourceContextCreateInfo& setName(const std::string_view& name) noexcept {
+      this->name = name; return *this;
+    }
+    constexpr ResourceContextCreateInfo& setCategory(const std::string_view& category) noexcept {
+      this->category = category; return *this;
+    }
+    constexpr ResourceContextCreateInfo& setLastWriteTime(const std::string_view& time) noexcept {
+      this->lastWriteTimeFromMeta = time; return *this;
+    }
+    constexpr ResourceContextCreateInfo& setSourceType(const SourceType& type) noexcept {
+      this->sourceType = type; return *this;
+    }
+  };
+
+  using ResourceContextCreateEventHandler = void(*)(const ResourceContextCreateInfo& info,void* userData);
 }
 
 namespace std {
