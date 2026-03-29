@@ -70,6 +70,24 @@ export namespace ufox::engine {
     eOrthographic = 1,
   };
 
+  struct DirectoryContext final {
+    std::filesystem::path   directoryPath{};
+    std::string             lastWriteTimeIso{};   // ISO 8601 string
+    uintmax_t               totalSizeBytes{0};
+
+    [[nodiscard]] constexpr bool isValid() const noexcept {return !directoryPath.empty() && std::filesystem::exists(directoryPath) && std::filesystem::is_directory(directoryPath);}
+    [[nodiscard]] constexpr explicit operator bool() const noexcept {return isValid();}
+
+    constexpr void printState() const noexcept {
+      if (isValid()) {
+        const std::string pathStr = directoryPath.string();
+        debug::log(debug::LogLevel::eInfo, "Directory state ({}): valid | lastWriteTime : {} | totalSizeBytes : {}", pathStr, lastWriteTimeIso, totalSizeBytes);
+      } else {
+        debug::log(debug::LogLevel::eInfo, "Directory state ({}): invalid", directoryPath.string());
+      }
+    }
+  };
+
   struct ResourceBase {
     virtual ~ResourceBase() = default;
 
@@ -170,7 +188,10 @@ export namespace ufox::engine {
   };
 
   using ResourceContextCreateEventHandler = void(*)(const ResourceContextCreateInfo& info,void* userData);
+
+  using BuiltInResources = std::unordered_map<std::string, const ResourceID*>;
 }
+
 
 namespace std {
   template <>

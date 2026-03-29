@@ -14,7 +14,10 @@ import ufox_graphic_device;
 import ufox_engine_lib;
 
 export namespace ufox::geometry {
-    constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
+/**
+ *Path: "res/meshes"
+ */
+constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
 
     struct Vertex
     {
@@ -92,6 +95,10 @@ export namespace ufox::geometry {
         3, 2, 6,    6, 7, 3,      // top
         0, 3, 7,    7, 4, 0,      // left
         1, 2, 6,    6, 5, 1       // right
+    };
+
+    std::string MESH_RESOURCE_EXTENSION[] = {
+        ".glb",".obj"
     };
 
     constexpr auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";

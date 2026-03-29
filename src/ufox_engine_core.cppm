@@ -134,51 +134,51 @@ export namespace ufox::engine {
 
     [[nodiscard]] constexpr bool isRunning() const { return running; }
 
-    void addResizeEventHandlers(ResizeEventHandler cb, void* user) {
+    void registerResizeEventHandlers(ResizeEventHandler cb, void* user) {
       resizeEventHandlers.emplace_back(cb, user);
     }
 
-    void removeOnResizeEventHandlers(void* user) {  // simple by pointer
+    void unregisterResizeEventHandlers(void* user) {  // simple by pointer
       std::erase_if(resizeEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
-    void addSystemInitEventHandlers(SystemInitEventHandler cb, void* user) {
+    void registerSystemInitEventHandlers(SystemInitEventHandler cb, void* user) {
       systemInitEventHandlers.emplace_back(cb, user);
     }
 
-    void removeSystemInitEventHandlers(void* user) {
+    void unregisterSystemInitEventHandlers(void* user) {
       std::erase_if(systemInitEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
-    void addResourceInitEventHandlers(ResourceInitEventHandler cb, void* user) {
+    void registerResourceInitEventHandlers(ResourceInitEventHandler cb, void* user) {
       resourceInitEventHandlers.emplace_back(cb, user);
     }
 
-    void removeResourceInitEventHandlers(void* user) {
+    void unregisterResourceInitEventHandlers(void* user) {
       std::erase_if(resourceInitEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
-    void addStartEventHandlers(StartEventHandler cb, void* user) {
+    void registerStartEventHandlers(StartEventHandler cb, void* user) {
       startEventHandlers.emplace_back(cb, user);
     }
 
-    void removeStartEventHandlers(void* user) {
+    void unregisterStartEventHandlers(void* user) {
       std::erase_if(startEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
-    void addUpdateBufferEventHandlers(UpdateBufferEventHandler cb, void* user) {
+    void registerUpdateBufferEventHandlers(UpdateBufferEventHandler cb, void* user) {
       updateBufferEventHandlers.emplace_back(cb, user);
     }
 
-    void removeUpdateBufferEventHandlers(void* user) {
+    void unregisterUpdateBufferEventHandlers(void* user) {
       std::erase_if(updateBufferEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
-    void addDrawCanvasEventHandlers(DrawCanvasEventHandler cb, void* user) {
+    void registerDrawCanvasEventHandlers(DrawCanvasEventHandler cb, void* user) {
       renderPassEventHandlers.emplace_back(cb, user);
     }
 
-    void removeDrawCanvasEventHandlers(void* user) {
+    void unregisterDrawCanvasEventHandlers(void* user) {
       std::erase_if(renderPassEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
@@ -543,6 +543,45 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     return window;
   }
 
+  constexpr void EnsureDirectoryExists(const std::filesystem::path& dirPath) noexcept{
+    if (dirPath.empty()) {
+      debug::log(debug::LogLevel::eWarning,
+                 "EnsureDirectoryExists ({}) : empty path",
+                 dirPath.string());
+      return;
+    }
+
+    try {
+      if (std::filesystem::create_directories(dirPath)) {
+        debug::log(debug::LogLevel::eInfo,
+                   "EnsureDirectoryExists ({}) : created",
+                   dirPath.string());
+        return;
+      }
+
+      if (std::filesystem::is_directory(dirPath)) {
+        debug::log(debug::LogLevel::eInfo,
+                   "EnsureDirectoryExists ({}) : already exists",
+                   dirPath.string());
+        return;
+      }
+
+      debug::log(debug::LogLevel::eWarning,
+                 "EnsureDirectoryExists ({}) : path exists but is not a directory",
+                 dirPath.string());
+    }
+    catch (const std::filesystem::filesystem_error& e) {
+      debug::log(debug::LogLevel::eError,
+                 "EnsureDirectoryExists ({}) : {}",
+                 dirPath.string(), e.what());
+    }
+    catch (const std::exception& e) {
+      debug::log(debug::LogLevel::eError,
+                 "EnsureDirectoryExists ({}) : {}",
+                 dirPath.string(), e.what());
+    }
+  }
+
   std::string TimePointToIso8601(const std::chrono::file_clock::time_point& tp){
     const auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(tp);
     auto timeT   = std::chrono::system_clock::to_time_t(sysTime);
@@ -559,77 +598,187 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     return oss.str();
   }
 
-  bool WriteResourceContextMetaData(const ResourceContext& context){
-      if (context.sourceType == SourceType::eBuiltIn) {
-          return false;
+  constexpr void MakeDirectoryContext(const std::filesystem::path& dirPath, DirectoryContext& outState) noexcept {
+    if (!std::filesystem::exists(dirPath) || !std::filesystem::is_directory(dirPath)) {
+      debug::log(debug::LogLevel::eWarning,
+                 "MakeDirectoryContext ({}) : not a valid directory", dirPath.string());
+      return;
+    }
+
+    try {
+      DirectoryContext state{};
+      state.directoryPath = dirPath;
+      uintmax_t totalSize = 0;
+
+      for (const auto& entry : std::filesystem::recursive_directory_iterator(dirPath,std::filesystem::directory_options::skip_permission_denied)) {
+        if (entry.is_regular_file()) {
+          totalSize += entry.file_size();
+        }
       }
+      state.totalSizeBytes = totalSize;
 
-      if (context.name.empty() || context.sourcePath.empty()) {
-          debug::log(debug::LogLevel::eWarning,"Cannot save metadata: name or sourcePath is empty");
-          return false;
-      }
-
-      const std::string filename = context.name + ".ufox.meta";
-      const auto metaPath = context.sourcePath.parent_path() / filename;
-
-      // Get source file last write time as ISO 8601 string
-      std::string lastWriteTimeStr;
-      try {
-          if (std::filesystem::exists(context.sourcePath)) {
-              auto fileTime = std::filesystem::last_write_time(context.sourcePath);
-              auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(fileTime);
-              auto timeT = std::chrono::system_clock::to_time_t(sysTime);
-
-              std::tm utcTime{};
-  #if defined(_WIN32)
-              gmtime_s(&utcTime, &timeT);
-  #else
-              gmtime_r(&timeT, &utcTime);
-  #endif
-              std::ostringstream oss;
-              oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
-              lastWriteTimeStr = oss.str();
-          }
-      }
-      catch (...) {
-          debug::log(debug::LogLevel::eWarning,"Failed to read last write time for: {}", context.sourcePath.string());
-      }
-
-      const nlohmann::json doc = {
-          { META_TAG_RESOURCE_CONTEXT, {
-              { "name",          context.name },
-              { "id",            context.dataPtr ? context.dataPtr->iD.view() : "" },
-              { "sourcePath",    context.sourcePath.string() },
-              { "category",      context.category },
-              { "lastImportTime", context.lastImportTime == std::chrono::file_clock::time_point{}
-                                  ? ""
-                                  : TimePointToIso8601(context.lastImportTime) },
-              { "lastWriteTime", lastWriteTimeStr }     // ← saved from source file
-          }}
-      };
-
-      std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
-      if (!file.is_open()) {
-          debug::log(debug::LogLevel::eError,
-                     "Failed to open metadata file for writing: {}", metaPath.string());
-          return false;
-      }
-
-      try {
-          file << std::setw(2) << doc << std::endl;
-          file.close();
-
-          return true;
-      }
-      catch (const std::exception& e) {
-          debug::log(debug::LogLevel::eError,"Exception while writing metadata {} : {}", metaPath.string(), e.what());
-          return false;
-      }
+      // Directory's last write time as ISO string
+      auto lastWrite = std::filesystem::last_write_time(dirPath);
+      state.lastWriteTimeIso = TimePointToIso8601(lastWrite);
+      outState = state;
+      debug::log(debug::LogLevel::eInfo, "MakeDirectoryContext ({}) : success", dirPath.string());
+    } catch (const std::exception& e) {
+      debug::log(debug::LogLevel::eError,"MakeDirectoryContext ({}) : {}", dirPath.string(), e.what());
+    }
   }
 
-  void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<std::string>& sourceExtensions,const ResourceContextCreateEventHandler& handler,void* userData = nullptr) {
-    namespace fs = std::filesystem;
+  [[nodiscard]]constexpr bool DirectoryContextChanged(const DirectoryContext& oldState,const DirectoryContext& newState) noexcept {
+    if (!oldState.isValid() || !newState.isValid()) return true;
 
+    return oldState.lastWriteTimeIso != newState.lastWriteTimeIso ||
+           oldState.totalSizeBytes   != newState.totalSizeBytes;
+  }
+
+  bool WriteDirectoryContextMetaData(const DirectoryContext& state) {
+    if (!state.isValid()) {
+      debug::log(debug::LogLevel::eWarning, "WriteDirectoryMeta: invalid DirectoryState");
+      return false;
+    }
+
+    const std::string metaFilename = state.directoryPath.filename().string() + ".ufox.meta";
+    const auto metaPath = state.directoryPath.parent_path() / metaFilename;
+
+    nlohmann::json doc = {
+      {"directory-context", {
+                {"path",           state.directoryPath.string()},
+                {"lastWriteTime",  state.lastWriteTimeIso},
+                {"totalSizeBytes", state.totalSizeBytes}
+      }}
+    };
+
+    std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
+    if (!file.is_open()) {
+      debug::log(debug::LogLevel::eError, "WriteDirectoryMeta ({}) : Failed to open directory meta", metaPath.string());
+      return false;
+    }
+
+    try {
+      file << std::setw(2) << doc << std::endl;
+      debug::log(debug::LogLevel::eInfo, "WriteDirectoryMeta ({}) : success" , metaPath.string());
+      return true;
+    }
+    catch (const std::exception& e) {
+      debug::log(debug::LogLevel::eError, "WriteDirectoryMeta ({}) : {}", metaPath.string(), e.what());
+      return false;
+    }
+  }
+
+  [[nodiscard]] DirectoryContext ReadDirectoryContextMetaData(const std::filesystem::path& dirPath) {
+    DirectoryContext state{};
+    state.directoryPath = dirPath;
+
+    if (!std::filesystem::exists(dirPath) || !std::filesystem::is_directory(dirPath)) {
+      return state;
+    }
+
+    const std::string metaFilename = dirPath.filename().string() + ".ufox.meta";
+    const auto metaPath = dirPath.parent_path() / metaFilename;
+
+    if (!std::filesystem::exists(metaPath)) {
+      debug::log(debug::LogLevel::eInfo, "No previous directory meta found for {}", dirPath.string());
+      return state;   // first run is normal
+    }
+
+    try {
+      std::ifstream file(metaPath);
+      nlohmann::json j = nlohmann::json::parse(file);
+
+      const auto& m = j.at("directory-context");
+
+      state.lastWriteTimeIso = m.value("lastWriteTime", "");
+      state.totalSizeBytes   = m.value<uintmax_t>("totalSizeBytes", 0);
+
+      debug::log(debug::LogLevel::eInfo, "Loaded directory state meta for {}", dirPath.string());
+    }
+    catch (const std::exception& e) {
+      debug::log(debug::LogLevel::eWarning,
+                 "Failed to read directory state meta {} : {}", metaPath.string(), e.what());
+    }
+
+    return state;
+  }
+
+  class ResourceManagerBase;
+  void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<std::string>& sourceExtensions,ResourceManagerBase* manager);
+  void WriteResourceContextMetaData(const ResourceContext& context);
+
+  class ResourceManagerBase {
+    public:
+    virtual ~ResourceManagerBase() = default;
+    explicit ResourceManagerBase(const gpu::vulkan::GPUResources& gpu, const std::string_view& _directory, const std::span<std::string>& extension) : directory(_directory), gpuResources(&gpu) {
+        sourceExtensions.reserve(extension.size());
+        for (const auto& ext : extension) {
+          sourceExtensions.emplace_back(ext);
+        }
+
+        EnsureDirectoryExists(directory);
+        MakeDirectoryContext(directory, directoryContext);
+        WriteDirectoryContextMetaData(directoryContext);
+
+    }
+
+    virtual void init() = 0;
+    virtual void makeResource(const ResourceContextCreateInfo& info) = 0;
+
+    protected:
+      const std::filesystem::path directory{};
+      std::vector<std::string> sourceExtensions{};
+      DirectoryContext directoryContext{};
+      const gpu::vulkan::GPUResources* gpuResources{nullptr};
+      BuiltInResources builtInResources{};
+      std::unordered_map<ResourceID, ResourceContext> container{};
+
+      [[nodiscard]] const std::filesystem::path& getDirectory() const noexcept {
+        return directory;
+      }
+
+      [[nodiscard]] bool isBuiltInResource(const ResourceID& id) const noexcept {
+        const auto it = container.find(id);
+        if (it == container.end()) {
+          return false;
+        }
+        return it->second.sourceType == SourceType::eBuiltIn;
+      }
+
+      [[nodiscard]] ResourceContext* getResourceContext(const ResourceID& id) noexcept {
+        if (!id.IsValid() || !container.contains(id)) return nullptr;
+        return &container.at(id);
+      }
+
+      [[nodiscard]] ResourceID makeResourceContext(const ResourceID& builtInId = {}) {
+        const auto& id = builtInId.IsValid()? builtInId : ResourceID(nanoid::generate(12));
+        auto [it, inserted] = container.try_emplace(id, ResourceContext{});
+        auto& slot = it->second;
+        slot.lastImportTime = std::chrono::file_clock::now();
+        return id;
+      }
+
+     [[nodiscard]] const ResourceID* bindResource(std::unique_ptr<ResourceBase>& resource, const ResourceContextCreateInfo& info) {
+        auto& ctx = *getResourceContext(resource->iD);
+        ctx.name = info.name;
+        ctx.sourceType = info.sourceType;
+        ctx.category = info.category;
+        ctx.sourcePath = info.sourcePath;
+        ctx.dataPtr = std::move(resource);
+        ctx.lastImportTime = std::chrono::file_clock::now();
+        ctx.lastWriteTime = info.lastWriteTimeFromMeta;
+        WriteResourceContextMetaData(ctx);
+        return &ctx.dataPtr->iD;
+      }
+
+      [[nodiscard]] size_t getUsage(const ResourceID& id) {
+        const auto* ctx = getResourceContext(id);
+        return ctx ? ctx->users.size() : 0;
+      }
+  };
+
+  void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<std::string>& sourceExtensions, ResourceManagerBase* manager) {
+    namespace fs = std::filesystem;
     if (!fs::is_directory(rootDirectory)) {
       debug::log(debug::LogLevel::eWarning,
                  "Root directory not found, skipping metadata load: {}",
@@ -637,42 +786,45 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       return;
     }
 
-    if (!handler) {
+    if (!manager) {
       debug::log(debug::LogLevel::eWarning, "No handler provided for ReadResourceContextMetaData");
       return;
     }
 
-    // Collect all source files matching the extensions
-    std::unordered_set<fs::path> sourcesWithoutMeta;
-
+    std::unordered_set<fs::path> sourceFilePaths;
+    std::unordered_set<fs::path> sourceMetaFilePaths;
+    const std::string meta = ".meta";
     for (const auto& entry : fs::recursive_directory_iterator(rootDirectory)) {
-      if (!entry.is_regular_file()) continue;
-
       const auto& path = entry.path();
       const std::string ext = path.extension().string();
 
-      for (const auto& allowed : sourceExtensions) {
-        if (ext == allowed ||
-            (ext.size() == allowed.size() &&
-             std::ranges::equal(ext, allowed, [](char a, char b) {
+      if (ext == meta ||(ext.size() == meta.size() &&
+             std::ranges::equal(ext, meta, [](const char a, const char b) {
                  return std::tolower(a) == std::tolower(b);
              }))) {
-          sourcesWithoutMeta.insert(path);
-          break;
-             }
+        sourceMetaFilePaths.insert(path);
+
+      }
+      else {
+        for (const auto& allowed : sourceExtensions) {
+          if (ext == allowed ||
+              (ext.size() == allowed.size() &&
+               std::ranges::equal(ext, allowed, [](const char a, const char b) {
+                   return std::tolower(a) == std::tolower(b);
+               }))) {
+            sourceFilePaths.insert(path);
+            break;
+               }
+        }
       }
     }
 
-    // Process all .ufox.meta files recursively
-    for (const auto& entry : fs::recursive_directory_iterator(rootDirectory)) {
-      if (!entry.is_regular_file() || entry.path().extension() != ".ufox.meta")
-        continue;
-
+    for (const auto& entry : sourceMetaFilePaths) {
       try {
-        std::ifstream file(entry.path());
+        std::ifstream file(entry);
         if (!file.is_open()) {
           debug::log(debug::LogLevel::eWarning,
-                     "Failed to open metadata file: {}", entry.path().string());
+                     "Failed to open metadata file: {}", entry.string());
           continue;
         }
 
@@ -681,7 +833,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
         if (!ctx.is_object()) {
           debug::log(debug::LogLevel::eWarning,
-                     "Invalid metadata format: {}", entry.path().string());
+                     "Invalid metadata format: {}", entry.string());
           continue;
         }
 
@@ -693,7 +845,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
         if (name.empty() || idStr.empty() || sourcePathStr.empty()) {
           debug::log(debug::LogLevel::eWarning,
-                     "Metadata missing required fields: {}", entry.path().string());
+                     "Metadata missing required fields: {}", entry.string());
           continue;
         }
         ResourceContextCreateInfo info{};
@@ -704,27 +856,23 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
             .setSourceType(SourceType::ePortIn)
             .setLastWriteTime(lastWriteTime);
 
-
         ResourceID resourceID{idStr};
         fs::path sourcePath = sourcePathStr;
 
-        // Trigger handler with lastWriteTime from meta file
-        handler(info, userData);
+        manager->makeResource(info);
 
-        // This source now has metadata
-        sourcesWithoutMeta.erase(sourcePath);
-
+        if (sourceFilePaths.contains(sourcePath)) {
+          sourceFilePaths.erase(sourcePath);
+        }
       }
       catch (const std::exception& e) {
-        debug::log(debug::LogLevel::eError,
-                   "Failed to load metadata {} : {}",
-                   entry.path().string(), e.what());
+        debug::log(debug::LogLevel::eError,"Failed to load metadata {} : {}",entry.string(), e.what());
       }
     }
 
-    if (sourcesWithoutMeta.empty()) return;
+    if (sourceFilePaths.empty()) return;
 
-    for (const auto& source : sourcesWithoutMeta) {
+    for (const auto& source : sourceFilePaths) {
       std::string name = source.stem().string();
       ResourceContextCreateInfo info{};
       info.setSourcePath(source)
@@ -734,8 +882,71 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
           .setSourceType(SourceType::ePortIn)
           .setLastWriteTime("");
 
-      // Call handler with empty ID and empty lastWriteTime
-      handler(info, userData);
+      manager->makeResource(info);
+    }
+  }
+
+  void WriteResourceContextMetaData(const ResourceContext& context) {
+    if (context.sourceType == SourceType::eBuiltIn) {
+      return;
+    }
+
+    if (context.name.empty() || context.sourcePath.empty()) {
+      debug::log(debug::LogLevel::eWarning,"WriteResourceContextMeta : name or sourcePath is empty");
+      return;
+    }
+
+    const std::string filename = context.name + ".ufox.meta";
+    const auto metaPath = context.sourcePath.parent_path() / filename;
+
+    // Get source file last write time as ISO 8601 string
+    std::string lastWriteTimeStr;
+    try {
+      if (std::filesystem::exists(context.sourcePath)) {
+        auto fileTime = std::filesystem::last_write_time(context.sourcePath);
+        auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(fileTime);
+        auto timeT = std::chrono::system_clock::to_time_t(sysTime);
+
+        std::tm utcTime{};
+#if defined(_WIN32)
+        gmtime_s(&utcTime, &timeT);
+#else
+        gmtime_r(&timeT, &utcTime);
+#endif
+        std::ostringstream oss;
+        oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
+        lastWriteTimeStr = oss.str();
+      }
+    }
+    catch (...) {
+      debug::log(debug::LogLevel::eWarning, "WriteResourceContextMeta : Failed to get source file last write time");
+    }
+
+    const nlohmann::json doc = {
+      { META_TAG_RESOURCE_CONTEXT, {
+                { "name",          context.name },
+                { "id",            context.dataPtr ? context.dataPtr->iD.view() : "" },
+                { "sourcePath",    context.sourcePath.string() },
+                { "category",      context.category },
+                { "lastImportTime", context.lastImportTime == std::chrono::file_clock::time_point{}
+                  ? ""
+                  : TimePointToIso8601(context.lastImportTime) },
+{ "lastWriteTime", lastWriteTimeStr }
+      }}
+    };
+
+    std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
+    if (!file.is_open()) {
+      debug::log(debug::LogLevel::eError,"WriteResourceContextMeta : Failed to open metadata file for writing: {}", metaPath.string());
+      return ;
+    }
+
+    try {
+      file << std::setw(2) << doc << std::endl;
+      file.close();
+    }
+    catch (const std::exception& e) {
+      debug::log(debug::LogLevel::eError,"WriteResourceContextMeta : Exception while writing metadata {} : {}", metaPath.string(), e.what());
     }
   }
 }

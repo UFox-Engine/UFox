@@ -12,21 +12,24 @@ import ufox_geometry_core;
 import ufox_geometry_lib;
 import ufox_lib;
 
+
+
 int main() {
   try {
     auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
-    ufox::geometry::MeshManager meshManager{window->gpuResource};
-    meshManager.Init();
+    ufox::geometry::MeshManager meshManager{window->gpuResource, ufox::geometry::MESH_RESOURCE_PATH, ufox::geometry::MESH_RESOURCE_EXTENSION};
+    meshManager.init();
 
     ufox::gui::Document doc(window.get(), &meshManager);
     ufox::engine::Camera mainCamera{};
 
 
-    window->addStartEventHandlers([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
-    window->addResizeEventHandlers([](const float& w, const float& h, void* user) {
+    window->registerStartEventHandlers([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
+    window->registerResizeEventHandlers([](const float& w, const float& h, void* user) {
       auto* camera = static_cast<ufox::engine::Camera*>(user);
       ufox::engine::CalculateAspectRatio(w,h, camera->aspectRatio);
     }, &mainCamera);
+
 
 
     window->run();

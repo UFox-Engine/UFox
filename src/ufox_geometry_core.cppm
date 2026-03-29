@@ -41,95 +41,47 @@ export namespace ufox::geometry {
 
     using DefaultMeshesResources = std::unordered_map<std::string, const ResourceID*>;
 
-    DefaultMeshesResources CreateDefaultMeshResources(MeshManager &manager) {
+    BuiltInResources MakeBuiltInMeshResources(MeshManager &manager) {
         return {{"quad", CreateQuad(manager)},
                 {"cube", CreateCube(manager)}};
     }
 
     [[nodiscard]] const ResourceID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
 
-    class MeshManager final {
+    class MeshManager final : ResourceManagerBase{
     public:
-        static constexpr std::string_view kDefaultMeshName{"unnamed_mesh"};
-        static constexpr std::string_view kDefaultCategory{"Miscellaneous"};
+        MeshManager(const gpu::vulkan::GPUResources& gpu, const std::string_view& directory, const std::span<std::string>& extension) :
+        ResourceManagerBase(gpu, directory, extension) {}
 
-        explicit MeshManager(const gpu::vulkan::GPUResources& gpu) noexcept : gpuResources(&gpu) {}
-
-        MeshManager(const MeshManager&) = delete;
-        MeshManager& operator=(const MeshManager&) = delete;
-
-        ~MeshManager() {
+        ~MeshManager() override {
             clearAllGpuResources();
         }
 
-        void Init() {
-            try {
-                if (!std::filesystem::exists(meshDirectory)) {
-                    std::filesystem::create_directories(meshDirectory);
-                    // Optional: very useful during development
-                    debug::log(debug::LogLevel::eInfo, "Created mesh directory: {}", meshDirectory.string());
-                }
-                else if (!std::filesystem::is_directory(meshDirectory)) {
-                    throw std::runtime_error(std::format(
-                        "Path {} exists but is not a directory!", meshDirectory.string()));
-                }
-            }
-            catch (const std::filesystem::filesystem_error& e) {
-                std::cerr << std::format("Filesystem error creating meshes folder: {}\n", e.what());
-            }
-            catch (const std::exception& e) {
-                std::cerr << std::format("Error creating meshes folder: {}\n", e.what());
-            }
-
-            primitiveMeshes = CreateDefaultMeshResources(*this);
-
-            LoadMetaData();
-        }
-
-        void LoadMetaData() {
-            std::string extensions[] = {".glb", ".obj"};
-            ReadResourceContextMetaData(meshDirectory,extensions, resourceContextCreateHandler,this);
-        }
-
-        static void createResourceEvent(const ResourceContextCreateInfo& info,void* userData) {
+        void makeResource(const ResourceContextCreateInfo &info) override {
             std::vector<Vertex> vertices;
             std::vector<uint16_t> indices;
 
             if (LoadMeshFromFile(info.sourcePath, vertices, indices)) {
-                const auto manager = static_cast<MeshManager*>(userData);
-                CreateMeshContent(*manager, vertices, indices, info);
+                CreateMeshContent(*this, vertices, indices, info);
             }
         }
 
-        [[nodiscard]] const std::filesystem::path& getMeshDirectory() const noexcept {
-            return meshDirectory;
+        void init() override {
+            ReadResourceContextMetaData(directory, {sourceExtensions}, this);
+            builtInResources = MakeBuiltInMeshResources(*this);
+            debug::log(debug::LogLevel::eInfo, "MeshManager: init: success");
         }
 
-        [[nodiscard]] bool isBuiltInMesh(const ResourceID& id) const noexcept {
-            const auto it = ctxMap.find(id);
-            if (it == ctxMap.end()) {
-                return false;
-            }
-            return it->second.sourceType == SourceType::eBuiltIn;
-        }
-
-        const ResourceID* createMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
-            const ResourceID& id = acquireContext(info.id);
-            auto& ctx = ctxMap[id];
-            ctx.name = info.name;
-            ctx.sourceType = info.sourceType;
-            ctx.category = info.category;
-            ctx.sourcePath = info.sourcePath;
-            ctx.dataPtr = std::make_unique<Mesh>(info.name, vertices, indices, id);
-            ctx.lastImportTime = std::chrono::file_clock::now();
-            ctx.lastWriteTime = info.lastWriteTimeFromMeta;
-            WriteResourceContextMetaData(ctx);
-            return &ctx.dataPtr->iD;
+        const ResourceID* makeMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
+            const ResourceID& id = makeResourceContext(info.id);
+            std::unique_ptr<ResourceBase> res = std::make_unique<Mesh>(info.name, vertices, indices, id);
+            debug::log(debug::LogLevel::eInfo, "MeshManager: makeMesh: created mesh: {}", res->name);
+            return bindResource(res, info);
         }
 
         void destroy(const ResourceID& id) {
 
-            if (isBuiltInMesh(id)) {
+            if (isBuiltInResource(id)) {
                 debug::log(debug::LogLevel::eWarning, "MeshManager: destroy: built-in mesh cannot be destroyed");
                 return;
             }
@@ -137,22 +89,17 @@ export namespace ufox::geometry {
             releaseResource(id);
         }
 
-        [[nodiscard]] Mesh* get(const ResourceID& id) {
-            const auto* ctx = tryGetContext(id);
+        [[nodiscard]] Mesh* getMesh(const ResourceID& id) {
+            const auto* ctx = getResourceContext(id);
             if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
 
             auto* mesh = dynamic_cast<Mesh*>(ctx->dataPtr.get());
             return mesh;
         }
 
-        [[nodiscard]] size_t getUsage(const ResourceID& id) {
-            const auto* ctx = tryGetContext(id);
-            return ctx ? ctx->users.size() : 0;
-        }
-
         void useMesh(MeshUser& user) {
             if (user.id == nullptr) return;
-            auto* ctx = tryGetContext(*user.id);
+            auto* ctx = getResourceContext(*user.id);
             if (ctx == nullptr || ctx->dataPtr == nullptr) return;
 
             auto* mesh = ctx->dataPtr->getContent<Mesh>();
@@ -171,7 +118,7 @@ export namespace ufox::geometry {
             if (user.id == nullptr) return;
             user.mesh = nullptr;
 
-            auto* ctx = tryGetContext(*user.id);
+            auto* ctx = getResourceContext(*user.id);
             if (ctx == nullptr) return;
 
 
@@ -190,7 +137,7 @@ export namespace ufox::geometry {
         void clearAllGpuResources() const {
             size_t clearedCount = 0;
 
-            for (const auto &ctx : ctxMap | std::views::values) {
+            for (const auto &ctx : container | std::views::values) {
                 if (!ctx.dataPtr || !ctx.dataPtr->hasBuffer()) continue;
 
                 ctx.dataPtr->releaseGpuResources();
@@ -208,8 +155,6 @@ export namespace ufox::geometry {
             }
         }
 
-        const std::filesystem::path& getMeshDirectory() noexcept{ return meshDirectory;}
-
     private:
         static void createVertexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
             gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.vertices, vk::BufferUsageFlagBits::eVertexBuffer, mesh.vertexBuffer);
@@ -226,23 +171,9 @@ export namespace ufox::geometry {
             createIndexBuffer(*gpuResources, *mesh);
         }
 
-        [[nodiscard]] ResourceContext* tryGetContext(const ResourceID& id) noexcept {
-            if (!id.IsValid() || !ctxMap.contains(id)) {
-                return nullptr;
-            }
-            return &ctxMap.at(id);
-        }
-
-        ResourceID acquireContext(const ResourceID& builtInId = {}) {
-            const auto& id = builtInId.IsValid()? builtInId : ResourceID(nanoid::generate(12));
-            auto [it, inserted] = ctxMap.try_emplace(id, ResourceContext{});
-            auto& slot = it->second;
-            slot.lastImportTime = std::chrono::file_clock::now();
-            return id;
-        }
 
         void releaseResource(const ResourceID& id) {
-            auto* ctx = tryGetContext(id);
+            auto* ctx = getResourceContext(id);
             if (!ctx || !ctx->dataPtr) return;
 
             // notify & clear users
@@ -258,18 +189,13 @@ export namespace ufox::geometry {
                 ctx->dataPtr.reset();
             }
 
-            ctxMap.erase(id);
+            container.erase(id);
         }
 
-        const gpu::vulkan::GPUResources* gpuResources{nullptr};
-        std::unordered_map<ResourceID, ResourceContext> ctxMap{};
-        const std::filesystem::path meshDirectory = MESH_RESOURCE_PATH;
-        DefaultMeshesResources primitiveMeshes{};
-        const ResourceContextCreateEventHandler resourceContextCreateHandler{createResourceEvent};
     };
 
     const ResourceID* CreateMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
-        const ResourceID* id = manager.createMesh(vertices, indices, info);
+        const ResourceID* id = manager.makeMesh(vertices, indices, info);
         return id;
     }
 
@@ -299,8 +225,6 @@ export namespace ufox::geometry {
             debug::log(debug::LogLevel::eError, "Failed to load glTF file: {}", MODEL_PATH.data() );
             return;
         }
-
-        debug::log(debug::LogLevel::eInfo, "Loaded glTF file ({} bytes): {}", glbBytes.size(), MODEL_PATH.data());
 
         std::span<const std::byte> glbData = glbBytes;
 
@@ -410,11 +334,9 @@ export namespace ufox::geometry {
             }
 
             positionAccessorIndex = attributes["POSITION"].get<uint32_t>();
-            debug::log(debug::LogLevel::eInfo, "POSITION accessor index = {}", positionAccessorIndex);
 
             if (firstPrim.contains("indices")){
                 optIndicesAccessor = firstPrim["indices"].get<uint32_t>();
-                debug::log(debug::LogLevel::eInfo, "Indices accessor index = {}", *optIndicesAccessor);
             }
         }
         catch (const std::exception& e){
@@ -494,8 +416,6 @@ export namespace ufox::geometry {
             vertices.push_back(v);
         }
 
-        debug::log(debug::LogLevel::eInfo, "Successfully loaded {} real vertex positions", count);
-
         // ────────────────────────────────────────────────────────────────
         // Step 8: Load indices (if present)
         // ────────────────────────────────────────────────────────────────
@@ -533,20 +453,15 @@ export namespace ufox::geometry {
                         size_t finalIdxStart = viewOffset + idxByteOffset;
                         size_t finalIdxSize  = idxCount * sizeof(uint16_t);
 
-                        if (finalIdxStart + finalIdxSize > binary.size())
-                        {
+                        if (finalIdxStart + finalIdxSize > binary.size()){
                             debug::log(debug::LogLevel::eError, "Indices data out of bounds");
                         }
-                        else
-                        {
+                        else{
                             indices.resize(idxCount);
                             const auto* srcIdx = reinterpret_cast<const uint16_t*>(
                                 binary.data() + finalIdxStart);
 
-                            std::copy(srcIdx, srcIdx + idxCount, indices.begin());
-
-                            debug::log(debug::LogLevel::eInfo,
-                                       "Loaded {} real indices (uint16)", idxCount);
+                            std::copy_n(srcIdx, idxCount, indices.begin());
                         }
                     }
                 }
@@ -554,6 +469,8 @@ export namespace ufox::geometry {
         }else{
             debug::log(debug::LogLevel::eInfo, "No indices found — mesh will be rendered without indexing");
         }
+
+        debug::log(debug::LogLevel::eInfo, "Loaded glTF ({}) : success", MODEL_PATH.data() );
     }
 
     void LoadOBJ(std::string_view MODEL_PATH, std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {

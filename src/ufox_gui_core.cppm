@@ -376,22 +376,22 @@ export namespace ufox::gui {
     public:
         explicit Document(engine::UFoxWindow* window_ = nullptr, MeshManager* meshManager_ = nullptr) : window(window_) , meshManager(meshManager_) {
             if (window_ != nullptr) {
-                window->addSystemInitEventHandlers([](void* user) { static_cast<Document*>(user)->init();}, this);
-                window->addResourceInitEventHandlers([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->initResource(w,h);}, this);
-                window->addResizeEventHandlers([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->updateViewportSize(w,h);}, this);
-                window->addUpdateBufferEventHandlers([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
-                window->addDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex,
+                window->registerSystemInitEventHandlers([](void* user) { static_cast<Document*>(user)->init();}, this);
+                window->registerResourceInitEventHandlers([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->initResource(w,h);}, this);
+                window->registerResizeEventHandlers([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->updateViewportSize(w,h);}, this);
+                window->registerUpdateBufferEventHandlers([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
+                window->registerDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex,
                         const windowing::WindowResource& winResource, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource);}, this);
             }
         }
 
         ~Document() {
             if (window != nullptr) {
-                window->removeSystemInitEventHandlers(this);
-                window->removeResourceInitEventHandlers(this);
-                window->removeOnResizeEventHandlers(this);
-                window->removeUpdateBufferEventHandlers(this);
-                window->removeDrawCanvasEventHandlers(this);
+                window->unregisterSystemInitEventHandlers(this);
+                window->unregisterResourceInitEventHandlers(this);
+                window->unregisterResizeEventHandlers(this);
+                window->unregisterUpdateBufferEventHandlers(this);
+                window->unregisterDrawCanvasEventHandlers(this);
                 window = nullptr;
             }
 
@@ -431,9 +431,6 @@ export namespace ufox::gui {
             rootPanel.rootElement->link(*v2.get());
             rootPanel.rootElement->link(*v3.get());
 
-            debug::log(debug::LogLevel::eInfo, "elements count: {}", rootPanel.rootElement->rect->branchCount);
-
-
             debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
         }
 
@@ -455,7 +452,7 @@ export namespace ufox::gui {
             MakePipelineLayout(gpu, renderResource);
             MakePipeline(gpu, *window->windowResource->swapchainResource, shaderCode, renderResource);
 
-            textureImage = render::CreateTexture(window->gpuResource, "res/textures/652234-statue-1275469_1280.jpg");
+            textureImage = render::CreateTexture(window->gpuResource, "res/textures/grok-image-b9472c20-0cfc-4f3d-b558-d5c3066aa081.jpg");
             render::CreateTextureImageView(gpu,*textureImage);
             render::createTextureSampler(gpu, *textureImage);
 
