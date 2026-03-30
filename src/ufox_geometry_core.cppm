@@ -128,7 +128,7 @@ export namespace ufox::geometry {
 
             if (!ctx->users.empty() || ctx->dataPtr == nullptr) return;
 
-            if (ctx->dataPtr->hasBuffer()) {
+            if (ctx->dataPtr->hasGpuResources()) {
                 ctx->dataPtr->releaseGpuResources();
                 debug::log(debug::LogLevel::eInfo, "MeshManager: unuseMesh [{}]: mesh released buffers", ctx->dataPtr->name);
             }
@@ -138,7 +138,7 @@ export namespace ufox::geometry {
             size_t clearedCount = 0;
 
             for (const auto &ctx : container | std::views::values) {
-                if (!ctx.dataPtr || !ctx.dataPtr->hasBuffer()) continue;
+                if (!ctx.dataPtr || !ctx.dataPtr->hasGpuResources()) continue;
 
                 ctx.dataPtr->releaseGpuResources();
                 ++clearedCount;
@@ -166,7 +166,7 @@ export namespace ufox::geometry {
 
         void ensureMeshBuffers(Mesh* mesh) const {
             if (!mesh) return;
-            if (mesh->hasBuffer()) return;
+            if (mesh->hasGpuResources()) return;
             createVertexBuffer(*gpuResources, *mesh);
             createIndexBuffer(*gpuResources, *mesh);
         }

@@ -97,7 +97,7 @@ export namespace ufox::engine {
     explicit ResourceBase(const std::string_view name_view,ResourceID cid_)
         : name(name_view), iD(std::move(cid_)){}
 
-    [[nodiscard]] virtual bool hasBuffer() const noexcept=0;
+    [[nodiscard]] virtual bool hasGpuResources() const noexcept=0;
 
     virtual void releaseGpuResources() noexcept =0;
 

@@ -17,7 +17,10 @@ export namespace ufox::geometry {
 /**
  *Path: "res/meshes"
  */
-constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
+    constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
+    inline std::string MESH_RESOURCE_EXTENSION[] = {
+        ".glb",".obj"
+    };
 
     struct Vertex
     {
@@ -97,9 +100,7 @@ constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
         1, 2, 6,    6, 5, 1       // right
     };
 
-    std::string MESH_RESOURCE_EXTENSION[] = {
-        ".glb",".obj"
-    };
+
 
     constexpr auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";
 
@@ -122,7 +123,7 @@ constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
         }
 
         [[nodiscard]] bool hasValidGeometry() const noexcept { return !vertices.empty(); }
-        [[nodiscard]] bool hasBuffer() const noexcept override { return vertexBuffer.has_value() && indexBuffer.has_value(); }
+        [[nodiscard]] bool hasGpuResources() const noexcept override { return vertexBuffer.has_value() && indexBuffer.has_value(); }
         [[nodiscard]] uint32_t vertexCount() const noexcept { return static_cast<uint32_t>(vertices.size()); }
         [[nodiscard]] uint32_t indexCount() const noexcept { return static_cast<uint32_t>(indices.size()); }
 

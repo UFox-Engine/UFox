@@ -3,15 +3,20 @@
 //
 module;
 
-#include <memory>
-#include <vulkan/vulkan_raii.hpp>
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_surface.h>
 #include <SDL3_image/SDL_image.h>
+#include <memory>
+#include <ranges>
+#include <unordered_map>
+#include <vulkan/vulkan_raii.hpp>
 
 export module ufox_render_core;
 
 import ufox_lib;
+import ufox_engine_lib;
+import ufox_engine_core;
+import ufox_nanoid;
 import ufox_graphic_device;
 import ufox_render_lib;
 
@@ -119,7 +124,7 @@ export namespace ufox::render {
             .setNewLayout( newImageLayout )
             .setSrcQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
             .setDstQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
-            .setImage( *texture.data )
+            .setImage( *texture.image )
             .setSubresourceRange( imageSubresourceRange );
 
         return commandBuffer.pipelineBarrier( sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier );
@@ -137,7 +142,7 @@ export namespace ufox::render {
               .setBufferRowLength(bufferRowLength)
               .setBufferImageHeight(bufferImageHeight);
 
-        cmb.copyBufferToImage(*buffer.data, *texture.data, vk::ImageLayout::eTransferDstOptimal, { region });
+        cmb.copyBufferToImage(*buffer.data, *texture.image, vk::ImageLayout::eTransferDstOptimal, { region });
     }
 
 
@@ -154,10 +159,10 @@ export namespace ufox::render {
             .setUsage(usage)
             .setSharingMode(shareMode);
 
-        texture.data.emplace(gpu.device.value(), imageInfo);
+        texture.image.emplace(gpu.device.value(), imageInfo);
 
 
-        vk::MemoryRequirements memoryRequirements = texture.data->getMemoryRequirements();
+        vk::MemoryRequirements memoryRequirements = texture.image->getMemoryRequirements();
 
         vk::MemoryAllocateInfo allocInfo{};
 
@@ -169,14 +174,14 @@ export namespace ufox::render {
 
         texture.memory.emplace(gpu.device.value(), allocInfo);
 
-        texture.data->bindMemory(*texture.memory, 0);
+        texture.image->bindMemory(*texture.memory, 0);
     }
 
     void CreateTextureImageView(gpu::vulkan::GPUResources const & gpu, Texture2D & texture) {
         vk::ImageViewCreateInfo viewInfo{};
         viewInfo
-            .setImage(*texture.data)
-            .setViewType(texture.viewType)
+            .setImage(*texture.image)
+            .setViewType(vk::ImageViewType::e2D)
             .setFormat(texture.format)
             .setSubresourceRange(texture.subresourceRange);
         texture.view.emplace(gpu.device.value(), viewInfo);
@@ -224,11 +229,14 @@ export namespace ufox::render {
             return nullptr;
         }
 
-        Texture2D texture{};
+        const std::string name = filename.substr(0, filename.find_last_of('.'));
+        const engine::ResourceID id {nanoid::generate(12)};
+
+        auto texture  = std::make_unique<Texture2D>(name, id);
 
         vk::Extent2D extent{static_cast<uint32_t>(convSurface->w), static_cast<uint32_t>(convSurface->h)};
-        texture.format = vk::Format::eR8G8B8A8Unorm;
-        texture.extent = extent;
+        texture->format = vk::Format::eR8G8B8A8Unorm;
+        texture->extent = extent;
         vk::DeviceSize imageSize = extent.width * extent.height * 4;
 
         //Create a staging buffer
@@ -238,15 +246,33 @@ export namespace ufox::render {
         gpu::vulkan::CopyToDevice(*stagingBuffer.memory, convSurface->pixels, imageSize);
 
         //Create the texture image
-        CreateImage(gpu, texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal);
+        CreateImage(gpu, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal);
 
-        // Copy data from staging buffer to texture image
+        // Copy data from a staging buffer to a texture image
         auto cmb = gpu::vulkan::BeginSingleTimeCommands(gpu);
-        SetImageLayout(cmb, texture, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-        CopyBufferToImage(cmb,stagingBuffer, texture, {extent.width, extent.height, 1});
-        SetImageLayout(cmb, texture, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+        SetImageLayout(cmb, *texture, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+        CopyBufferToImage(cmb,stagingBuffer, *texture, {extent.width, extent.height, 1});
+        SetImageLayout(cmb, *texture, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
         gpu::vulkan::EndSingleTimeCommands(gpu, cmb);
 
-        return std::make_unique<Texture2D>(std::move(texture));
+        return std::move(texture);
     }
+
+class TextureManager final : public engine::ResourceManagerBase {
+    public:
+        TextureManager(const gpu::vulkan::GPUResources& gpu,
+                       const std::string_view directory,
+                       const std::span<std::string> extensions)
+            : ResourceManagerBase(gpu, directory, extensions) {}
+
+        ~TextureManager() override {
+            clearAllGpuResources();
+        }
+        void init() override;
+        void makeResource(const engine::ResourceContextCreateInfo &info) override;
+
+        void clearAllGpuResources() const {
+
+        }
+};
 }

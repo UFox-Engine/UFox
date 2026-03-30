@@ -198,10 +198,6 @@ export namespace ufox::gui {
         std::vector<gpu::vulkan::Buffer>      rectSSBO{};
         std::vector<void*>                    rectSSBOMemory{};
         std::vector<glm::mat4>                rectSSBOData{};
-
-        private:
-
-
     };
 
 
@@ -452,7 +448,7 @@ export namespace ufox::gui {
             MakePipelineLayout(gpu, renderResource);
             MakePipeline(gpu, *window->windowResource->swapchainResource, shaderCode, renderResource);
 
-            textureImage = render::CreateTexture(window->gpuResource, "res/textures/grok-image-b9472c20-0cfc-4f3d-b558-d5c3066aa081.jpg");
+            textureImage = render::CreateTexture(window->gpuResource, "res/textures/rgb.png");
             render::CreateTextureImageView(gpu,*textureImage);
             render::createTextureSampler(gpu, *textureImage);
 
