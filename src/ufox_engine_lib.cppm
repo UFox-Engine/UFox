@@ -120,8 +120,8 @@ export namespace ufox::engine {
 
   struct ResourceContext {
     std::string                                 name{"empty"};
-    SourceType                           sourceType;
-    std::string                                 category;
+    SourceType                                  sourceType{SourceType::eBuiltIn};
+    std::string                                 category{"none"};
     std::unique_ptr<ResourceBase>               dataPtr{nullptr};
     std::vector<ResourceUserBase*>              users{};
     std::filesystem::path                       sourcePath{};

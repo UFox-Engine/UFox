@@ -8,9 +8,8 @@ module;
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
 #include <iostream>
-#include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_surface.h>
-#include <SDL3_image/SDL_image.h>
+
 
 
 export module ufox_gui_core;
@@ -29,6 +28,7 @@ import ufox_render_core;
 
 
 using namespace ufox::geometry;
+using namespace ufox::render;
 
 export namespace ufox::gui {
 
@@ -368,10 +368,12 @@ export namespace ufox::gui {
         }
     }
 
+constexpr engine::ResourceID TESTER_TEXTURE_ID{"Uk73q0bgEwer"};
+
     class  Document {
     public:
-        explicit Document(engine::UFoxWindow* window_ = nullptr, MeshManager* meshManager_ = nullptr) : window(window_) , meshManager(meshManager_) {
-            if (window_ != nullptr) {
+        explicit Document(engine::UFoxWindow* _window = nullptr, MeshManager* _meshManager = nullptr, TextureManager* _textureManager = nullptr) : window(_window) , meshManager(_meshManager), textureManager(_textureManager) {
+            if (_window != nullptr) {
                 window->registerSystemInitEventHandlers([](void* user) { static_cast<Document*>(user)->init();}, this);
                 window->registerResourceInitEventHandlers([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->initResource(w,h);}, this);
                 window->registerResizeEventHandlers([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->updateViewportSize(w,h);}, this);
@@ -430,6 +432,8 @@ export namespace ufox::gui {
             debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
         }
 
+
+
         void initResource(const float& width, const float& height) {
             if (meshManager != nullptr){
                 engine::ResourceContextCreateInfo info{};
@@ -440,6 +444,12 @@ export namespace ufox::gui {
                 if (meshUser.id != nullptr) meshManager->useMesh(meshUser);
             }
 
+            if (textureManager != nullptr) {
+                textureImage.setNewTarget(&TESTER_TEXTURE_ID, nullptr);
+                debug::log(debug::LogLevel::eInfo, "GUI Document set texture target ({})", textureImage.id->view());
+                if (textureImage.id != nullptr) textureManager->useTexture(textureImage);
+            }
+
             const gpu::vulkan::GPUResources& gpu = window->gpuResource;
             rootPanel.makeSSBO(gpu, window->getImageCount());
             MakeUniformResource(gpu);
@@ -448,12 +458,8 @@ export namespace ufox::gui {
             MakePipelineLayout(gpu, renderResource);
             MakePipeline(gpu, *window->windowResource->swapchainResource, shaderCode, renderResource);
 
-            textureImage = render::CreateTexture(window->gpuResource, "res/textures/rgb.png");
-            render::CreateTextureImageView(gpu,*textureImage);
-            render::createTextureSampler(gpu, *textureImage);
-
             MakeDescriptorPool(gpu, *window->windowResource->swapchainResource, renderResource);
-            MakeDescriptorSets(*window, window->getImageCount(), rootPanel, renderResource, *textureImage);
+            MakeDescriptorSets(*window, window->getImageCount(), rootPanel, renderResource, *textureImage.texture);
 
             updateViewportSize(width, height);
 
@@ -468,10 +474,13 @@ export namespace ufox::gui {
     private:
         engine::UFoxWindow* window = nullptr;
         MeshManager* meshManager = nullptr;
+        TextureManager* textureManager = nullptr;
+
         MeshUser meshUser{nullptr,nullptr};
+        TextureUser textureImage{nullptr,nullptr};
 
         RenderResource renderResource{};
-        std::unique_ptr<render::Texture2D> textureImage{};
+
 
         void MakeUniformResource(const gpu::vulkan::GPUResources& gpu) {
             const uint32_t imageCount = window->getImageCount();

@@ -18,8 +18,8 @@ export namespace ufox::geometry {
  *Path: "res/meshes"
  */
     constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
-    inline std::string MESH_RESOURCE_EXTENSION[] = {
-        ".glb",".obj"
+    constexpr std::array<std::string_view, 2> MESH_RESOURCE_EXTENSION = {
+        ".glb", ".obj"
     };
 
     struct Vertex
@@ -104,11 +104,11 @@ export namespace ufox::geometry {
 
     constexpr auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";
 
-    constexpr auto QUAD = "Quad";
-    constexpr auto CUBE = "Cube";
+    constexpr auto QUAD = "quad";
+    constexpr auto CUBE = "cube";
 
-    constexpr engine::ResourceID BUILTIN_QUAD_ID  {"quad"};
-    constexpr engine::ResourceID BUILTIN_CUBE_ID  {"cube"};
+    constexpr engine::ResourceID BUILTIN_QUAD_ID  {QUAD};
+    constexpr engine::ResourceID BUILTIN_CUBE_ID  {CUBE};
 
     struct Mesh final : engine::ResourceBase {
         std::vector<Vertex>                     vertices{};

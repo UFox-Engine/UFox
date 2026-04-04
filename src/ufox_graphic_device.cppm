@@ -617,46 +617,6 @@ export namespace ufox::gpu::vulkan {
         return { device, pipelineCache, graphicsPipelineCreateInfo };
     }
 
-    void TransitionImageLayout(const vk::raii::CommandBuffer& cmb, const vk::Image& image,
-        const vk::PipelineStageFlags2& srcStageMask, const vk::PipelineStageFlags2& dstStageMask,
-        const vk::AccessFlags2& srcAccessMask, const vk::AccessFlags2& dstAccessMask,
-        const vk::ImageLayout& oldLayout, const vk::ImageLayout& newLayout, const vk::ImageSubresourceRange &range) {
-
-        vk::ImageMemoryBarrier2 barrier {};
-        barrier.setSrcStageMask(srcStageMask)
-               .setDstStageMask(dstStageMask)
-               .setSrcAccessMask(srcAccessMask)
-               .setDstAccessMask(dstAccessMask)
-               .setOldLayout(oldLayout)
-               .setNewLayout(newLayout)
-               .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-               .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-               .setImage(image)
-               .setSubresourceRange(range);
-
-
-        vk::DependencyInfo dependencyInfo {};
-        dependencyInfo.setDependencyFlags({})
-                      .setImageMemoryBarrierCount(1)
-                      .setPImageMemoryBarriers(&barrier);
-
-
-        cmb.pipelineBarrier2(dependencyInfo);
-    }
-
-    void TransitionImageLayout(const vk::raii::CommandBuffer& cmb, const vk::Image& image,
-        vk::ImageLayout oldLayout, vk::ImageLayout newLayout, const vk::ImageSubresourceRange &range) {
-
-        vk::PipelineStageFlags2 srcStageMask  = GetPipelineStageFlags2(oldLayout);
-        vk::PipelineStageFlags2 dstStageMask  = GetPipelineStageFlags2(newLayout);
-        vk::AccessFlags2        srcAccessMask = GetAccessFlags2(oldLayout);
-        vk::AccessFlags2        dstAccessMask = GetAccessFlags2(newLayout);
-
-        TransitionImageLayout(cmb, image, srcStageMask, dstStageMask, srcAccessMask, dstAccessMask, oldLayout, newLayout, range);
-    }
-
-
-
     vk::raii::CommandBuffer BeginSingleTimeCommands(const GPUResources& gpu) {
         vk::CommandBufferAllocateInfo allocInfo{};
         allocInfo.setLevel(vk::CommandBufferLevel::ePrimary)
@@ -808,92 +768,6 @@ export namespace ufox::gpu::vulkan {
         MakeAndCopyBuffer(gpu, std::span<const T>{&source, 1}, finalUsage, destinationBuffer);
     }
 
-    void SetImageLayout(vk::raii::CommandBuffer const & commandBuffer, const TextureImage& image, const vk::Format& format, vk::ImageLayout oldImageLayout, vk::ImageLayout newImageLayout )
-      {
-        vk::AccessFlags sourceAccessMask;
-        switch ( oldImageLayout )
-        {
-          case vk::ImageLayout::eTransferDstOptimal: sourceAccessMask = vk::AccessFlagBits::eTransferWrite; break;
-          case vk::ImageLayout::ePreinitialized    : sourceAccessMask = vk::AccessFlagBits::eHostWrite; break;
-          case vk::ImageLayout::eGeneral           :  // sourceAccessMask is empty
-          case vk::ImageLayout::eUndefined         : break;
-          default                                  : assert( false ); break;
-        }
-
-        vk::PipelineStageFlags sourceStage;
-        switch ( oldImageLayout )
-        {
-          case vk::ImageLayout::eGeneral:
-          case vk::ImageLayout::ePreinitialized    : sourceStage = vk::PipelineStageFlagBits::eHost; break;
-          case vk::ImageLayout::eTransferDstOptimal: sourceStage = vk::PipelineStageFlagBits::eTransfer; break;
-          case vk::ImageLayout::eUndefined         : sourceStage = vk::PipelineStageFlagBits::eTopOfPipe; break;
-          default                                  : assert( false ); break;
-        }
-
-        vk::AccessFlags destinationAccessMask;
-        switch ( newImageLayout )
-        {
-          case vk::ImageLayout::eColorAttachmentOptimal: destinationAccessMask = vk::AccessFlagBits::eColorAttachmentWrite; break;
-          case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            destinationAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentRead | vk::AccessFlagBits::eDepthStencilAttachmentWrite;
-            break;
-          case vk::ImageLayout::eGeneral:  // empty destinationAccessMask
-          case vk::ImageLayout::ePresentSrcKHR        : break;
-          case vk::ImageLayout::eShaderReadOnlyOptimal: destinationAccessMask = vk::AccessFlagBits::eShaderRead; break;
-          case vk::ImageLayout::eTransferSrcOptimal   : destinationAccessMask = vk::AccessFlagBits::eTransferRead; break;
-          case vk::ImageLayout::eTransferDstOptimal   : destinationAccessMask = vk::AccessFlagBits::eTransferWrite; break;
-          default                                     : assert( false ); break;
-        }
-
-        vk::PipelineStageFlags destinationStage;
-        switch ( newImageLayout )
-        {
-          case vk::ImageLayout::eColorAttachmentOptimal       : destinationStage = vk::PipelineStageFlagBits::eColorAttachmentOutput; break;
-          case vk::ImageLayout::eDepthStencilAttachmentOptimal: destinationStage = vk::PipelineStageFlagBits::eEarlyFragmentTests; break;
-          case vk::ImageLayout::eGeneral                      : destinationStage = vk::PipelineStageFlagBits::eHost; break;
-          case vk::ImageLayout::ePresentSrcKHR                : destinationStage = vk::PipelineStageFlagBits::eBottomOfPipe; break;
-          case vk::ImageLayout::eShaderReadOnlyOptimal        : destinationStage = vk::PipelineStageFlagBits::eFragmentShader; break;
-          case vk::ImageLayout::eTransferDstOptimal           :
-          case vk::ImageLayout::eTransferSrcOptimal           : destinationStage = vk::PipelineStageFlagBits::eTransfer; break;
-          default                                             : assert( false ); break;
-        }
-
-        vk::ImageAspectFlags aspectMask;
-        if ( newImageLayout == vk::ImageLayout::eDepthStencilAttachmentOptimal )
-        {
-          aspectMask = vk::ImageAspectFlagBits::eDepth;
-          if ( format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint )
-          {
-            aspectMask |= vk::ImageAspectFlagBits::eStencil;
-          }
-        }
-        else
-        {
-          aspectMask = vk::ImageAspectFlagBits::eColor;
-        }
-
-        vk::ImageSubresourceRange   imageSubresourceRange{};
-                                    imageSubresourceRange
-                                        .setAspectMask(aspectMask)
-                                        .setBaseMipLevel(0)
-                                        .setLevelCount(1)
-                                        .setBaseArrayLayer(0)
-                                        .setLayerCount(1);
-
-        vk::ImageMemoryBarrier      imageMemoryBarrier{};
-                                    imageMemoryBarrier
-                                        .setSrcAccessMask( sourceAccessMask )
-                                        .setDstAccessMask( destinationAccessMask )
-                                        .setOldLayout( oldImageLayout )
-                                        .setNewLayout( newImageLayout )
-                                        .setSrcQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
-                                        .setDstQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
-                                        .setImage( *image.data )
-                                        .setSubresourceRange( imageSubresourceRange );
-
-        return commandBuffer.pipelineBarrier( sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier );
-      }
-
     GraphicDeviceCreateInfo CreateGraphicDeviceInfo() {
         GraphicDeviceCreateInfo createInfo{};
         createInfo.appInfo.pApplicationName = "UFox";
@@ -929,4 +803,41 @@ export namespace ufox::gpu::vulkan {
 
     inline auto COLOR_IMAGE_USAGE_FLAG = vk::ImageUsageFlags{ vk::ImageUsageFlagBits::eColorAttachment };
     inline auto SIGNALED_FENCE_CREATE_FLAG = vk::FenceCreateFlags{vk::FenceCreateFlagBits::eSignaled};
+
+    void TransitionImageLayout(vk::raii::CommandBuffer const & commandBuffer, const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& range, const vk::ImageLayout oldImageLayout, const vk::ImageLayout newImageLayout ) {
+        const vk::AccessFlags2 sourceAccessMask = GetAccessFlags2(oldImageLayout);
+        const vk::PipelineStageFlags2 sourceStage = GetPipelineStageFlags2(oldImageLayout);
+        const vk::AccessFlags2 destinationAccessMask = GetAccessFlags2(newImageLayout);
+        const vk::PipelineStageFlags2 destinationStage = GetPipelineStageFlags2(newImageLayout);
+
+        vk::ImageAspectFlags aspectMask;
+        if ( newImageLayout == vk::ImageLayout::eDepthStencilAttachmentOptimal ){
+            aspectMask = vk::ImageAspectFlagBits::eDepth;
+            if ( format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint ){
+                aspectMask |= vk::ImageAspectFlagBits::eStencil;
+            }
+        }
+        else{
+            aspectMask = vk::ImageAspectFlagBits::eColor;
+        }
+
+        vk::ImageMemoryBarrier2  imageMemoryBarrier{};
+        imageMemoryBarrier
+            .setSrcStageMask( sourceStage )
+            .setDstStageMask( destinationStage )
+            .setSrcAccessMask( sourceAccessMask )
+            .setDstAccessMask( destinationAccessMask )
+            .setOldLayout( oldImageLayout )
+            .setNewLayout( newImageLayout )
+            .setSrcQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
+            .setDstQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
+            .setImage( image )
+            .setSubresourceRange( range );
+
+        vk::DependencyInfo dependencyInfo{};
+        dependencyInfo.setImageMemoryBarrierCount(1)
+        .setPImageMemoryBarriers(&imageMemoryBarrier);
+
+        return commandBuffer.pipelineBarrier2(dependencyInfo);
+    }
 }

@@ -350,21 +350,13 @@ export namespace ufox::engine {
       range.levelCount     = VK_REMAINING_MIP_LEVELS;
       range.baseArrayLayer = 0;
       range.layerCount     = VK_REMAINING_ARRAY_LAYERS;
-      gpu::vulkan::TransitionImageLayout(
-          cmb, windowResource->swapchainResource->getCurrentImage(),
-          vk::PipelineStageFlagBits2::eTopOfPipe,
-          vk::PipelineStageFlagBits2::eColorAttachmentOutput ,
-          {},
-          vk::AccessFlagBits2::eColorAttachmentWrite,
-          vk::ImageLayout::eUndefined,
-          vk::ImageLayout::eColorAttachmentOptimal,range
-          );
 
+      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal );
 
       executeRenderPassEvents(cmb, imageIndex);
 
-      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(),
-          vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR, range);
+      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR );
+
       cmb.end();
     }
 
@@ -704,17 +696,15 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   }
 
   class ResourceManagerBase;
-  void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<std::string>& sourceExtensions,ResourceManagerBase* manager);
+  void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<const std::string_view>& sourceExtensions,ResourceManagerBase* manager);
   void WriteResourceContextMetaData(const ResourceContext& context);
 
   class ResourceManagerBase {
     public:
     virtual ~ResourceManagerBase() = default;
-    explicit ResourceManagerBase(const gpu::vulkan::GPUResources& gpu, const std::string_view& _directory, const std::span<std::string>& extension) : directory(_directory), gpuResources(&gpu) {
-        sourceExtensions.reserve(extension.size());
-        for (const auto& ext : extension) {
-          sourceExtensions.emplace_back(ext);
-        }
+    explicit ResourceManagerBase(const gpu::vulkan::GPUResources& gpu, const std::string_view& _directory,
+                                 const std::span<const std::string_view> &extension) : directory(_directory), sourceExtensions(extension), gpuResources(&gpu) {
+
 
         EnsureDirectoryExists(directory);
         MakeDirectoryContext(directory, directoryContext);
@@ -727,7 +717,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
     protected:
       const std::filesystem::path directory{};
-      std::vector<std::string> sourceExtensions{};
+      std::span<const std::string_view> sourceExtensions{};
       DirectoryContext directoryContext{};
       const gpu::vulkan::GPUResources* gpuResources{nullptr};
       BuiltInResources builtInResources{};
@@ -775,9 +765,16 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         const auto* ctx = getResourceContext(id);
         return ctx ? ctx->users.size() : 0;
       }
+
+      static void clearAllGpuResources(ResourceManagerBase& manager) {
+          for (const auto &ctx : manager.container | std::views::values) {
+            if (!ctx.dataPtr || !ctx.dataPtr->hasGpuResources()) continue;
+            ctx.dataPtr->releaseGpuResources();
+          }
+        }
   };
 
-  void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<std::string>& sourceExtensions, ResourceManagerBase* manager) {
+  void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<const std::string_view>& sourceExtensions, ResourceManagerBase* manager) {
     namespace fs = std::filesystem;
     if (!fs::is_directory(rootDirectory)) {
       debug::log(debug::LogLevel::eWarning,

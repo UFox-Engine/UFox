@@ -36,186 +36,7 @@ export namespace ufox::geometry {
     class MeshManager;
     const ResourceID* CreateQuad(MeshManager& manager);
     const ResourceID* CreateCube(MeshManager& manager);
-    bool LoadMeshFromFile(const std::filesystem::path& sourcePath,std::vector<Vertex>& outVertices,std::vector<uint16_t>& outIndices);
     const ResourceID* CreateMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info);
-
-    using DefaultMeshesResources = std::unordered_map<std::string, const ResourceID*>;
-
-    BuiltInResources MakeBuiltInMeshResources(MeshManager &manager) {
-        return {{"quad", CreateQuad(manager)},
-                {"cube", CreateCube(manager)}};
-    }
-
-    [[nodiscard]] const ResourceID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
-
-    class MeshManager final : ResourceManagerBase{
-    public:
-        MeshManager(const gpu::vulkan::GPUResources& gpu, const std::string_view& directory, const std::span<std::string>& extension) :
-        ResourceManagerBase(gpu, directory, extension) {}
-
-        ~MeshManager() override {
-            clearAllGpuResources();
-        }
-
-        void makeResource(const ResourceContextCreateInfo &info) override {
-            std::vector<Vertex> vertices;
-            std::vector<uint16_t> indices;
-
-            if (LoadMeshFromFile(info.sourcePath, vertices, indices)) {
-                CreateMeshContent(*this, vertices, indices, info);
-            }
-        }
-
-        void init() override {
-            ReadResourceContextMetaData(directory, {sourceExtensions}, this);
-            builtInResources = MakeBuiltInMeshResources(*this);
-            debug::log(debug::LogLevel::eInfo, "MeshManager: init: success");
-        }
-
-        const ResourceID* makeMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
-            const ResourceID& id = makeResourceContext(info.id);
-            std::unique_ptr<ResourceBase> res = std::make_unique<Mesh>(info.name, vertices, indices, id);
-            debug::log(debug::LogLevel::eInfo, "MeshManager: makeMesh: created mesh: {}", res->name);
-            return bindResource(res, info);
-        }
-
-        void destroy(const ResourceID& id) {
-
-            if (isBuiltInResource(id)) {
-                debug::log(debug::LogLevel::eWarning, "MeshManager: destroy: built-in mesh cannot be destroyed");
-                return;
-            }
-
-            releaseResource(id);
-        }
-
-        [[nodiscard]] Mesh* getMesh(const ResourceID& id) {
-            const auto* ctx = getResourceContext(id);
-            if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
-
-            auto* mesh = dynamic_cast<Mesh*>(ctx->dataPtr.get());
-            return mesh;
-        }
-
-        void useMesh(MeshUser& user) {
-            if (user.id == nullptr) return;
-            auto* ctx = getResourceContext(*user.id);
-            if (ctx == nullptr || ctx->dataPtr == nullptr) return;
-
-            auto* mesh = ctx->dataPtr->getContent<Mesh>();
-
-            if (mesh == nullptr) return;
-
-            user.mesh = mesh;
-            if (const auto it = std::ranges::find(ctx->users, &user); it == ctx->users.end()) {
-                ctx->users.push_back(&user);
-            }
-
-            ensureMeshBuffers(user.mesh);
-        }
-
-        void unuseMesh(MeshUser& user) {
-            if (user.id == nullptr) return;
-            user.mesh = nullptr;
-
-            auto* ctx = getResourceContext(*user.id);
-            if (ctx == nullptr) return;
-
-
-            if (const auto it = std::ranges::find(ctx->users, &user); it != ctx->users.end()) {
-                ctx->users.erase(it);
-            }
-
-            if (!ctx->users.empty() || ctx->dataPtr == nullptr) return;
-
-            if (ctx->dataPtr->hasGpuResources()) {
-                ctx->dataPtr->releaseGpuResources();
-                debug::log(debug::LogLevel::eInfo, "MeshManager: unuseMesh [{}]: mesh released buffers", ctx->dataPtr->name);
-            }
-        }
-
-        void clearAllGpuResources() const {
-            size_t clearedCount = 0;
-
-            for (const auto &ctx : container | std::views::values) {
-                if (!ctx.dataPtr || !ctx.dataPtr->hasGpuResources()) continue;
-
-                ctx.dataPtr->releaseGpuResources();
-                ++clearedCount;
-
-                debug::log(debug::LogLevel::eInfo,
-                           "MeshManager: clearAllGpuResources: cleared mesh GPU resources for mesh: {}",
-                           ctx.dataPtr->name);
-            }
-
-            if (clearedCount > 0) {
-                debug::log(debug::LogLevel::eInfo,
-                           "MeshManager: clearAllGpuResources: cleared {} mesh GPU resources",
-                           clearedCount);
-            }
-        }
-
-    private:
-        static void createVertexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
-            gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.vertices, vk::BufferUsageFlagBits::eVertexBuffer, mesh.vertexBuffer);
-        }
-
-        static void createIndexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
-            gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.indices, vk::BufferUsageFlagBits::eIndexBuffer, mesh.indexBuffer);
-        }
-
-        void ensureMeshBuffers(Mesh* mesh) const {
-            if (!mesh) return;
-            if (mesh->hasGpuResources()) return;
-            createVertexBuffer(*gpuResources, *mesh);
-            createIndexBuffer(*gpuResources, *mesh);
-        }
-
-
-        void releaseResource(const ResourceID& id) {
-            auto* ctx = getResourceContext(id);
-            if (!ctx || !ctx->dataPtr) return;
-
-            // notify & clear users
-            for (ResourceUserBase* user : ctx->users) {
-                const auto meshUser = dynamic_cast<MeshUser*>(user);
-                if (user) unuseMesh(*meshUser);
-            }
-            ctx->users.clear();
-
-            if (ctx->dataPtr) {
-                ctx->dataPtr->releaseGpuResources();
-                debug::log(debug::LogLevel::eInfo, "Released buffers for mesh: {}", ctx->dataPtr->name);
-                ctx->dataPtr.reset();
-            }
-
-            container.erase(id);
-        }
-
-    };
-
-    const ResourceID* CreateMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
-        const ResourceID* id = manager.makeMesh(vertices, indices, info);
-        return id;
-    }
-
-    const ResourceID* CreateQuad(MeshManager& manager) {
-        ResourceContextCreateInfo info{};
-        info.setName(DEFAULT_QUAD_MESH_NAME)
-            .setSourceType(SourceType::eBuiltIn)
-            .setCategory("Standard")
-            .setID(BUILTIN_QUAD_ID);
-        return CreateMeshContent(manager, QuadVertices, QuadIndices, info);
-    }
-
-    const ResourceID* CreateCube(MeshManager& manager) {
-        ResourceContextCreateInfo info{};
-        info.setName(DEFAULT_CUBE_MESH_NAME)
-            .setSourceType(SourceType::eBuiltIn)
-            .setCategory("Standard")
-            .setID(BUILTIN_CUBE_ID);
-        return CreateMeshContent(manager, CubeVertices, CubeIndices, info);
-    }
 
     void LoadGLTF(std::string_view MODEL_PATH,std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
 
@@ -472,7 +293,6 @@ export namespace ufox::geometry {
 
         debug::log(debug::LogLevel::eInfo, "Loaded glTF ({}) : success", MODEL_PATH.data() );
     }
-
     void LoadOBJ(std::string_view MODEL_PATH, std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
         tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
@@ -516,7 +336,6 @@ export namespace ufox::geometry {
             }
         }
     }
-
     bool LoadMeshFromFile(const std::filesystem::path& sourcePath,std::vector<Vertex>& outVertices,std::vector<uint16_t>& outIndices){
         if (!std::filesystem::exists(sourcePath))
         {
@@ -553,4 +372,162 @@ export namespace ufox::geometry {
                    "Unsupported mesh format: {}", ext);
         return false;
     }
+
+    BuiltInResources MakeBuiltInMeshResources(MeshManager &manager) {
+        return {{QUAD, CreateQuad(manager)},
+                {CUBE, CreateCube(manager)}};
+    }
+
+    [[nodiscard]] const ResourceID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
+
+    class MeshManager final : ResourceManagerBase{
+    public:
+        explicit MeshManager(const gpu::vulkan::GPUResources& gpu) :
+        ResourceManagerBase(gpu, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {}
+
+        ~MeshManager() override {
+            clearAllGpuResources(*this);
+        }
+
+        void makeResource(const ResourceContextCreateInfo &info) override {
+            std::vector<Vertex> vertices;
+            std::vector<uint16_t> indices;
+
+            if (LoadMeshFromFile(info.sourcePath, vertices, indices)) {
+                CreateMeshContent(*this, vertices, indices, info);
+            }
+        }
+
+        void init() override {
+            ReadResourceContextMetaData(directory, sourceExtensions, this);
+            builtInResources = MakeBuiltInMeshResources(*this);
+            debug::log(debug::LogLevel::eInfo, "MeshManager: init: success");
+        }
+
+        const ResourceID* makeMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
+            const ResourceID& id = makeResourceContext(info.id);
+            std::unique_ptr<ResourceBase> res = std::make_unique<Mesh>(info.name, vertices, indices, id);
+            debug::log(debug::LogLevel::eInfo, "MeshManager: makeMesh: created mesh: {}", res->name);
+            return bindResource(res, info);
+        }
+
+        void destroy(const ResourceID& id) {
+
+            if (isBuiltInResource(id)) {
+                debug::log(debug::LogLevel::eWarning, "MeshManager: destroy: built-in mesh cannot be destroyed");
+                return;
+            }
+
+            releaseResource(id);
+        }
+
+        [[nodiscard]] Mesh* getMesh(const ResourceID& id) {
+            const auto* ctx = getResourceContext(id);
+            if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
+
+            auto* mesh = dynamic_cast<Mesh*>(ctx->dataPtr.get());
+            return mesh;
+        }
+
+        void useMesh(MeshUser& user) {
+            if (user.id == nullptr) return;
+            auto* ctx = getResourceContext(*user.id);
+            if (ctx == nullptr || ctx->dataPtr == nullptr) return;
+
+            auto* mesh = ctx->dataPtr->getContent<Mesh>();
+
+            if (mesh == nullptr) return;
+
+            user.mesh = mesh;
+            if (const auto it = std::ranges::find(ctx->users, &user); it == ctx->users.end()) {
+                ctx->users.push_back(&user);
+            }
+
+            ensureMeshBuffers(user.mesh);
+        }
+
+        void unuseMesh(MeshUser& user) {
+            if (user.id == nullptr) return;
+            user.mesh = nullptr;
+
+            auto* ctx = getResourceContext(*user.id);
+            if (ctx == nullptr) return;
+
+
+            if (const auto it = std::ranges::find(ctx->users, &user); it != ctx->users.end()) {
+                ctx->users.erase(it);
+            }
+
+            if (!ctx->users.empty() || ctx->dataPtr == nullptr) return;
+
+            if (ctx->dataPtr->hasGpuResources()) {
+                ctx->dataPtr->releaseGpuResources();
+                debug::log(debug::LogLevel::eInfo, "MeshManager: unuseMesh [{}]: mesh released buffers", ctx->dataPtr->name);
+            }
+        }
+
+    private:
+        static void createVertexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
+            gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.vertices, vk::BufferUsageFlagBits::eVertexBuffer, mesh.vertexBuffer);
+        }
+
+        static void createIndexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
+            gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.indices, vk::BufferUsageFlagBits::eIndexBuffer, mesh.indexBuffer);
+        }
+
+        void ensureMeshBuffers(Mesh* mesh) const {
+            if (!mesh) return;
+            if (mesh->hasGpuResources()) return;
+            mesh->releaseGpuResources();
+            createVertexBuffer(*gpuResources, *mesh);
+            createIndexBuffer(*gpuResources, *mesh);
+        }
+
+
+        void releaseResource(const ResourceID& id) {
+            auto* ctx = getResourceContext(id);
+            if (!ctx || !ctx->dataPtr) return;
+
+            // notify & clear users
+            for (ResourceUserBase* user : ctx->users) {
+              if (const auto meshUser = dynamic_cast<MeshUser *>(user)) unuseMesh(*meshUser);
+            }
+            ctx->users.clear();
+
+            if (ctx->dataPtr) {
+                ctx->dataPtr->releaseGpuResources();
+                debug::log(debug::LogLevel::eInfo, "Released buffers for mesh: {}", ctx->dataPtr->name);
+                ctx->dataPtr.reset();
+            }
+
+            container.erase(id);
+        }
+
+    };
+
+    const ResourceID* CreateMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
+        return manager.makeMesh(vertices, indices, info);
+    }
+
+    const ResourceID* CreateQuad(MeshManager& manager) {
+        ResourceContextCreateInfo info{};
+        info.setName(DEFAULT_QUAD_MESH_NAME)
+            .setSourceType(SourceType::eBuiltIn)
+            .setCategory("Standard")
+            .setID(BUILTIN_QUAD_ID);
+        return CreateMeshContent(manager, QuadVertices, QuadIndices, info);
+    }
+
+    const ResourceID* CreateCube(MeshManager& manager) {
+        ResourceContextCreateInfo info{};
+        info.setName(DEFAULT_CUBE_MESH_NAME)
+            .setSourceType(SourceType::eBuiltIn)
+            .setCategory("Standard")
+            .setID(BUILTIN_CUBE_ID);
+        return CreateMeshContent(manager, CubeVertices, CubeIndices, info);
+    }
+
+
+
+
 }
