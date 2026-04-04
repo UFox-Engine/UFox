@@ -252,7 +252,7 @@ export namespace ufox::render {
                 ctx->users.push_back(&user);
             }
 
-            makeTextureGpuResource(user.texture);
+            makeTextureGpuResource(texture);
         }
 
         void unuseTexture(TextureUser& user) {
@@ -271,7 +271,7 @@ export namespace ufox::render {
 
             if (ctx->dataPtr->hasGpuResources()) {
                 ctx->dataPtr->releaseGpuResources();
-                debug::log(debug::LogLevel::eInfo, "MeshManager: unuseMesh [{}]: mesh released buffers", ctx->dataPtr->name);
+                debug::log(debug::LogLevel::eInfo, "TextureManager: unuseTexture [{}]: released GPU resources", ctx->dataPtr->name);
             }
         }
 
