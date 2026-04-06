@@ -9,7 +9,7 @@ module;
 #include <vulkan/vulkan_raii.hpp>
 #include <iostream>
 #include <SDL3/SDL_surface.h>
-
+#include <map>
 
 
 export module ufox_gui_core;
@@ -29,6 +29,7 @@ import ufox_render_core;
 
 using namespace ufox::geometry;
 using namespace ufox::render;
+using namespace ufox::engine;
 
 export namespace ufox::gui {
 
@@ -57,7 +58,7 @@ export namespace ufox::gui {
         VisualElement*                                          parent{nullptr};
         discadelta::RectSegmentContextHandler                   rect{nullptr, discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
         std::vector<VisualElement*>                             hierarchy{};
-
+        Style                                                   style{};
 
         explicit VisualElement(const std::string_view& name = "VisualElement") {
             rect = discadelta::CreateSegmentContext<discadelta::RectSegmentContext, discadelta::RectSegmentCreateInfo>({
@@ -74,7 +75,6 @@ export namespace ufox::gui {
             .order         = 0
             });
         }
-
 
         void link(VisualElement& element) {
             if (&element == this) return;
@@ -140,74 +140,81 @@ export namespace ufox::gui {
         discadelta::RectSegmentContextHandler   rect{nullptr, discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
         VisualElementHandler                    rootElement{nullptr, DestroyVisualElement};
 
-        void accumulateRects(std::vector<glm::mat4>& container, const VisualElement& element) {
+        void accumulateUniformData(std::vector<UniformData>& uniformDatas, const VisualElement& element, const std::map<const ResourceID, const uint32_t>& textureMap) {
             if (!element.rect || !element.rect.get()) {
                 return;  // safety - invalid rect context
             }
 
             const auto& seg = element.rect.get()->content;
 
+            uint32_t imageIndex {0};
+            if (const auto it = textureMap.find(
+              ResourceID{element.style.backgroundImage});
+              it != textureMap.end()) {imageIndex = it->second;}
+
             // Build model matrix – position + non-uniform scale
             // Note: we're using scale for width/height — very common for 2D UI
-            const glm::mat4 model = engine::MakeTransformModel(
+            const glm::mat4 model = MakeTransformModel(
                 glm::vec3{seg.x, seg.y, 0.0f},
                 glm::quat{1.0f, 0.0f, 0.0f, 0.0f},     // identity quaternion (no rotation for now)
                 glm::vec3{seg.width, seg.height, 1.0f}
             );
 
-            container.push_back(model);
+            UniformData data{};
+            data.imageIndex = imageIndex;
+            data.model = model;
+            data.imageColor = element.style.imageColor;
+            data.backgroundColor = element.style.backgroundColor;
+
+            uniformDatas.push_back(data);
 
             // Recurse into THIS element's children — not root!
-            for (VisualElement* child : element.hierarchy) {
+            for (const VisualElement* child : element.hierarchy) {
                 if (child) {
-                    accumulateRects(container, *child);
+                    accumulateUniformData(uniformDatas, *child, textureMap);
                 }
             }
         }
 
-        void updateSSBOBuffer(const uint32_t& imageIndex) const {
-
+        void updateUniformBuffer(const uint32_t& imageIndex) const {
+            memcpy(uniformMemory[imageIndex], uniformData.data(), sizeof(UniformData) * uniformData.size());
         }
 
         void makeSSBO(const gpu::vulkan::GPUResources& gpu, uint32_t imageCount) {
             const size_t branchCount = rootElement->rect->branchCount;
 
-
-            rectSSBO.clear();
-            rectSSBOMemory.clear();
-            rectSSBO.reserve(imageCount);
-            rectSSBOMemory.reserve(imageCount);
-            const vk::DeviceSize size = sizeof(glm::mat4) * branchCount;
+            uniformBuffer.clear();
+            uniformMemory.clear();
+            uniformBuffer.reserve(imageCount);
+            uniformMemory.reserve(imageCount);
+            const vk::DeviceSize size = sizeof(UniformData) * branchCount;
             for (size_t i = 0; i < imageCount; i++) {
                 gpu::vulkan::Buffer buffer;
                 gpu::vulkan::MakeBuffer(buffer, gpu, size, vk::BufferUsageFlagBits::eStorageBuffer,vk::MemoryPropertyFlagBits::eHostVisible |vk::MemoryPropertyFlagBits::eHostCoherent);
-                rectSSBO.push_back(std::move(buffer));
-                rectSSBOMemory.push_back(rectSSBO.back().memory->mapMemory(0, size));
+                uniformBuffer.push_back(std::move(buffer));
+                uniformMemory.push_back(uniformBuffer.back().memory->mapMemory(0, size));
             }
         }
 
         [[nodiscard]] vk::DescriptorBufferInfo MakeDescriptorBufferInfo(const size_t index) const {
             vk::DescriptorBufferInfo bufferInfo{};
             bufferInfo
-                .setBuffer(*rectSSBO[index].data)
+                .setBuffer(*uniformBuffer[index].data)
                 .setOffset(0)
-                .setRange(sizeof(glm::mat4) * rootElement->rect->branchCount);
+                .setRange(sizeof(UniformData) * rootElement->rect->branchCount);
             return bufferInfo;
         }
 
-        std::vector<gpu::vulkan::Buffer>      rectSSBO{};
-        std::vector<void*>                    rectSSBOMemory{};
-        std::vector<glm::mat4>                rectSSBOData{};
+        std::vector<gpu::vulkan::Buffer>        uniformBuffer{};
+        std::vector<void*>                      uniformMemory{};
+        std::vector<UniformData>                uniformData{};
     };
 
-
-
-    void MakeDescriptorSetLayout(const gpu::vulkan::GPUResources& gpu, RenderResource& guiResource) {
-        auto descriptorLayout = gpu::vulkan::MakeDescriptorSetLayout(gpu,
-        {
-            {vk::DescriptorType::eStorageBuffer,1,vk::ShaderStageFlagBits::eVertex,nullptr},
-            {vk::DescriptorType::eUniformBuffer,1,vk::ShaderStageFlagBits::eVertex,nullptr},
-            {vk::DescriptorType::eCombinedImageSampler,1,vk::ShaderStageFlagBits::eFragment,nullptr}
+    void MakeDescriptorSetLayout(const gpu::vulkan::GPUResources& gpu, RenderResource& guiResource, const uint32_t maxCombinedImageSampler = 1) {
+        auto descriptorLayout = gpu::vulkan::MakeDescriptorSetLayout(gpu,{
+            gpu::vulkan::MakeStorageBufferLayoutBinding(1),
+            gpu::vulkan::MakeUniformBufferLayoutBinding(1),
+            gpu::vulkan::MakeCombinedImageSamplerLayoutBinding(maxCombinedImageSampler)
         });
 
         guiResource.descriptorSetLayout.emplace(std::move(descriptorLayout));
@@ -282,16 +289,17 @@ export namespace ufox::gui {
 
         vk::PipelineDepthStencilStateCreateInfo depthStencil{};
         depthStencil
-            .setDepthTestEnable(false)
-            .setDepthWriteEnable(false)
-            .setDepthCompareOp(vk::CompareOp::eNever)
+            .setDepthTestEnable(true)
+            .setDepthWriteEnable(true)
+            .setDepthCompareOp(vk::CompareOp::eLessOrEqual)
             .setDepthBoundsTestEnable(false)
             .setStencilTestEnable(false);
 
         vk::PipelineRenderingCreateInfo renderingInfo{};
         renderingInfo
         .setColorAttachmentCount(1)
-        .setPColorAttachmentFormats(&swapchain.colorFormat);
+        .setPColorAttachmentFormats(&swapchain.colorFormat)
+        .setDepthAttachmentFormat(swapchain.depthFormat);
 
         vk::GraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo
@@ -318,7 +326,7 @@ export namespace ufox::gui {
         uint32_t imageCount = swapchain.getImageCount();
         std::array poolSizes {
             vk::DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, imageCount),
-            vk::DescriptorPoolSize(engine::SCREEN_VIEW_PROJECTION_BUFFER_TYPE, imageCount),
+            vk::DescriptorPoolSize(SCREEN_VIEW_PROJECTION_BUFFER_TYPE, imageCount),
             vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, imageCount)
             };
         vk::DescriptorPoolCreateInfo poolInfo{};
@@ -329,7 +337,7 @@ export namespace ufox::gui {
         renderResource.descriptorPool.emplace(*gpu.device, poolInfo);
     }
 
-    void MakeDescriptorSets(const engine::UFoxWindow& window, const uint32_t& imageCount, const Viewpanel& panel, RenderResource& renderResource, const render::Texture2D & texture) {
+    void MakeDescriptorSets(const UFoxWindow& window, const uint32_t& imageCount, const Viewpanel& panel, RenderResource& renderResource, const TextureManager & manager, const uint32_t& maxImageSize) {
         std::vector<vk::DescriptorSetLayout> layouts(imageCount, *renderResource.descriptorSetLayout);
         vk::DescriptorSetAllocateInfo allocInfo{};
         allocInfo
@@ -340,14 +348,11 @@ export namespace ufox::gui {
 
         auto sets = window.gpuResource.device->allocateDescriptorSets(allocInfo);
 
+        std::vector<vk::DescriptorImageInfo> imageInfo = manager.makeImageDescriptorImageInfos();
+        debug::log(debug::LogLevel::eInfo, "GUI Document MakeDescriptorSets : Susses {}", imageInfo.size());
+
         for (size_t i =0; i < imageCount; i++) {
             vk::DescriptorBufferInfo ssboInfo = panel.MakeDescriptorBufferInfo(i);
-
-            vk::DescriptorImageInfo imageInfo{};
-            imageInfo
-                .setSampler(*texture.sampler)
-                .setImageView(*texture.view)
-                .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
             std::array<vk::WriteDescriptorSet, 3> write{};
             write[0].setDstSet(*sets[i])
@@ -356,30 +361,30 @@ export namespace ufox::gui {
                     .setDescriptorType(vk::DescriptorType::eStorageBuffer)
                     .setDescriptorCount(1)
                     .setPBufferInfo(&ssboInfo);
-            write[1] = gpu::vulkan::MakeWriteDescriptorSet(sets[i], window.MakeScreenViewProjectionBufferInfo(), 1, engine::SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
+            write[1] = gpu::vulkan::MakeBufferWriteDescriptorSet(sets[i], window.MakeScreenViewProjectionBufferInfo(), 1, SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
             write[2].setDstSet(*sets[i])
-                    .setDstBinding(2)
-                    .setDstArrayElement(0)
-                    .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-                    .setDescriptorCount(1)
-                    .setPImageInfo(&imageInfo);
+            .setDstBinding(2)
+            .setDstArrayElement(0)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDescriptorCount(imageInfo.size())
+            .setPImageInfo(imageInfo.data());
             renderResource.descriptorSets.push_back(std::move(sets[i]));
             window.gpuResource.device->updateDescriptorSets(write, {});
         }
     }
 
-constexpr engine::ResourceID TESTER_TEXTURE_ID{"Uk73q0bgEwer"};
+    inline ResourceID TESTER_TEXTURE_ID{"grok-image-b9472c20-0cfc-4f3d-b558-d5c3066aa081.jpg"};
 
     class  Document {
     public:
-        explicit Document(engine::UFoxWindow* _window = nullptr, MeshManager* _meshManager = nullptr, TextureManager* _textureManager = nullptr) : window(_window) , meshManager(_meshManager), textureManager(_textureManager) {
+        explicit Document(UFoxWindow* _window = nullptr, MeshManager* _meshManager = nullptr, TextureManager* _textureManager = nullptr) : window(_window) , meshManager(_meshManager), textureManager(_textureManager) {
             if (_window != nullptr) {
                 window->registerSystemInitEventHandlers([](void* user) { static_cast<Document*>(user)->init();}, this);
                 window->registerResourceInitEventHandlers([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->initResource(w,h);}, this);
                 window->registerResizeEventHandlers([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->updateViewportSize(w,h);}, this);
                 window->registerUpdateBufferEventHandlers([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
-                window->registerDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex,
-                        const windowing::WindowResource& winResource, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource);}, this);
+                window->registerDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const windowing::WindowResource& winResource,
+                    const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, depthAttachment);}, this);
             }
         }
 
@@ -394,7 +399,6 @@ constexpr engine::ResourceID TESTER_TEXTURE_ID{"Uk73q0bgEwer"};
             }
 
             if (meshManager != nullptr) {
-                meshManager->unuseMesh(meshUser);
                 meshManager = nullptr;
             }
 
@@ -424,43 +428,50 @@ constexpr engine::ResourceID TESTER_TEXTURE_ID{"Uk73q0bgEwer"};
             v2 = CreateVisualElement("v2");
             v3 = CreateVisualElement("v3");
 
+            v1->style.backgroundColor = glm::vec4{1.0f, 1.0f, 0.0f, 1.0f};
+            v1->style.backgroundImage = TESTER_TEXTURE_ID.data;
+            v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 0.0f, 0.0f};
+            v2->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
+            v2->style.backgroundImage = "shaderIcon.png";
+            v3->style.backgroundImage = "rgb.png";
 
             rootPanel.rootElement->link(*v1.get());
             rootPanel.rootElement->link(*v2.get());
             rootPanel.rootElement->link(*v3.get());
 
+            rootPanel.rootElement->style.backgroundImage = "default";
+
+
             debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
         }
 
-
-
         void initResource(const float& width, const float& height) {
             if (meshManager != nullptr){
-                engine::ResourceContextCreateInfo info{};
+                ResourceContextCreateInfo info{};
                 info.setName(RECT_MESH_NAME)
-                    .setSourceType(engine::SourceType::eBuiltIn)
+                    .setSourceType(SourceType::eBuiltIn)
                     .setCategory("GUI");
-                meshUser.id = CreateMeshContent(*meshManager, RectVertices, RectIndices, info);
-                if (meshUser.id != nullptr) meshManager->useMesh(meshUser);
+                meshID = MakeMeshContent(*meshManager, RectVertices, RectIndices, info);
+                mesh = meshManager->getMesh(*meshID);
+                if (mesh) {
+                    debug::log(debug::LogLevel::eInfo, "GUI Document InitMesh ({}): Susses", mesh->name);
+                }
             }
 
-            if (textureManager != nullptr) {
-                textureImage.setNewTarget(&TESTER_TEXTURE_ID, nullptr);
-                debug::log(debug::LogLevel::eInfo, "GUI Document set texture target ({})", textureImage.id->view());
-                if (textureImage.id != nullptr) textureManager->useTexture(textureImage);
-            }
+            uint32_t samplerImageCount = MAX_GUI_TEXTURES;
+
+            samplerImageCount = textureManager->getMaxDescriptorSetSamplerImages(samplerImageCount);
+            textureManager->buildTextureMap(&textureMap);
 
             const gpu::vulkan::GPUResources& gpu = window->gpuResource;
-            rootPanel.makeSSBO(gpu, window->getImageCount());
-            MakeUniformResource(gpu);
-            const std::vector<char> shaderCode = engine::UFoxWindow::ReadFileChar("res/shaders/test.slang.spv");
-            MakeDescriptorSetLayout(gpu, renderResource);
+            makeUniformResource();
+            const std::vector<char> shaderCode = UFoxWindow::ReadFileChar("res/shaders/test.slang.spv");
+
+            MakeDescriptorSetLayout(gpu, renderResource, samplerImageCount);
             MakePipelineLayout(gpu, renderResource);
             MakePipeline(gpu, *window->windowResource->swapchainResource, shaderCode, renderResource);
-
             MakeDescriptorPool(gpu, *window->windowResource->swapchainResource, renderResource);
-            MakeDescriptorSets(*window, window->getImageCount(), rootPanel, renderResource, *textureImage.texture);
-
+            MakeDescriptorSets(*window, window->getImageCount(), rootPanel, renderResource, *textureManager, samplerImageCount);
             updateViewportSize(width, height);
 
             debug::log(debug::LogLevel::eInfo, "GUI Document InitResource : Susses");
@@ -472,31 +483,17 @@ constexpr engine::ResourceID TESTER_TEXTURE_ID{"Uk73q0bgEwer"};
         VisualElementHandler v3 {nullptr, DestroyVisualElement};
 
     private:
-        engine::UFoxWindow* window = nullptr;
+        UFoxWindow* window = nullptr;
         MeshManager* meshManager = nullptr;
         TextureManager* textureManager = nullptr;
-
-        MeshUser meshUser{nullptr,nullptr};
-        TextureUser textureImage{nullptr,nullptr};
-
+        const ResourceID* meshID{nullptr};
+        const Mesh* mesh{nullptr};
+        const Texture* texture{nullptr};
         RenderResource renderResource{};
+        std::map<const ResourceID, const uint32_t> textureMap{};
 
-
-        void MakeUniformResource(const gpu::vulkan::GPUResources& gpu) {
-            const uint32_t imageCount = window->getImageCount();
-
-            renderResource.rectBuffers.clear();
-            renderResource.rectBuffersMapped.clear();
-            renderResource.rectBuffers.reserve(imageCount);
-            renderResource.rectBuffersMapped.reserve(imageCount);
-
-
-            for (uint32_t i = 0; i < imageCount; i++) {
-                gpu::vulkan::Buffer buffer{};
-                gpu::vulkan::MakeBuffer(buffer,gpu, engine::MAT4_BUFFER_SIZE , vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-                renderResource.rectBuffers.push_back(std::move(buffer));
-                renderResource.rectBuffersMapped.push_back(renderResource.rectBuffers.back().memory->mapMemory(0, engine::MAT4_BUFFER_SIZE));
-            }
+        void makeUniformResource() {
+            rootPanel.makeSSBO(window->gpuResource, window->getImageCount());
         }
 
         void updateViewportSize(const float& width, const float& height) {
@@ -505,53 +502,47 @@ constexpr engine::ResourceID TESTER_TEXTURE_ID{"Uk73q0bgEwer"};
 
             discadelta::UpdateSegments(*rect, width, height, true);
 
-            rootPanel.rectSSBOData.clear();
-            rootPanel.rectSSBOData.reserve(rootPanel.rootElement->rect->branchCount);
-            rootPanel.accumulateRects(rootPanel.rectSSBOData, *rootPanel.rootElement.get());
+            rootPanel.uniformData.clear();
+            rootPanel.uniformData.reserve(rootPanel.rootElement->rect->branchCount);
+            rootPanel.accumulateUniformData(rootPanel.uniformData, *rootPanel.rootElement.get(), textureMap);
 
         }
 
         void updateUniformBuffer(const uint32_t& currentImage) const {
-            memcpy(rootPanel.rectSSBOMemory[currentImage], rootPanel.rectSSBOData.data(), sizeof(glm::mat4) * rootPanel.rectSSBOData.size());
+            rootPanel.updateUniformBuffer(currentImage);
         }
 
-        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource) const {
+        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource,
+            const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment) const {
             int height, width;
 
             if (winResource.getExtent(width, height)) return;
 
             const vk::Rect2D rect{{0, 0}, {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}};
-            vk::ClearColorValue clearColor{0.0f, 0.0f, 0.0f, 1.0f};
-
-            vk::RenderingAttachmentInfo colorAttachment{};
-            colorAttachment.setImageView(winResource.swapchainResource->getCurrentImageView())
-                           .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-                           .setLoadOp(vk::AttachmentLoadOp::eClear)
-                           .setStoreOp(vk::AttachmentStoreOp::eStore)
-                           .setClearValue(clearColor);
 
             vk::RenderingInfo renderingInfo{};
             renderingInfo.setRenderArea(rect)
                          .setLayerCount(1)
                          .setColorAttachmentCount(1)
-                         .setPColorAttachments(&colorAttachment);
+                         .setPColorAttachments(&colorAttachment)
+                         .setPDepthAttachment(&depthAttachment);
             cmb.beginRendering(renderingInfo);
 
             cmb.bindPipeline(vk::PipelineBindPoint::eGraphics, *renderResource.pipeline);
 
             cmb.setViewport(0, vk::Viewport{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
             cmb.setScissor(0, rect);
-            cmb.setCullMode(vk::CullModeFlagBits::eNone);
-            cmb.setFrontFace(vk::FrontFace::eClockwise);
+            cmb.setCullMode(vk::CullModeFlagBits::eFront);
+            cmb.setFrontFace(vk::FrontFace::eCounterClockwise);
             cmb.setPrimitiveTopology(vk::PrimitiveTopology::eTriangleList);
 
-            vk::Buffer vertexBuffers[] = {*meshUser.mesh->vertexBuffer->data};
+            vk::Buffer vertexBuffers[] = {*mesh->vertexBuffer->data};
             vk::DeviceSize offsets[] = {0};
             cmb.bindVertexBuffers(0, vertexBuffers, offsets);
-            cmb.bindIndexBuffer(*meshUser.mesh->indexBuffer->data, 0, vk::IndexType::eUint16);
+            cmb.bindIndexBuffer(*mesh->indexBuffer->data, 0, vk::IndexType::eUint16);
 
             cmb.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *renderResource.pipelineLayout, 0, *renderResource.descriptorSets[imageIndex], nullptr);
-            cmb.drawIndexed(std::size(RectIndices), rootPanel.rectSSBOData.size(), 0, 0, 0);
+            cmb.drawIndexed(std::size(RectIndices), rootPanel.uniformData.size(), 0, 0, 0);
 
             cmb.endRendering();
         }

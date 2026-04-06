@@ -6,11 +6,12 @@ module;
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_surface.h>
 #include <SDL3_image/SDL_image.h>
+#include <filesystem>
 #include <memory>
 #include <ranges>
 #include <unordered_map>
+#include <map>
 #include <vulkan/vulkan_raii.hpp>
-#include <filesystem>
 
 export module ufox_render_core;
 
@@ -24,97 +25,11 @@ import ufox_render_lib;
 using namespace ufox::engine;
 
 export namespace ufox::render {
-    void CopyBufferToImage(const gpu::vulkan::GPUResources & gpu, const gpu::vulkan::Buffer& buffer, const Texture2D& texture, const vk::Extent3D extent, const vk::ImageSubresourceLayers& subresourceLayers = {vk::ImageAspectFlagBits::eColor,0,0,1}, const vk::Offset3D& offset = {0,0,0},vk::DeviceSize bufferOffset = 0, const uint32_t& bufferRowLength = 0, const uint32_t& bufferImageHeight = 0) {
-        const auto cmb = gpu::vulkan::BeginSingleTimeCommands(gpu);
-        gpu::vulkan::TransitionImageLayout(cmb, texture.image.value(), texture.format, texture.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-
-        vk::BufferImageCopy region{};
-        region.setImageSubresource( subresourceLayers)
-              .setImageOffset(offset)
-              .setImageExtent(extent)
-              .setBufferOffset(bufferOffset)
-              .setBufferRowLength(bufferRowLength)
-              .setBufferImageHeight(bufferImageHeight);
-
-        cmb.copyBufferToImage(*buffer.data, *texture.image, vk::ImageLayout::eTransferDstOptimal, { region });
-
-        gpu::vulkan::TransitionImageLayout(cmb, texture.image.value(), texture.format, texture.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
-        gpu::vulkan::EndSingleTimeCommands(gpu, cmb);
-    }
-
-    void CreateImage(const gpu::vulkan::GPUResources& gpu, Texture2D& texture,const vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties,const vk::SharingMode shareMode = vk::SharingMode::eExclusive) {
-        gpu::vulkan::Buffer staging{};
-        vk::DeviceSize bufferSize = texture.size();
-        gpu::vulkan::MakeBuffer(staging, gpu, bufferSize,vk::BufferUsageFlagBits::eTransferSrc,vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-        gpu::vulkan::CopyToDevice(*staging.memory, texture.pixels.data(), bufferSize);
-
-        vk::ImageCreateInfo imageInfo{};
-        imageInfo
-            .setImageType(vk::ImageType::e2D)
-            .setFormat(texture.format)
-            .setExtent({ texture.width(), texture.height(), 1 })
-            .setMipLevels(1)
-            .setArrayLayers(1)
-            .setSamples(vk::SampleCountFlagBits::e1)
-            .setTiling(texture.tiling)
-            .setUsage(usage)
-            .setSharingMode(shareMode);
-
-        texture.image.emplace(gpu.device.value(), imageInfo);
-
-        vk::MemoryRequirements memoryRequirements = texture.image->getMemoryRequirements();
-
-        vk::MemoryAllocateInfo allocInfo{};
-        allocInfo
-            .setAllocationSize(memoryRequirements.size)
-            .setMemoryTypeIndex(gpu::vulkan::FindMemoryType(gpu.physicalDevice.value().getMemoryProperties(), memoryRequirements.memoryTypeBits, properties));
-
-        texture.memory.emplace(gpu.device.value(), allocInfo);
-
-        texture.image->bindMemory(*texture.memory, 0);
-
-        CopyBufferToImage(gpu, staging, texture, {texture.width(), texture.height(), 1});
-    }
-
-    void CreateTextureImageView(gpu::vulkan::GPUResources const & gpu, Texture2D & texture) {
-        vk::ImageViewCreateInfo viewInfo{};
-        viewInfo
-            .setImage(*texture.image)
-            .setViewType(vk::ImageViewType::e2D)
-            .setFormat(texture.format)
-            .setSubresourceRange(texture.subresourceRange);
-        texture.view.emplace(gpu.device.value(), viewInfo);
-    }
-
-    void CreateTextureSampler(const gpu::vulkan::GPUResources & gpu, Texture2D& texture){
-        const auto deviceProperties = gpu.physicalDevice->getProperties();
-
-        vk::SamplerCreateInfo samplerInfo{};
-        samplerInfo.setMagFilter(vk::Filter::eLinear)
-                    .setMinFilter(vk::Filter::eLinear)
-                    .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeW(vk::SamplerAddressMode::eRepeat)
-                    .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-                    .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-                    .setAnisotropyEnable(true)
-                    .setMaxAnisotropy(deviceProperties.limits.maxSamplerAnisotropy)
-                    .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-                    .setUnnormalizedCoordinates(false)
-                    .setCompareEnable(false)
-                    .setCompareOp(vk::CompareOp::eAlways)
-                    .setMinLod(0.0f)
-                    .setMaxLod(0.0f)
-                    .setMipLodBias(0.0f);
-
-        texture.sampler.emplace(gpu.device.value(), samplerInfo);
-    }
-
     namespace procedures {
         constexpr auto WHITE = "white";
         constexpr auto BLACK = "black";
-        constexpr ResourceID BUILTIN_WHITE_ID  {WHITE};
-        constexpr ResourceID BUILTIN_BLACK_ID  {BLACK};
+        inline ResourceID BUILTIN_WHITE_ID  {WHITE};
+        inline ResourceID BUILTIN_BLACK_ID  {BLACK};
 
         std::pair<std::vector<std::byte>, vk::Extent2D> CreateSolidColorPixels(const uint32_t width,const uint32_t height,const Color& color) {
             if (width == 0 || height == 0) return {};
@@ -163,9 +78,10 @@ export namespace ufox::render {
     }
 
     class TextureManager;
-    const ResourceID* CreateWhiteTexture(TextureManager& manager);
-    const ResourceID* CreateBlackTexture(TextureManager& manager);
-    const ResourceID* CreateTextureContent(TextureManager& manager, const std::span<std::byte>& pixels, const vk::Extent2D& extent, const ResourceContextCreateInfo& info);
+    const ResourceID* MakeWhiteTexture(TextureManager& manager);
+    const ResourceID* MakeBlackTexture(TextureManager& manager);
+    const ResourceID* MakeDefaultTexture(TextureManager& manager);
+    const ResourceID* MakeTextureContent(TextureManager& manager, const std::span<std::byte>& pixels, const vk::Extent2D& extent, const ResourceContextCreateInfo& info);
 
     bool LoadPixelsFromFile(const std::filesystem::path& sourcePath, std::vector<std::byte>& outPixels, vk::Extent2D& outExtent) {
         const std::string basePath = SDL_GetBasePath();
@@ -204,8 +120,100 @@ export namespace ufox::render {
     }
 
     BuiltInResources MakeTextureBuiltInResources(TextureManager& manager) {
-        return {{procedures::WHITE, CreateWhiteTexture(manager)},
-                {procedures::BLACK, CreateBlackTexture(manager)}};
+        return {{procedures::WHITE, MakeWhiteTexture(manager)},{"default", MakeDefaultTexture(manager)},{procedures::BLACK, MakeBlackTexture(manager)}};
+    }
+
+    void CopyBufferToImage(const gpu::vulkan::GPUResources & gpu, const gpu::vulkan::Buffer& buffer, const Texture& texture, const vk::Extent3D& extent, const vk::ImageSubresourceLayers& subresourceLayers = {vk::ImageAspectFlagBits::eColor,0,0,1}, const vk::Offset3D& offset = {0,0,0},const vk::DeviceSize& bufferOffset = 0, const uint32_t& bufferRowLength = 0, const uint32_t& bufferImageHeight = 0) {
+        const auto cmb = gpu::vulkan::BeginSingleTimeCommands(gpu);
+        gpu::vulkan::TransitionImageLayout(cmb, texture.image.value(), texture.format, texture.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
+
+        vk::BufferImageCopy region{};
+        region.setImageSubresource( subresourceLayers)
+              .setImageOffset(offset)
+              .setImageExtent(extent)
+              .setBufferOffset(bufferOffset)
+              .setBufferRowLength(bufferRowLength)
+              .setBufferImageHeight(bufferImageHeight);
+
+        cmb.copyBufferToImage(*buffer.data, *texture.image, vk::ImageLayout::eTransferDstOptimal, { region });
+
+        gpu::vulkan::TransitionImageLayout(cmb, texture.image.value(), texture.format, texture.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
+        gpu::vulkan::EndSingleTimeCommands(gpu, cmb);
+    }
+
+    void MakeImage(const gpu::vulkan::GPUResources& gpu, Texture& texture,const vk::ImageUsageFlags& usage, const vk::MemoryPropertyFlags& properties,const vk::SharingMode& shareMode = vk::SharingMode::eExclusive) {
+        gpu::vulkan::Buffer staging{};
+        vk::DeviceSize bufferSize = texture.size();
+        gpu::vulkan::MakeBuffer(staging, gpu, bufferSize,vk::BufferUsageFlagBits::eTransferSrc,vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+        gpu::vulkan::CopyToDevice(*staging.memory, texture.pixels.data(), bufferSize);
+
+        vk::ImageCreateInfo imageInfo{};
+        imageInfo
+            .setImageType(vk::ImageType::e2D)
+            .setFormat(texture.format)
+            .setExtent({ texture.width(), texture.height(), 1 })
+            .setMipLevels(1)
+            .setArrayLayers(1)
+            .setSamples(vk::SampleCountFlagBits::e1)
+            .setTiling(texture.tiling)
+            .setUsage(usage)
+            .setSharingMode(shareMode);
+
+        texture.image.emplace(gpu.device.value(), imageInfo);
+
+        vk::MemoryRequirements memoryRequirements = texture.image->getMemoryRequirements();
+
+        vk::MemoryAllocateInfo allocInfo{};
+        allocInfo
+            .setAllocationSize(memoryRequirements.size)
+            .setMemoryTypeIndex(gpu::vulkan::FindMemoryType(gpu.physicalDevice.value().getMemoryProperties(), memoryRequirements.memoryTypeBits, properties));
+
+        texture.memory.emplace(gpu.device.value(), allocInfo);
+
+        texture.image->bindMemory(*texture.memory, 0);
+
+        CopyBufferToImage(gpu, staging, texture, {texture.width(), texture.height(), 1});
+    }
+
+    void MakeTextureImageView(gpu::vulkan::GPUResources const & gpu, Texture & texture) {
+        vk::ImageViewCreateInfo viewInfo{};
+        viewInfo
+            .setImage(*texture.image)
+            .setViewType(vk::ImageViewType::e2D)
+            .setFormat(texture.format)
+            .setSubresourceRange(texture.subresourceRange);
+        texture.view.emplace(gpu.device.value(), viewInfo);
+    }
+
+    void MakeTextureSampler(const gpu::vulkan::GPUResources & gpu, Texture& texture){
+        const auto deviceProperties = gpu.physicalDevice->getProperties();
+
+        vk::SamplerCreateInfo samplerInfo{};
+        samplerInfo.setMagFilter(vk::Filter::eLinear)
+                    .setMinFilter(vk::Filter::eLinear)
+                    .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+                    .setAddressModeV(vk::SamplerAddressMode::eRepeat)
+                    .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+                    .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+                    .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+                    .setAnisotropyEnable(false)
+                    .setMaxAnisotropy(deviceProperties.limits.maxSamplerAnisotropy)
+                    .setUnnormalizedCoordinates(false)
+                    .setCompareEnable(false)
+                    .setCompareOp(vk::CompareOp::eAlways)
+                    .setMinLod(0.0f)
+                    .setMaxLod(0.0f)
+                    .setMipLodBias(0.0f);
+
+        texture.sampler.emplace(gpu.device.value(), samplerInfo);
+    }
+
+    vk::DescriptorImageInfo MakeDescriptorImageInfo(const Texture& texture) noexcept {
+        vk::DescriptorImageInfo descriptor{};
+        descriptor.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        descriptor.imageView = *texture.view;
+        descriptor.sampler = *texture.sampler;
+        return descriptor;
     }
 
     class TextureManager final : public ResourceManagerBase {
@@ -214,121 +222,119 @@ export namespace ufox::render {
             : ResourceManagerBase(gpu, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {}
 
         ~TextureManager() override {
-           clearAllGpuResources(*this);
+            clearAllGpuResources(*this);
         }
 
         void makeResource(const ResourceContextCreateInfo &info) override {
             std::vector<std::byte> pixels{};
             vk::Extent2D extent{};
             if (LoadPixelsFromFile(info.sourcePath, pixels, extent)) {
-                CreateTextureContent(*this, pixels, extent, info);
+                MakeTextureContent(*this, pixels, extent, info);
             }
         }
 
         void init() override {
             ReadResourceContextMetaData(directory, sourceExtensions, this);
             builtInResources = MakeTextureBuiltInResources(*this);
+            const auto limit = gpuResources->physicalDevice->getProperties().limits;
+            maxDescriptorSetSamplerImages = limit.maxDescriptorSetSampledImages;
+
             debug::log(debug::LogLevel::eInfo, "TextureManager: init: success");
         }
 
+        [[nodiscard]] uint32_t getMaxDescriptorSetSamplerImages(const uint32_t& request) const noexcept {
+            return std::min( maxDescriptorSetSamplerImages, request );
+        }
+
         const ResourceID* makeTexture(const std::span<std::byte>& pixels, const vk::Extent2D& extent, const ResourceContextCreateInfo& info) {
-            const ResourceID& id = makeResourceContext(info.id);
-            std::unique_ptr<ResourceBase> res = std::make_unique<Texture2D>(info.name, pixels, extent, id);
+            const ResourceID& id = info.sourceType == SourceType::eBuiltIn ? info.id : ResourceID{info.sourcePath.filename().string()};
+            makeResourceContext(id);
+            std::unique_ptr<ResourceBase> res = std::make_unique<Texture>(info.name, pixels, extent, id);
+            const auto texture = dynamic_cast<Texture*>(res.get());
+            MakeImage(*gpuResources, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,vk::MemoryPropertyFlagBits::eDeviceLocal);
+            MakeTextureImageView(*gpuResources, *texture);
+            MakeTextureSampler(*gpuResources, *texture);
             debug::log(debug::LogLevel::eInfo, "TextureManager: makeTexture: created texture: {}", res->name);
-            return bindResource(res, info);
+            return bindResourceToContext(res, info);
         }
 
-        void useTexture(TextureUser& user) {
-            if (user.id == nullptr) return;
-            auto* ctx = getResourceContext(*user.id);
-            if (ctx == nullptr || ctx->dataPtr == nullptr) return;
+        void buildTextureMap(std::map<const ResourceID,const uint32_t>* textureMap) const noexcept {
+            textureMap->clear();
 
-            auto* texture = ctx->dataPtr->getContent<Texture2D>();
-
-            if (texture == nullptr) return;
-
-            user.texture = texture;
-            if (const auto it = std::ranges::find(ctx->users, &user); it == ctx->users.end()) {
-                ctx->users.push_back(&user);
+            uint32_t index = 0;
+            for (const auto &id : container | std::views::keys) {
+                if (textureMap) {
+                    textureMap->emplace(id, index);
+                }
+                debug::log(debug::LogLevel::eInfo, "TextureManager: buildTextureMap: texture: {} -> index: {}", id.view(), index);
+                index++;
             }
-
-            makeTextureGpuResource(texture);
         }
 
-        void unuseTexture(TextureUser& user) {
-            if (user.id == nullptr) return;
-            user.texture = nullptr;
+        [[nodiscard]] std::vector<vk::DescriptorImageInfo> makeImageDescriptorImageInfos() const noexcept {
+            std::vector<vk::DescriptorImageInfo> descriptorImageInfos{};
+            descriptorImageInfos.reserve(container.size());
 
-            auto* ctx = getResourceContext(*user.id);
-            if (ctx == nullptr) return;
-
-
-            if (const auto it = std::ranges::find(ctx->users, &user); it != ctx->users.end()) {
-                ctx->users.erase(it);
+            for (const auto &ctx : container | std::views::values) {
+                const auto * texture = dynamic_cast<Texture*>(ctx.dataPtr.get());
+                descriptorImageInfos.emplace_back(MakeDescriptorImageInfo(*texture));
             }
 
-            if (!ctx->users.empty() || ctx->dataPtr == nullptr) return;
+            return std::move(descriptorImageInfos);
+        }
 
-            if (ctx->dataPtr->hasGpuResources()) {
-                ctx->dataPtr->releaseGpuResources();
-                debug::log(debug::LogLevel::eInfo, "TextureManager: unuseTexture [{}]: released GPU resources", ctx->dataPtr->name);
-            }
+        [[nodiscard]] Texture* getTexture(const ResourceID& id) {
+            const auto* ctx = getResourceContext(id);
+            if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
+
+            auto* texture = dynamic_cast<Texture*>(ctx->dataPtr.get());
+            return texture;
         }
 
     private:
-        void makeTextureGpuResource(Texture2D* texture) const {
-            if (texture == nullptr) return;
-            if (texture->hasGpuResources()) return;
-            texture->releaseGpuResources();
-            CreateImage(*gpuResources, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,vk::MemoryPropertyFlagBits::eDeviceLocal);
-            CreateTextureImageView(*gpuResources, *texture);
-            CreateTextureSampler(*gpuResources, *texture);
-        }
-
-        void releaseResource(const ResourceID& id) {
-            auto* ctx = getResourceContext(id);
-            if (ctx == nullptr) return;
-
-            for (ResourceUserBase* user : ctx->users) {
-              if (const auto textureUser = dynamic_cast<TextureUser *>(user)) unuseTexture(*textureUser);
-            }
-            ctx->clear();
-
-            if (ctx->dataPtr) {
-                ctx->dataPtr->releaseGpuResources();
-                debug::log(debug::LogLevel::eInfo, "Released buffers for texture: {}", ctx->dataPtr->name);
-                ctx->dataPtr.reset();
-            }
-
-            container.erase(id);
-        }
+        uint32_t maxDescriptorSetSamplerImages{1};
     };
 
-    const ResourceID* CreateTextureContent(TextureManager& manager, const std::span<std::byte>& pixels, const vk::Extent2D& extent, const ResourceContextCreateInfo& info) {
+    const ResourceID* MakeTextureContent(TextureManager& manager, const std::span<std::byte>& pixels, const vk::Extent2D& extent, const ResourceContextCreateInfo& info) {
+        debug::log(debug::LogLevel::eInfo, "MakeWhiteTexture: id: {}", info.id.view());
         return manager.makeTexture(pixels, extent, info);
     }
 
-    const ResourceID* CreateWhiteTexture(TextureManager& manager) {
-        auto [pixels,extent] = procedures::WhitePixel();
-        ResourceContextCreateInfo info{};
-        info
-        .setName(procedures::WHITE)
-        .setSourceType(SourceType::eBuiltIn)
-        .setCategory("Standard")
-        .setID(procedures::BUILTIN_WHITE_ID);
-        return CreateTextureContent(manager, pixels, extent, info);
-    }
-    const ResourceID* CreateBlackTexture(TextureManager& manager) {
-        auto [pixels,extent]  = procedures::BlackPixel();
-        ResourceContextCreateInfo info{};
-        info
-        .setName(procedures::BLACK)
-        .setSourceType(SourceType::eBuiltIn)
-        .setCategory("Standard")
-        .setID(procedures::BUILTIN_BLACK_ID);
+    const ResourceID* MakeWhiteTexture(TextureManager& manager) {
+            auto [pixels,extent] = procedures::WhitePixel();
+            ResourceContextCreateInfo info{};
+            info
+            .setName(procedures::WHITE)
+            .setSourceType(SourceType::eBuiltIn)
+            .setCategory("Standard")
+            .setID(procedures::BUILTIN_WHITE_ID);
+        debug::log(debug::LogLevel::eInfo, "MakeWhiteTexture: id: {}", info.id.view());
+            return MakeTextureContent(manager, pixels, extent, info);
+        }
 
-        return CreateTextureContent(manager, pixels, extent, info);
-    }
+    const ResourceID* MakeBlackTexture(TextureManager& manager) {
+            auto [pixels,extent]  = procedures::BlackPixel();
+            ResourceContextCreateInfo info{};
+            info
+            .setName(procedures::BLACK)
+            .setSourceType(SourceType::eBuiltIn)
+            .setCategory("Standard")
+            .setID(procedures::BUILTIN_BLACK_ID);
+
+            return MakeTextureContent(manager, pixels, extent, info);
+        }
+
+    const ResourceID* MakeDefaultTexture(TextureManager& manager) {
+        auto [pixels, extent] = procedures::CreateSolidColorPixels(
+        1, 1, Color{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}});
+            ResourceContextCreateInfo info{};
+            info
+            .setName("default")
+            .setSourceType(SourceType::eBuiltIn)
+            .setCategory("Standard")
+            .setID(ResourceID{"default"});
+            return MakeTextureContent(manager, pixels, extent, info);
+        }
 }
 
 

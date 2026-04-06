@@ -37,10 +37,11 @@ export namespace ufox::render {
     static constexpr Color Green()  noexcept { return {std::byte{0},   std::byte{255}, std::byte{0}}; }
     static constexpr Color Blue()   noexcept { return {std::byte{0},   std::byte{0},   std::byte{255}}; }
     static constexpr Color Gray()   noexcept { return {std::byte{128}, std::byte{128}, std::byte{128}}; }
+    static constexpr Color Cyan()   noexcept { return {std::byte{0},   std::byte{255}, std::byte{255}}; }
   };
 
 
-  struct Texture2D final : engine::ResourceBase {
+  struct Texture final : engine::ResourceBase {
     vk::Format                            format{STANDARD_COLOR_TEXTURE_FORMAT};
     std::vector<std::byte>                pixels{};
     vk::Extent2D                          extent{1,1};
@@ -52,13 +53,13 @@ export namespace ufox::render {
     std::optional<vk::raii::ImageView>    view{};
     std::optional<vk::raii::Sampler>      sampler{};
 
-    explicit Texture2D(const std::string_view name_view, const std::span<std::byte>& _pixels, const vk::Extent2D _extent, const engine::ResourceID& cid)
+    explicit Texture(const std::string_view name_view, const std::span<std::byte>& _pixels, const vk::Extent2D _extent, const engine::ResourceID& cid)
         : ResourceBase(name_view, cid), extent(_extent) {
       pixels.assign(std::begin(_pixels), std::end(_pixels));
     }
 
-    Texture2D(const Texture2D&) = delete;
-    Texture2D& operator=(const Texture2D&) = delete;
+    Texture(const Texture&) = delete;
+    Texture& operator=(const Texture&) = delete;
 
     [[nodiscard]] bool hasGpuResources() const noexcept override {
       return image.has_value() && view.has_value() && sampler.has_value();
@@ -72,36 +73,13 @@ export namespace ufox::render {
     }
 
     void releaseGpuResources() noexcept override {
-      sampler.reset();
-      view.reset();
-      image.reset();
-      memory.reset();
-    }
-  };
-
-  struct TextureUser final : engine::ResourceUserBase {
-    Texture2D* texture = nullptr;
-    uint32_t   textureIndex = UINT32_MAX;   // assigned by manager
-
-    TextureUser() = default;
-    TextureUser(const engine::ResourceID* _id, Texture2D* t)
-        : ResourceUserBase(_id), texture(t) {}
-
-    void setNewTarget(const engine::ResourceID* id, void* target) override {
-      this->id = id;
-      this->texture = static_cast<Texture2D*>(target);
+      if (sampler.has_value()) sampler.reset();
+      if (view.has_value()) view.reset();
+      if (image.has_value()) image.reset();
+      if (memory.has_value()) memory.reset();
     }
 
-    void clear() override {
-      id = nullptr;
-      texture = nullptr;
-      textureIndex = UINT32_MAX;
-    }
   };
 
-  struct TexturePacket {
-    std::vector<vk::DescriptorImageInfo> imageInfos{};
-    uint32_t textureCount = 0;
-  };
 
 }

@@ -68,6 +68,7 @@ export namespace ufox::gpu::vulkan {
         switch (layout)
         {
         case vk::ImageLayout::eUndefined:
+            return {};
         case vk::ImageLayout::ePresentSrcKHR:
             return {};
         case vk::ImageLayout::ePreinitialized:
@@ -154,6 +155,21 @@ export namespace ufox::gpu::vulkan {
         }
         return *preferredFormat;
     }
+
+    vk::Format FindSupportedFormat(const GPUResources& gpu,const std::vector<vk::Format> &candidates, const vk::ImageTiling tiling, const vk::FormatFeatureFlags features) {
+        for(const vk::Format format : candidates) {
+            vk::FormatProperties props = gpu.physicalDevice->getFormatProperties(format);
+            if (tiling == vk::ImageTiling::eLinear && (props.linearTilingFeatures & features) == features) {
+                return format;
+            }
+            if (tiling == vk::ImageTiling::eOptimal && (props.optimalTilingFeatures & features) == features) {
+                return format;
+            }
+        }
+
+        throw std::runtime_error("failed to find supported format!");
+    }
+
     bool AreExtensionsSupported(const std::vector<const char*>& required, const std::vector<vk::ExtensionProperties>& available) {
         for (const auto* req : required) {
             bool found = false;
@@ -328,16 +344,29 @@ export namespace ufox::gpu::vulkan {
     }
 
     vk::raii::Device MakeDevice(const GPUResources& gpu, const GraphicDeviceCreateInfo& info) {
+        //root
         auto features2 = gpu.physicalDevice->getFeatures2();
+        //1
         vk::PhysicalDeviceVulkan11Features vulkan11Features;
-        vulkan11Features.shaderDrawParameters = vk::True;
+        vulkan11Features.setShaderDrawParameters(info.getEnableShaderDrawParameters());
+        //2
+        vk::PhysicalDeviceVulkan12Features vulkan12Features;
+        vulkan12Features.setRuntimeDescriptorArray(true);
+        //3
         vk::PhysicalDeviceVulkan13Features vulkan13Features;
+        vulkan13Features.setDynamicRendering(info.getEnableDynamicRendering());
+        vulkan13Features.setSynchronization2(info.getEnableSynchronization2());
+        //4
         vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures;
-        vulkan13Features.dynamicRendering = info.enableDynamicRendering ? vk::True : vk::False;
-        vulkan13Features.synchronization2 = info.enableSynchronization2 ? vk::True : vk::False;
-        extendedDynamicStateFeatures.extendedDynamicState = info.enableExtendedDynamicState ? vk::True : vk::False;
+        extendedDynamicStateFeatures.setExtendedDynamicState(info.getEnableExtendedDynamicState());
+
+        //3 <-- 4
         vulkan13Features.pNext = &extendedDynamicStateFeatures;
-        vulkan11Features.pNext = &vulkan13Features;
+        //2 <-- 3
+        vulkan12Features.pNext = &vulkan13Features;
+        //1 <-- 2
+        vulkan11Features.pNext = &vulkan12Features;
+        //root <-- 1
         features2.pNext = &vulkan11Features;
 
         return MakeDevice(*gpu.physicalDevice, gpu.queueFamilyIndices->graphicsFamily, info.deviceExtensions, nullptr, features2);
@@ -439,7 +468,6 @@ export namespace ufox::gpu::vulkan {
             usage, gpu.queueFamilyIndices->graphicsFamily, gpu.queueFamilyIndices->presentFamily);
     }
 
-
     SwapchainResource MakeSwapchainResource(const vk::raii::PhysicalDevice& physicalDevice, const vk::raii::Device& device, const vk::raii::SurfaceKHR& surface,
         const vk::Extent2D& extent, const vk::ImageUsageFlags usage, uint32_t graphicsQueueFamilyIndex, uint32_t presentQueueFamilyIndex) {
         SwapchainResource resource{};
@@ -473,11 +501,75 @@ export namespace ufox::gpu::vulkan {
         return resource;
     }
 
+    void CreateImage(const GPUResources& gpu,vk::Extent2D extent, vk::Format format, vk::ImageTiling tiling, vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties, std::optional<vk::raii::Image> &image, std::optional<vk::raii::DeviceMemory> &imageMemory){
+        vk::ImageCreateInfo imageInfo{};
+        imageInfo
+            .setImageType(vk::ImageType::e2D)
+            .setFormat(format)
+            .setExtent({ extent.width, extent.height, 1 })
+            .setMipLevels(1)
+            .setArrayLayers(1)
+            .setSamples(vk::SampleCountFlagBits::e1)
+            .setTiling(tiling)
+            .setUsage(usage)
+            .setSharingMode(vk::SharingMode::eExclusive)
+            .setInitialLayout(vk::ImageLayout::eUndefined);
+
+        image.emplace(*gpu.device, imageInfo);
+
+        vk::MemoryRequirements memRequirements = image->getMemoryRequirements();
+        vk::MemoryAllocateInfo allocInfo{};
+        allocInfo
+            .setAllocationSize(memRequirements.size)
+            .setMemoryTypeIndex(FindMemoryType(gpu.physicalDevice.value().getMemoryProperties(), memRequirements.memoryTypeBits, properties));
+
+        imageMemory.emplace(*gpu.device, allocInfo);
+        image->bindMemory(imageMemory.value(), 0);
+    }
+
+    void CreateImageView(const GPUResources& gpu, std::optional<vk::raii::ImageView>& view,vk::raii::Image &image, vk::Format format, vk::ImageAspectFlags aspectFlags){
+        vk::ImageViewCreateInfo viewInfo{};
+        viewInfo
+            .setImage(image)
+            .setViewType(vk::ImageViewType::e2D)
+            .setFormat(format)
+            .setSubresourceRange({aspectFlags, 0, 1, 0, 1});
+        view.emplace(*gpu.device, viewInfo);
+    }
+
     FrameResource MakeFrameResource(const GPUResources& gpu, const vk::FenceCreateFlags& fenceFlags) {
         return MakeFrameResource(*gpu.device, *gpu.commandPool, fenceFlags);
     }
 
-    constexpr vk::raii::DescriptorSetLayout MakeDescriptorSetLayout(const GPUResources& gpu,std::vector<std::tuple<vk::DescriptorType, uint32_t, vk::ShaderStageFlags, vk::Sampler*>> const & bindingData,
+    vk::Format FindDepthFormat(const GPUResources& gpu) {
+        return FindSupportedFormat(gpu,{vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eD24UnormS8Uint},vk::ImageTiling::eOptimal,vk::FormatFeatureFlagBits::eDepthStencilAttachment);
+    }
+
+    bool HasStencilComponent(vk::Format format) {
+        return format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint;
+    }
+
+    void MakeDepthImage(const GPUResources& gpu, SwapchainResource& swapchainResource) {
+        swapchainResource.depthFormat = FindDepthFormat(gpu);
+        CreateImage(gpu, swapchainResource.extent, swapchainResource.depthFormat, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal, swapchainResource.depthImage, swapchainResource.depthImageMemory);
+        CreateImageView(gpu, swapchainResource.depthImageView, *swapchainResource.depthImage, swapchainResource.depthFormat, vk::ImageAspectFlagBits::eDepth);
+    }
+
+    using DescriptorSetLayoutBinding = std::tuple<vk::DescriptorType,uint32_t,vk::ShaderStageFlags, vk::Sampler*>;
+
+    [[nodiscard]] DescriptorSetLayoutBinding MakeUniformBufferLayoutBinding(const uint32_t& maxSize = 1, const vk::ShaderStageFlags& flags = vk::ShaderStageFlagBits::eVertex) noexcept {
+        return {vk::DescriptorType::eUniformBuffer,maxSize,flags,nullptr};
+    }
+
+    [[nodiscard]] DescriptorSetLayoutBinding MakeStorageBufferLayoutBinding(const uint32_t& maxSize = 1, const vk::ShaderStageFlags& flags = vk::ShaderStageFlagBits::eVertex) noexcept {
+        return {vk::DescriptorType::eStorageBuffer,maxSize,flags,nullptr};
+    }
+
+    [[nodiscard]] DescriptorSetLayoutBinding MakeCombinedImageSamplerLayoutBinding(const uint32_t& maxSize = 1, const vk::ShaderStageFlags& flags = vk::ShaderStageFlagBits::eFragment) noexcept {
+        return {vk::DescriptorType::eCombinedImageSampler,maxSize,flags,nullptr};
+    }
+
+    constexpr vk::raii::DescriptorSetLayout MakeDescriptorSetLayout(const GPUResources& gpu,const std::vector<DescriptorSetLayoutBinding>& bindingData,
         const vk::DescriptorSetLayoutCreateFlags flags = {} )
     {
         std::vector<vk::DescriptorSetLayoutBinding> bindings( bindingData.size() );
@@ -645,34 +737,6 @@ export namespace ufox::gpu::vulkan {
         EndSingleTimeCommands(cmd, *gpu.graphicsQueue);
     }
 
-    vk::raii::ImageView CreateImageView(const vk::raii::Device& device, const vk::raii::Image& image, const vk::Format& format,
-        const vk::ImageViewType type = vk::ImageViewType::e2D,
-        const vk::ImageSubresourceRange &subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 } ) {
-        vk::ImageViewCreateInfo createInfo{};
-        createInfo
-            .setImage(image)
-            .setViewType(type)
-            .setFormat(format)
-            .setSubresourceRange(subresourceRange);
-
-        return { device, createInfo };
-    }
-
-
-    void CreateImageView(const GPUResources& gpu, TextureImage& image) {
-        image.view.reset();
-
-        vk::ImageViewCreateInfo createInfo{};
-        createInfo
-            .setImage(*image.data)
-            .setViewType(image.viewType)
-            .setFormat(image.format)
-            .setSubresourceRange(image.subresourceRange);
-
-        image.view.emplace(*gpu.device, createInfo);
-    }
-
-
     void MakeBuffer(Buffer& buffer,const GPUResources& gpu, const vk::DeviceSize& size, const vk::BufferUsageFlags& usage, const vk::MemoryPropertyFlags& properties, const vk::SharingMode& shareMode = vk::SharingMode::eExclusive) noexcept {
         if (!gpu.device || !gpu.physicalDevice || size == 0 || !usage) return ;
 
@@ -788,7 +852,7 @@ export namespace ufox::gpu::vulkan {
         return createInfo;
     }
 
-    [[nodiscard]] vk::WriteDescriptorSet MakeWriteDescriptorSet(const vk::raii::DescriptorSet& set, const vk::DescriptorBufferInfo& info,
+    [[nodiscard]] vk::WriteDescriptorSet MakeBufferWriteDescriptorSet(const vk::raii::DescriptorSet& set, const vk::DescriptorBufferInfo& info,
     const uint32_t binding, const vk::DescriptorType type, const uint32_t descriptorCount = 1, const uint32_t arrayElement = 0) {
         vk::WriteDescriptorSet writeDescriptorSet{};
         writeDescriptorSet

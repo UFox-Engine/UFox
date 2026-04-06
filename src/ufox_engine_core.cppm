@@ -332,32 +332,10 @@ export namespace ufox::engine {
       }
     }
 
-    void executeRenderPassEvents(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex) {
+    void executeRenderPassEvents(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment) {
       for (auto [callback, used] : renderPassEventHandlers) {
-        if (callback) callback(cmb, imageIndex, *windowResource, used);
+        if (callback) callback(cmb, imageIndex, *windowResource, colorAttachment, depthAttachment, used);
       }
-    }
-
-    void recordCommandBuffer(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex) {
-      std::array<vk::ClearValue, 2> clearValues{};
-      clearValues[0].color        = vk::ClearColorValue{0.0f, 0.0f, 0.0f,1.0f};
-      clearValues[1].depthStencil = vk::ClearDepthStencilValue{0.0f, 0};
-
-      cmb.begin({});
-      vk::ImageSubresourceRange range{};
-      range.aspectMask     = vk::ImageAspectFlagBits::eColor;
-      range.baseMipLevel   = 0;
-      range.levelCount     = VK_REMAINING_MIP_LEVELS;
-      range.baseArrayLayer = 0;
-      range.layerCount     = VK_REMAINING_ARRAY_LAYERS;
-
-      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal );
-
-      executeRenderPassEvents(cmb, imageIndex);
-
-      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR );
-
-      cmb.end();
     }
 
     vk::Extent2D recreateSwapchain() {
@@ -372,9 +350,60 @@ export namespace ufox::engine {
       windowResource->extent = size;
       windowResource->swapchainResource->Clear();
       gpu::vulkan::ReMakeSwapchainResource(*windowResource->swapchainResource, gpuResource, *windowResource, vk::ImageUsageFlagBits::eColorAttachment);
+      gpu::vulkan::MakeDepthImage(gpuResource, *windowResource->swapchainResource);
 
       return size;
     }
+
+    void recordCommandBuffer(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex) {
+      std::array<vk::ClearValue, 2> clearValues{};
+      clearValues[0].color        = vk::ClearColorValue{0.0f, 0.0f, 0.0f,1.0f};
+      clearValues[1].depthStencil = vk::ClearDepthStencilValue{0.0f, 0};
+
+      cmb.begin({});
+      vk::ImageSubresourceRange range{};
+      range.aspectMask     = vk::ImageAspectFlagBits::eColor;
+      range.baseMipLevel   = 0;
+      range.levelCount     = 1;
+      range.baseArrayLayer = 0;
+      range.layerCount     = 1;
+
+      vk::ImageSubresourceRange rangeDepth{};
+      rangeDepth.aspectMask     = vk::ImageAspectFlagBits::eDepth;
+      rangeDepth.baseMipLevel   = 0;
+      rangeDepth.levelCount     = 1;
+      rangeDepth.baseArrayLayer = 0;
+      rangeDepth.layerCount     = 1;
+
+      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal );
+
+      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->depthImage.value(), windowResource->swapchainResource->depthFormat, rangeDepth, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthAttachmentOptimal );
+
+      vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 0.0f);
+      vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
+
+      vk::RenderingAttachmentInfo colorAttachment{};
+      colorAttachment.setImageView(windowResource->swapchainResource->getCurrentImageView())
+                     .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+                     .setLoadOp(vk::AttachmentLoadOp::eClear)
+                     .setStoreOp(vk::AttachmentStoreOp::eStore)
+                     .setClearValue(clearColor);
+
+      vk::RenderingAttachmentInfo depthAttachment{};
+      depthAttachment.setImageView(*windowResource->swapchainResource->depthImageView)
+                     .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+                     .setLoadOp(vk::AttachmentLoadOp::eClear)
+                     .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+                     .setClearValue(clearDepth);
+
+      executeRenderPassEvents(cmb, imageIndex, colorAttachment, depthAttachment);
+
+      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR );
+
+      cmb.end();
+    }
+
+
 
     void drawFrame() {
       while ( vk::Result::eTimeout == gpuResource.device->waitForFences( *frameResource->getCurrentDrawFence(), vk::True, UINT64_MAX ) )
@@ -523,7 +552,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     window->gpuResource.presentQueue.emplace(gpu::vulkan::MakePresentQueue(window->gpuResource));
     window->windowResource->swapchainResource.emplace(gpu::vulkan::MakeSwapchainResource(window->gpuResource,*window->windowResource,gpu::vulkan::COLOR_IMAGE_USAGE_FLAG));
     window->frameResource.emplace(gpu::vulkan::MakeFrameResource(window->gpuResource, gpu::vulkan::SIGNALED_FENCE_CREATE_FLAG));
-
+    gpu::vulkan::MakeDepthImage(window->gpuResource, *window->windowResource->swapchainResource);
 
 #ifdef USE_SDL
     SDL_AddEventWatch(FramebufferResizeCallback, window.get());
@@ -715,13 +744,27 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     virtual void init() = 0;
     virtual void makeResource(const ResourceContextCreateInfo& info) = 0;
 
+    [[nodiscard]] ResourceContext* getResourceContext(const ResourceID& id) noexcept {
+      const auto it = container.find(id);
+      return it != container.end() ? &it->second : nullptr;
+    }
+
+    [[nodiscard]] ResourceContext* getResourceContext(const std::string_view id) noexcept {
+      const auto it = container.find(id);
+      return it != container.end() ? &it->second : nullptr;
+    }
+
+    [[nodiscard]] ResourceContext* getResourceContext(const char* id) noexcept {
+      return id ? getResourceContext(std::string_view{id}) : nullptr;
+    }
+
     protected:
       const std::filesystem::path directory{};
       std::span<const std::string_view> sourceExtensions{};
       DirectoryContext directoryContext{};
       const gpu::vulkan::GPUResources* gpuResources{nullptr};
       BuiltInResources builtInResources{};
-      std::unordered_map<ResourceID, ResourceContext> container{};
+      std::unordered_map<ResourceID, ResourceContext, ResourceIDHash, ResourceIDEq> container{};
 
       [[nodiscard]] const std::filesystem::path& getDirectory() const noexcept {
         return directory;
@@ -735,12 +778,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         return it->second.sourceType == SourceType::eBuiltIn;
       }
 
-      [[nodiscard]] ResourceContext* getResourceContext(const ResourceID& id) noexcept {
-        if (!id.IsValid() || !container.contains(id)) return nullptr;
-        return &container.at(id);
-      }
-
-      [[nodiscard]] ResourceID makeResourceContext(const ResourceID& builtInId = {}) {
+      ResourceID makeResourceContext(const ResourceID& builtInId = {}) {
         const auto& id = builtInId.IsValid()? builtInId : ResourceID(nanoid::generate(12));
         auto [it, inserted] = container.try_emplace(id, ResourceContext{});
         auto& slot = it->second;
@@ -748,7 +786,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         return id;
       }
 
-     [[nodiscard]] const ResourceID* bindResource(std::unique_ptr<ResourceBase>& resource, const ResourceContextCreateInfo& info) {
+     [[nodiscard]] const ResourceID* bindResourceToContext(std::unique_ptr<ResourceBase>& resource, const ResourceContextCreateInfo& info) {
         auto& ctx = *getResourceContext(resource->iD);
         ctx.name = info.name;
         ctx.sourceType = info.sourceType;
@@ -759,11 +797,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         ctx.lastWriteTime = info.lastWriteTimeFromMeta;
         WriteResourceContextMetaData(ctx);
         return &ctx.dataPtr->iD;
-      }
-
-      [[nodiscard]] size_t getUsage(const ResourceID& id) {
-        const auto* ctx = getResourceContext(id);
-        return ctx ? ctx->users.size() : 0;
       }
 
       static void clearAllGpuResources(ResourceManagerBase& manager) {

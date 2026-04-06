@@ -100,15 +100,13 @@ export namespace ufox::geometry {
         1, 2, 6,    6, 5, 1       // right
     };
 
+    inline const auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";
 
+    inline const auto QUAD = "quad";
+    inline const auto CUBE = "cube";
 
-    constexpr auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";
-
-    constexpr auto QUAD = "quad";
-    constexpr auto CUBE = "cube";
-
-    constexpr engine::ResourceID BUILTIN_QUAD_ID  {QUAD};
-    constexpr engine::ResourceID BUILTIN_CUBE_ID  {CUBE};
+    inline const engine::ResourceID BUILTIN_QUAD_ID  {QUAD};
+    inline const engine::ResourceID BUILTIN_CUBE_ID  {CUBE};
 
     struct Mesh final : engine::ResourceBase {
         std::vector<Vertex>                     vertices{};
@@ -132,23 +130,6 @@ export namespace ufox::geometry {
             indexBuffer.reset();
         }
 
-    };
-
-    struct MeshUser final : engine::ResourceUserBase {
-        Mesh* mesh = nullptr;
-        MeshUser() = default;
-
-        MeshUser(const engine::ResourceID* _id, Mesh* mesh) : ResourceUserBase(_id), mesh(mesh) {}
-
-        void setNewTarget(const engine::ResourceID* id, void* mesh) override{
-            this->id = id;
-            this->mesh = static_cast<Mesh*>(mesh);
-        }
-
-        void clear() override {
-            id = nullptr;
-            mesh = nullptr;
-        }
     };
 }
 
@@ -188,6 +169,7 @@ export namespace ufox::geometry::gltf {
     };
 
 }
+
 namespace std {
     template <>
     struct hash<ufox::geometry::Vertex>{

@@ -403,6 +403,7 @@ export namespace ufox {
             bool enableDynamicRendering{true};
             bool enableExtendedDynamicState{true};
             bool enableSynchronization2{true};
+            bool enableShaderDrawParameters{true};
 
             vk::CommandPoolCreateFlags commandPoolCreateFlags{};
 
@@ -434,10 +435,12 @@ export namespace ufox {
 
             void setCommandPoolCreateFlags(vk::CommandPoolCreateFlags flags) { commandPoolCreateFlags = flags; }
 
+            [[nodiscard]] bool getEnableShaderDrawParameters() const { return enableShaderDrawParameters; }
+            void setEnableShaderDrawParameters(bool enable) { enableShaderDrawParameters = enable; }
         };
 
         struct SwapchainResource {
-            vk::Format                                  colorFormat;
+            vk::Format                                  colorFormat{};
             std::optional<vk::raii::SwapchainKHR>       swapChain{};
             std::vector<vk::Image>                      images;
             std::vector<vk::raii::ImageView>            imageViews;
@@ -445,6 +448,10 @@ export namespace ufox {
             std::vector<vk::raii::Semaphore>            renderFinishedSemaphores{};
             uint32_t                                    currentImageIndex{0};
 
+            std::optional<vk::raii::Image>              depthImage{};
+            std::optional<vk::raii::DeviceMemory>       depthImageMemory{};
+            std::optional<vk::raii::ImageView>          depthImageView{};
+            vk::Format                                  depthFormat{};
 
             [[nodiscard]] const vk::Image& getCurrentImage() const {
                 return images[currentImageIndex];
@@ -537,63 +544,6 @@ export namespace ufox {
         struct RemappableBuffer {
             std::optional<Buffer>                       buffer{};
             std::optional<void*>                        mapped{nullptr};
-        };
-
-        struct TextureImage {
-
-            TextureImage() = default;
-
-            TextureImage(const GPUResources& gpu,
-                  uint32_t width, uint32_t          height,
-                  vk::Format format, vk::ImageTiling tiling,
-                  vk::ImageUsageFlags usage, vk::MemoryPropertyFlags properties, vk::SharingMode shareMode = vk::SharingMode::eExclusive) {
-
-                vk::ImageCreateInfo imageInfo{};
-                imageInfo
-                    .setImageType(vk::ImageType::e2D)
-                    .setFormat(format)
-                    .setExtent({ width, height, 1 })
-                    .setMipLevels(1)
-                    .setArrayLayers(1)
-                    .setSamples(vk::SampleCountFlagBits::e1)
-                    .setTiling(tiling)
-                    .setUsage(usage)
-                    .setSharingMode(shareMode);
-
-                data.emplace(gpu.device.value(), imageInfo);
-
-
-                vk::MemoryRequirements memoryRequirements = data->getMemoryRequirements();
-
-                vk::MemoryAllocateInfo allocInfo{};
-
-                allocInfo
-
-                    .setAllocationSize(memoryRequirements.size)
-
-                    .setMemoryTypeIndex(FindMemoryType(gpu.physicalDevice.value().getMemoryProperties(), memoryRequirements.memoryTypeBits, properties));
-
-                memory.emplace(gpu.device.value(), allocInfo);
-
-                data->bindMemory(*memory, 0);
-            }
-
-
-            ~TextureImage() = default;
-
-            std::optional<vk::raii::Image>              data{};
-            std::optional<vk::raii::DeviceMemory>       memory{};
-            std::optional<vk::raii::ImageView>          view{};
-            vk::Format                                  format{ vk::Format::eUndefined};
-            vk::Extent2D                                extent{ 0, 0 };
-            vk::ImageViewType                           viewType{ vk::ImageViewType::e2D };
-            vk::ImageSubresourceRange                   subresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-
-            void clear() {
-                view.reset();
-                data.reset();
-                memory.reset();
-            }
         };
     }
 
@@ -976,49 +926,5 @@ export namespace ufox {
                 onMouseWheelCallbackPool.invoke(*this);
             }
         };
-    }
-
-    namespace gui {
-        struct Style {
-            glm::vec4                                       backgroundColor = {0.5f, 0.5f, 0.5f, 1.0f};
-            glm::vec4                                       borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4                                       borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4                                       borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4                                       borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            glm::vec4                                       borderThickness = {1.0f, 1.0f, 1.0f, 1.0f}; // Top, right, bottom, left
-            glm::vec4                                       cornerRadius = {10.0f, 10.0f, 10.0f, 10.0f}; // Top-left, top-right, bottom-left, bottom-right
-        };
-
-        struct StyleResource {
-            std::string                                     name;
-            size_t                                          id{0};
-            Style                                           content;
-            gpu::vulkan::Buffer                             buffer{};
-        };
-
-        constexpr vk::DeviceSize GUI_STYLE_BUFFER_SIZE = sizeof(Style);
-
-        struct GUIElement {
-            glm::vec3                                       position = {0.0f, 0.0f, 0.0f};
-            glm::vec3                                       rotation = {0.0f, 0.0f, 0.0f};
-            glm::vec3                                       scale = {1.0f, 1.0f, 1.0f};
-
-            std::vector<gpu::vulkan::Buffer>                uniformBuffers;
-            std::vector<void*>                              uniformBuffersMapped;
-
-            std::vector<vk::raii::DescriptorSet>            descriptorSets;
-
-            [[nodiscard]] glm::mat4 getModelMatrix() const {
-                auto model = glm::mat4(1.0f);
-                model = glm::translate(model, position);
-                model = glm::rotate(model, rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
-                model = glm::rotate(model, rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
-                model = glm::rotate(model, rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
-                model = glm::scale(model, scale);
-                return model;
-            }
-        };
-
-
     }
 }

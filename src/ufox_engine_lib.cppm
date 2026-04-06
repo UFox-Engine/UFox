@@ -27,11 +27,11 @@ export namespace ufox::engine {
   using ResourceInitEventHandler = void(*)(const float& w, const float& h, void* user);
   using StartEventHandler = void(*)(void* user);
   using UpdateBufferEventHandler = void(*)(const uint32_t& currentImage, void* user);
-  using DrawCanvasEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource, void* user );
+  using DrawCanvasEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user );
 
   constexpr auto META_TAG_RESOURCE_CONTEXT = "resource-context";
 
-  constexpr auto SCREEN_VIEW_METRIX = glm::mat4(1.0f);
+  inline auto SCREEN_VIEW_METRIX = glm::mat4(1.0f);
   constexpr vk::DeviceSize MAT4_BUFFER_SIZE = sizeof(glm::mat4);
   constexpr auto SCREEN_VIEW_PROJECTION_BUFFER_TYPE = vk::DescriptorType::eUniformBuffer;
 
@@ -41,24 +41,65 @@ export namespace ufox::engine {
   struct ResourceID final {
     std::string data{};
 
-    constexpr ResourceID() noexcept = default;
-    explicit constexpr ResourceID(std::string s) noexcept : data(std::move(s)) {}
+    ResourceID() = default;
+    explicit ResourceID(std::string_view s) : data(s) {}
 
-    [[nodiscard]] constexpr bool        IsValid()     const noexcept { return !data.empty(); }
-    [[nodiscard]] constexpr explicit operator bool()  const noexcept { return IsValid(); }
+    [[nodiscard]] bool empty() const noexcept { return data.empty(); }
+    [[nodiscard]] bool IsValid() const noexcept { return !empty(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return IsValid(); }
 
-    friend constexpr auto operator<=>(const ResourceID&, const ResourceID&) noexcept = default;
-    friend constexpr bool operator==(const ResourceID&, const ResourceID&)  noexcept = default;
+    [[nodiscard]] std::string_view view() const noexcept { return data; }
+    [[nodiscard]] const std::string& str() const noexcept { return data; }
 
-    // Very useful for logging / debugging
+    friend auto operator<=>(const ResourceID&, const ResourceID&) noexcept = default;
+    friend bool operator==(const ResourceID&, const ResourceID&) noexcept = default;
+
     friend std::ostream& operator<<(std::ostream& os, const ResourceID& id) {
       return os << (id.IsValid() ? id.data : "[invalid]");
     }
-
-    [[nodiscard]] std::string_view view() const noexcept { return data; }
   };
 
-  inline constexpr ResourceID INVALID_CONTENT_ID {};
+  inline const ResourceID INVALID_CONTENT_ID{};
+
+  struct ResourceIDHash {
+    using is_transparent = void;
+
+    [[nodiscard]] std::size_t operator()(const ResourceID& id) const noexcept {
+      return std::hash<std::string_view>{}(id.view());
+    }
+
+    [[nodiscard]] std::size_t operator()(std::string_view id) const noexcept {
+      return std::hash<std::string_view>{}(id);
+    }
+
+    [[nodiscard]] std::size_t operator()(const char* id) const noexcept {
+      return id ? std::hash<std::string_view>{}(id) : 0u;
+    }
+  };
+
+  struct ResourceIDEq {
+    using is_transparent = void;
+
+    [[nodiscard]] bool operator()(const ResourceID& a, const ResourceID& b) const noexcept {
+      return a.data == b.data;
+    }
+
+    [[nodiscard]] bool operator()(const ResourceID& a, std::string_view b) const noexcept {
+      return a.data == b;
+    }
+
+    [[nodiscard]] bool operator()(std::string_view a, const ResourceID& b) const noexcept {
+      return a == b.data;
+    }
+
+    [[nodiscard]] bool operator()(const ResourceID& a, const char* b) const noexcept {
+      return b && a.data == b;
+    }
+
+    [[nodiscard]] bool operator()(const char* a, const ResourceID& b) const noexcept {
+      return a && std::string_view{a} == b.data;
+    }
+  };
 
   enum class SourceType : uint8_t {
     eBuiltIn   = 0,
@@ -91,15 +132,15 @@ export namespace ufox::engine {
   struct ResourceBase {
     virtual ~ResourceBase() = default;
 
-    std::string               name;
-    const ResourceID           iD;
+    std::string                       name;
+    const ResourceID                  iD;
 
     explicit ResourceBase(const std::string_view name_view,ResourceID cid_)
         : name(name_view), iD(std::move(cid_)){}
 
     [[nodiscard]] virtual bool hasGpuResources() const noexcept=0;
 
-    virtual void releaseGpuResources() noexcept =0;
+    virtual void releaseGpuResources() noexcept = 0;
 
     template<typename T>
     T* getContent() {
@@ -107,30 +148,17 @@ export namespace ufox::engine {
     }
   };
 
-  struct ResourceUserBase {
-    virtual ~ResourceUserBase() = default;
-    ResourceUserBase() = default;
-    explicit ResourceUserBase(const ResourceID* _id) : id(_id){}
-
-    const ResourceID* id = nullptr;
-
-    virtual void setNewTarget(const ResourceID* id, void* target) = 0;
-    virtual void clear() = 0;
-  };
-
   struct ResourceContext {
     std::string                                 name{"empty"};
     SourceType                                  sourceType{SourceType::eBuiltIn};
     std::string                                 category{"none"};
     std::unique_ptr<ResourceBase>               dataPtr{nullptr};
-    std::vector<ResourceUserBase*>              users{};
     std::filesystem::path                       sourcePath{};
     std::chrono::file_clock::time_point         lastImportTime{};
     std::string                                 lastWriteTime{};
 
     void clear() noexcept {
       dataPtr.reset();
-      users.clear();
       sourcePath.clear();
       lastImportTime = {};
       lastWriteTime.clear();
