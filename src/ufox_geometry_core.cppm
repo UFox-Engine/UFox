@@ -27,7 +27,8 @@ import ufox_engine_lib;
 import ufox_engine_core;
 import ufox_geometry_lib;
 import ufox_input;
-import ufox_graphic_device;
+import ufox_gpu_lib;
+import ufox_gpu_core;
 import ufox_nanoid;
 
 using namespace ufox::engine;
@@ -380,17 +381,17 @@ export namespace ufox::geometry {
 
     [[nodiscard]] const ResourceID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
 
-    void MakeVertexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
-        gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.vertices, vk::BufferUsageFlagBits::eVertexBuffer, mesh.vertexBuffer);
+    void MakeVertexBuffer(const gpu::GPUResources& gpu, Mesh& mesh) {
+        gpu::MakeAndCopyBuffer(gpu, mesh.vertices, vk::BufferUsageFlagBits::eVertexBuffer, mesh.vertexBuffer);
     }
 
-    void MakeIndexBuffer(const gpu::vulkan::GPUResources& gpu, Mesh& mesh) {
-        gpu::vulkan::MakeAndCopyBuffer(gpu, mesh.indices, vk::BufferUsageFlagBits::eIndexBuffer, mesh.indexBuffer);
+    void MakeIndexBuffer(const gpu::GPUResources& gpu, Mesh& mesh) {
+        gpu::MakeAndCopyBuffer(gpu, mesh.indices, vk::BufferUsageFlagBits::eIndexBuffer, mesh.indexBuffer);
     }
 
     class MeshManager final : ResourceManagerBase {
     public:
-        explicit MeshManager(const gpu::vulkan::GPUResources& gpu) :
+        explicit MeshManager(const gpu::GPUResources& gpu) :
         ResourceManagerBase(gpu, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {}
 
         ~MeshManager() override {

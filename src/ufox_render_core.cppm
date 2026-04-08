@@ -19,7 +19,8 @@ import ufox_lib;
 import ufox_engine_lib;
 import ufox_engine_core;
 import ufox_nanoid;
-import ufox_graphic_device;
+import ufox_gpu_lib;
+import ufox_gpu_core;
 import ufox_render_lib;
 
 using namespace ufox::engine;
@@ -47,7 +48,7 @@ export namespace ufox::render {
             return {std::move(pixels), vk::Extent2D{width, height}};
         }
 
-        std::pair<std::vector<std::byte>, vk::Extent2D> CreateCheckerTexture(const uint32_t size,const Color& color1,const Color& color2) {
+        std::pair<std::vector<std::byte>, vk::Extent2D> CreateCheckerPixels(const uint32_t size,const Color& color1,const Color& color2) {
             if (size == 0) return {};
             std::vector<std::byte> pixels(size * size * PIXEL_BYTE_SIZE);
 
@@ -74,7 +75,7 @@ export namespace ufox::render {
 
         constexpr std::pair<std::vector<std::byte>, vk::Extent2D> WhitePixel()  {return CreateSolidColorPixels(1, 1, Color::White());}
         constexpr std::pair<std::vector<std::byte>, vk::Extent2D> BlackPixel()  {return CreateSolidColorPixels(1, 1, Color::Black());}
-        constexpr std::pair<std::vector<std::byte>, vk::Extent2D> BlackAndWhiteCheckerPixels(const uint32_t size = 128) {return CreateCheckerTexture(size, Color::Black(), Color::White());}
+        constexpr std::pair<std::vector<std::byte>, vk::Extent2D> BlackAndWhiteCheckerPixels(const uint32_t size = 128) {return CreateCheckerPixels(size, Color::Black(), Color::White());}
     }
 
     class TextureManager;
@@ -123,102 +124,36 @@ export namespace ufox::render {
         return {{procedures::WHITE, MakeWhiteTexture(manager)},{"default", MakeDefaultTexture(manager)},{procedures::BLACK, MakeBlackTexture(manager)}};
     }
 
-    void CopyBufferToImage(const gpu::vulkan::GPUResources & gpu, const gpu::vulkan::Buffer& buffer, const Texture& texture, const vk::Extent3D& extent, const vk::ImageSubresourceLayers& subresourceLayers = {vk::ImageAspectFlagBits::eColor,0,0,1}, const vk::Offset3D& offset = {0,0,0},const vk::DeviceSize& bufferOffset = 0, const uint32_t& bufferRowLength = 0, const uint32_t& bufferImageHeight = 0) {
-        const auto cmb = gpu::vulkan::BeginSingleTimeCommands(gpu);
-        gpu::vulkan::TransitionImageLayout(cmb, texture.image.value(), texture.format, texture.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-
-        vk::BufferImageCopy region{};
-        region.setImageSubresource( subresourceLayers)
-              .setImageOffset(offset)
-              .setImageExtent(extent)
-              .setBufferOffset(bufferOffset)
-              .setBufferRowLength(bufferRowLength)
-              .setBufferImageHeight(bufferImageHeight);
-
-        cmb.copyBufferToImage(*buffer.data, *texture.image, vk::ImageLayout::eTransferDstOptimal, { region });
-
-        gpu::vulkan::TransitionImageLayout(cmb, texture.image.value(), texture.format, texture.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
-        gpu::vulkan::EndSingleTimeCommands(gpu, cmb);
-    }
-
-    void MakeImage(const gpu::vulkan::GPUResources& gpu, Texture& texture,const vk::ImageUsageFlags& usage, const vk::MemoryPropertyFlags& properties,const vk::SharingMode& shareMode = vk::SharingMode::eExclusive) {
-        gpu::vulkan::Buffer staging{};
+    void MakeTexture2D(const gpu::GPUResources& gpu, Texture& texture,const vk::ImageUsageFlags& usage, const vk::MemoryPropertyFlags& properties,const vk::SharingMode& shareMode = vk::SharingMode::eExclusive) {
+        gpu::Buffer staging{};
         vk::DeviceSize bufferSize = texture.size();
-        gpu::vulkan::MakeBuffer(staging, gpu, bufferSize,vk::BufferUsageFlagBits::eTransferSrc,vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-        gpu::vulkan::CopyToDevice(*staging.memory, texture.pixels.data(), bufferSize);
-
-        vk::ImageCreateInfo imageInfo{};
-        imageInfo
-            .setImageType(vk::ImageType::e2D)
-            .setFormat(texture.format)
-            .setExtent({ texture.width(), texture.height(), 1 })
-            .setMipLevels(1)
-            .setArrayLayers(1)
-            .setSamples(vk::SampleCountFlagBits::e1)
-            .setTiling(texture.tiling)
-            .setUsage(usage)
-            .setSharingMode(shareMode);
-
-        texture.image.emplace(gpu.device.value(), imageInfo);
-
-        vk::MemoryRequirements memoryRequirements = texture.image->getMemoryRequirements();
-
-        vk::MemoryAllocateInfo allocInfo{};
-        allocInfo
-            .setAllocationSize(memoryRequirements.size)
-            .setMemoryTypeIndex(gpu::vulkan::FindMemoryType(gpu.physicalDevice.value().getMemoryProperties(), memoryRequirements.memoryTypeBits, properties));
-
-        texture.memory.emplace(gpu.device.value(), allocInfo);
-
-        texture.image->bindMemory(*texture.memory, 0);
-
-        CopyBufferToImage(gpu, staging, texture, {texture.width(), texture.height(), 1});
+        gpu::MakeBuffer(staging, gpu, bufferSize,vk::BufferUsageFlagBits::eTransferSrc,vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+        gpu::CopyToDevice(*staging.memory, texture.pixels.data(), bufferSize);
+        gpu::MakeImage(gpu, texture.image, { texture.width(), texture.height(), 1 }, texture.format, texture.tiling, usage, properties, texture.type, shareMode);
+        gpu::CopyBufferToImage(gpu, staging, texture.image, texture.format, {texture.width(), texture.height(), 1}, texture.subresourceRange);
     }
 
-    void MakeTextureImageView(gpu::vulkan::GPUResources const & gpu, Texture & texture) {
+    void MakeTexture2DImageView(gpu::GPUResources const & gpu, Texture & texture) {
         vk::ImageViewCreateInfo viewInfo{};
         viewInfo
-            .setImage(*texture.image)
+            .setImage(*texture.image.data)
             .setViewType(vk::ImageViewType::e2D)
             .setFormat(texture.format)
             .setSubresourceRange(texture.subresourceRange);
-        texture.view.emplace(gpu.device.value(), viewInfo);
-    }
-
-    void MakeTextureSampler(const gpu::vulkan::GPUResources & gpu, Texture& texture){
-        const auto deviceProperties = gpu.physicalDevice->getProperties();
-
-        vk::SamplerCreateInfo samplerInfo{};
-        samplerInfo.setMagFilter(vk::Filter::eLinear)
-                    .setMinFilter(vk::Filter::eLinear)
-                    .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeW(vk::SamplerAddressMode::eRepeat)
-                    .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-                    .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-                    .setAnisotropyEnable(false)
-                    .setMaxAnisotropy(deviceProperties.limits.maxSamplerAnisotropy)
-                    .setUnnormalizedCoordinates(false)
-                    .setCompareEnable(false)
-                    .setCompareOp(vk::CompareOp::eAlways)
-                    .setMinLod(0.0f)
-                    .setMaxLod(0.0f)
-                    .setMipLodBias(0.0f);
-
-        texture.sampler.emplace(gpu.device.value(), samplerInfo);
+        texture.image.view.emplace(gpu.device.value(), viewInfo);
     }
 
     vk::DescriptorImageInfo MakeDescriptorImageInfo(const Texture& texture) noexcept {
         vk::DescriptorImageInfo descriptor{};
         descriptor.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        descriptor.imageView = *texture.view;
+        descriptor.imageView = *texture.image.view;
         descriptor.sampler = *texture.sampler;
         return descriptor;
     }
 
     class TextureManager final : public ResourceManagerBase {
     public:
-        explicit TextureManager(const gpu::vulkan::GPUResources& gpu)
+        explicit TextureManager(const gpu::GPUResources& gpu)
             : ResourceManagerBase(gpu, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {}
 
         ~TextureManager() override {
@@ -251,9 +186,9 @@ export namespace ufox::render {
             makeResourceContext(id);
             std::unique_ptr<ResourceBase> res = std::make_unique<Texture>(info.name, pixels, extent, id);
             const auto texture = dynamic_cast<Texture*>(res.get());
-            MakeImage(*gpuResources, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,vk::MemoryPropertyFlagBits::eDeviceLocal);
-            MakeTextureImageView(*gpuResources, *texture);
-            MakeTextureSampler(*gpuResources, *texture);
+            MakeTexture2D(*gpuResources, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,vk::MemoryPropertyFlagBits::eDeviceLocal);
+            MakeTexture2DImageView(*gpuResources, *texture);
+            gpu::MakeSampler(*gpuResources, texture->sampler);
             debug::log(debug::LogLevel::eInfo, "TextureManager: makeTexture: created texture: {}", res->name);
             return bindResourceToContext(res, info);
         }

@@ -17,7 +17,8 @@ export module ufox_gui_core;
 import ufox_lib;
 import ufox_engine_lib;
 import ufox_engine_core;
-import ufox_graphic_device;
+import ufox_gpu_lib;
+import ufox_gpu_core;
 import ufox_geometry_core;
 import ufox_geometry_lib;
 import ufox_gui_lib;
@@ -180,7 +181,7 @@ export namespace ufox::gui {
             memcpy(uniformMemory[imageIndex], uniformData.data(), sizeof(UniformData) * uniformData.size());
         }
 
-        void makeSSBO(const gpu::vulkan::GPUResources& gpu, uint32_t imageCount) {
+        void makeSSBO(const gpu::GPUResources& gpu, uint32_t imageCount) {
             const size_t branchCount = rootElement->rect->branchCount;
 
             uniformBuffer.clear();
@@ -189,8 +190,8 @@ export namespace ufox::gui {
             uniformMemory.reserve(imageCount);
             const vk::DeviceSize size = sizeof(UniformData) * branchCount;
             for (size_t i = 0; i < imageCount; i++) {
-                gpu::vulkan::Buffer buffer;
-                gpu::vulkan::MakeBuffer(buffer, gpu, size, vk::BufferUsageFlagBits::eStorageBuffer,vk::MemoryPropertyFlagBits::eHostVisible |vk::MemoryPropertyFlagBits::eHostCoherent);
+                gpu::Buffer buffer;
+                gpu::MakeBuffer(buffer, gpu, size, vk::BufferUsageFlagBits::eStorageBuffer,vk::MemoryPropertyFlagBits::eHostVisible |vk::MemoryPropertyFlagBits::eHostCoherent);
                 uniformBuffer.push_back(std::move(buffer));
                 uniformMemory.push_back(uniformBuffer.back().memory->mapMemory(0, size));
             }
@@ -205,22 +206,22 @@ export namespace ufox::gui {
             return bufferInfo;
         }
 
-        std::vector<gpu::vulkan::Buffer>        uniformBuffer{};
+        std::vector<gpu::Buffer>                uniformBuffer{};
         std::vector<void*>                      uniformMemory{};
         std::vector<UniformData>                uniformData{};
     };
 
-    void MakeDescriptorSetLayout(const gpu::vulkan::GPUResources& gpu, RenderResource& guiResource, const uint32_t maxCombinedImageSampler = 1) {
-        auto descriptorLayout = gpu::vulkan::MakeDescriptorSetLayout(gpu,{
-            gpu::vulkan::MakeStorageBufferLayoutBinding(1),
-            gpu::vulkan::MakeUniformBufferLayoutBinding(1),
-            gpu::vulkan::MakeCombinedImageSamplerLayoutBinding(maxCombinedImageSampler)
+    void MakeDescriptorSetLayout(const gpu::GPUResources& gpu, RenderResource& guiResource, const uint32_t maxCombinedImageSampler = 1) {
+        auto descriptorLayout = gpu::MakeDescriptorSetLayout(gpu,{
+            gpu::MakeStorageBufferLayoutBinding(1),
+            gpu::MakeUniformBufferLayoutBinding(1),
+            gpu::MakeCombinedImageSamplerLayoutBinding(maxCombinedImageSampler)
         });
 
         guiResource.descriptorSetLayout.emplace(std::move(descriptorLayout));
     }
 
-    void MakePipelineLayout(const gpu::vulkan::GPUResources& gpu, RenderResource& renderResource) {
+    void MakePipelineLayout(const gpu::GPUResources& gpu, RenderResource& renderResource) {
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo
             .setSetLayoutCount(1)
@@ -230,8 +231,8 @@ export namespace ufox::gui {
         renderResource.pipelineLayout.emplace(*gpu.device, pipelineLayoutInfo);
     }
 
-    void MakePipeline(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, const std::vector<char>& shaderCode, RenderResource& renderResource) {
-        vk::raii::ShaderModule shaderModule = gpu::vulkan::CreateShaderModule(gpu ,shaderCode);
+    void MakePipeline(const gpu::GPUResources& gpu, const vk::Format& depthFormat, const gpu::SwapchainResource& swapchain, const std::vector<char>& shaderCode, RenderResource& renderResource) {
+        vk::raii::ShaderModule shaderModule = gpu::CreateShaderModule(gpu ,shaderCode);
         std::array stages = {
             vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eVertex, *shaderModule, "vertMain" },
             vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eFragment, *shaderModule, "fragMain" }
@@ -240,7 +241,7 @@ export namespace ufox::gui {
         std::array bindingDescription{Vertex::getBindingDescription()};
         auto attributeDescriptions = Vertex::getAttributeDescriptions();
 
-        vk::PipelineVertexInputStateCreateInfo vertexInput = gpu::vulkan::MakePipeVertexInputState(bindingDescription, attributeDescriptions);
+        vk::PipelineVertexInputStateCreateInfo vertexInput = gpu::MakePipeVertexInputState(bindingDescription, attributeDescriptions);
 
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly
@@ -299,7 +300,7 @@ export namespace ufox::gui {
         renderingInfo
         .setColorAttachmentCount(1)
         .setPColorAttachmentFormats(&swapchain.colorFormat)
-        .setDepthAttachmentFormat(swapchain.depthFormat);
+        .setDepthAttachmentFormat(depthFormat);
 
         vk::GraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo
@@ -322,7 +323,7 @@ export namespace ufox::gui {
         renderResource.pipeline.emplace(*gpu.device, *renderResource.pipelineCache, pipelineInfo);
     }
 
-    void MakeDescriptorPool(const gpu::vulkan::GPUResources& gpu, const gpu::vulkan::SwapchainResource& swapchain, RenderResource& renderResource) {
+    void MakeDescriptorPool(const gpu::GPUResources& gpu, const gpu::SwapchainResource& swapchain, RenderResource& renderResource) {
         uint32_t imageCount = swapchain.getImageCount();
         std::array poolSizes {
             vk::DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, imageCount),
@@ -361,7 +362,7 @@ export namespace ufox::gui {
                     .setDescriptorType(vk::DescriptorType::eStorageBuffer)
                     .setDescriptorCount(1)
                     .setPBufferInfo(&ssboInfo);
-            write[1] = gpu::vulkan::MakeBufferWriteDescriptorSet(sets[i], window.MakeScreenViewProjectionBufferInfo(), 1, SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
+            write[1] = gpu::MakeBufferWriteDescriptorSet(sets[i], window.MakeScreenViewProjectionBufferInfo(), 1, SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
             write[2].setDstSet(*sets[i])
             .setDstBinding(2)
             .setDstArrayElement(0)
@@ -383,7 +384,7 @@ export namespace ufox::gui {
                 window->registerResourceInitEventHandlers([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->initResource(w,h);}, this);
                 window->registerResizeEventHandlers([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->updateViewportSize(w,h);}, this);
                 window->registerUpdateBufferEventHandlers([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
-                window->registerDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const windowing::WindowResource& winResource,
+                window->registerDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
                     const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, depthAttachment);}, this);
             }
         }
@@ -463,13 +464,13 @@ export namespace ufox::gui {
             samplerImageCount = textureManager->getMaxDescriptorSetSamplerImages(samplerImageCount);
             textureManager->buildTextureMap(&textureMap);
 
-            const gpu::vulkan::GPUResources& gpu = window->gpuResource;
+            const gpu::GPUResources& gpu = window->gpuResource;
             makeUniformResource();
             const std::vector<char> shaderCode = UFoxWindow::ReadFileChar("res/shaders/test.slang.spv");
 
             MakeDescriptorSetLayout(gpu, renderResource, samplerImageCount);
             MakePipelineLayout(gpu, renderResource);
-            MakePipeline(gpu, *window->windowResource->swapchainResource, shaderCode, renderResource);
+            MakePipeline(gpu, window->depthResource->format, *window->windowResource->swapchainResource, shaderCode, renderResource);
             MakeDescriptorPool(gpu, *window->windowResource->swapchainResource, renderResource);
             MakeDescriptorSets(*window, window->getImageCount(), rootPanel, renderResource, *textureManager, samplerImageCount);
             updateViewportSize(width, height);
@@ -512,7 +513,7 @@ export namespace ufox::gui {
             rootPanel.updateUniformBuffer(currentImage);
         }
 
-        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource,
+        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource,
             const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment) const {
             int height, width;
 

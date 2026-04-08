@@ -133,7 +133,8 @@ target_sources(UFox-modules
         FILE_SET CXX_MODULES TYPE CXX_MODULES
         FILES
         src/ufox_Lib.cppm
-        src/ufox_graphic_device.cppm
+        src/ufox_gpu_lib.cppm
+        src/ufox_gpu_core.cppm
         src/ufox_input.cppm
         src/ufox_engine_lib.cppm
         src/ufox_engine_core.cppm

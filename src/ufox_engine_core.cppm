@@ -28,8 +28,10 @@ module;
 export module ufox_engine_core;
 
 import ufox_lib;
+import ufox_gpu_lib;
+import ufox_gpu_core;
 import ufox_engine_lib;
-import ufox_graphic_device;
+
 import ufox_nanoid;
 
 export namespace ufox::engine {
@@ -126,10 +128,11 @@ export namespace ufox::engine {
 
   class UFoxWindow {
   public:
-    gpu::vulkan::GraphicDeviceCreateInfo            gpuCreateInfo{};
-    gpu::vulkan::GPUResources                       gpuResource{};
-    std::optional<windowing::WindowResource>        windowResource{};
-    std::optional<gpu::vulkan::FrameResource>       frameResource{};
+    gpu::GraphicDeviceCreateInfo                          gpuCreateInfo{};
+    gpu::GPUResources                                     gpuResource{};
+    std::optional<gpu::WindowResource>         windowResource{};
+    std::optional<gpu::FrameResource>                     frameResource{};
+    std::optional<gpu::DepthImageResource>                depthResource{};
 
 
     [[nodiscard]] constexpr bool isRunning() const { return running; }
@@ -289,10 +292,10 @@ export namespace ufox::engine {
     bool                                                          pauseRendering {false};
     bool                                                          startFrameExecuted {false};
 
-    std::optional<gpu::vulkan::Buffer>                            screenViewProjectionBuffer{};
+    std::optional<gpu::Buffer>                                    screenViewProjectionBuffer{};
 
     void initGPUBufferResource() {
-      gpu::vulkan::MakeBuffer(screenViewProjectionBuffer,gpuResource, MAT4_BUFFER_SIZE, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+      gpu::MakeBuffer(screenViewProjectionBuffer,gpuResource, MAT4_BUFFER_SIZE, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
       float width, height = 0;
       windowResource->getExtent(width, height);
       updateScreenProjectionBuffer(width, height);
@@ -301,7 +304,7 @@ export namespace ufox::engine {
     void updateScreenProjectionBuffer(const float& width, const float& height) const {
       if (screenViewProjectionBuffer.has_value()) {
         const glm::mat4 viewProject = SCREEN_VIEW_METRIX * CalculateScreenProjectionMatrix(width, height);
-        gpu::vulkan::CopyToDevice(*screenViewProjectionBuffer->memory,&viewProject, MAT4_BUFFER_SIZE);
+        gpu::CopyToDevice(*screenViewProjectionBuffer->memory,&viewProject, MAT4_BUFFER_SIZE);
       }
     }
 
@@ -349,8 +352,8 @@ export namespace ufox::engine {
       gpuResource.device->waitIdle();
       windowResource->extent = size;
       windowResource->swapchainResource->Clear();
-      gpu::vulkan::ReMakeSwapchainResource(*windowResource->swapchainResource, gpuResource, *windowResource, vk::ImageUsageFlagBits::eColorAttachment);
-      gpu::vulkan::MakeDepthImage(gpuResource, *windowResource->swapchainResource);
+      gpu::ReMakeSwapchainResource(*windowResource->swapchainResource, gpuResource, *windowResource, vk::ImageUsageFlagBits::eColorAttachment);
+      gpu::MakeDepthImage(gpuResource, depthResource, *windowResource->swapchainResource);
 
       return size;
     }
@@ -375,9 +378,9 @@ export namespace ufox::engine {
       rangeDepth.baseArrayLayer = 0;
       rangeDepth.layerCount     = 1;
 
-      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal );
+      gpu::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal );
 
-      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->depthImage.value(), windowResource->swapchainResource->depthFormat, rangeDepth, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthAttachmentOptimal );
+      gpu::TransitionImageLayout(cmb, depthResource->image.data.value(), depthResource->format, rangeDepth, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthAttachmentOptimal );
 
       vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 0.0f);
       vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
@@ -390,7 +393,7 @@ export namespace ufox::engine {
                      .setClearValue(clearColor);
 
       vk::RenderingAttachmentInfo depthAttachment{};
-      depthAttachment.setImageView(*windowResource->swapchainResource->depthImageView)
+      depthAttachment.setImageView(*depthResource->image.view)
                      .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
                      .setLoadOp(vk::AttachmentLoadOp::eClear)
                      .setStoreOp(vk::AttachmentStoreOp::eDontCare)
@@ -398,7 +401,7 @@ export namespace ufox::engine {
 
       executeRenderPassEvents(cmb, imageIndex, colorAttachment, depthAttachment);
 
-      gpu::vulkan::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR );
+      gpu::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR );
 
       cmb.end();
     }
@@ -456,7 +459,7 @@ export namespace ufox::engine {
       if (result != vk::Result::eSuccess) {
         throw std::runtime_error("Failed to present swapchain image");
       }
-      frameResource->ContinueNextFrame();
+      frameResource->continueNextFrame();
     }
 
     void sdlPollEvents(SDL_Event& event , bool& running) {
@@ -540,19 +543,30 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   std::unique_ptr<UFoxWindow> CreateUFoxWindow(const std::string& title, const uint32_t& width, const uint32_t& height) {
     auto window = std::make_unique<UFoxWindow>();
 
-    window->gpuCreateInfo = gpu::vulkan::CreateGraphicDeviceInfo();
+    window->gpuCreateInfo = gpu::CreateGraphicDeviceInfo();
     window->gpuResource.context.emplace();
-    window->gpuResource.instance.emplace(gpu::vulkan::MakeInstance(window->gpuResource, window->gpuCreateInfo));
-    window->gpuResource.physicalDevice.emplace(gpu::vulkan::PickBestPhysicalDevice(window->gpuResource));
-    window->windowResource = windowing::CreateWindow(*window->gpuResource.instance, title, {width, height});
-    window->gpuResource.queueFamilyIndices.emplace(gpu::vulkan::FindGraphicsAndPresentQueueFamilyIndex(window->gpuResource, *window->windowResource));
-    window->gpuResource.device.emplace(gpu::vulkan::MakeDevice(window->gpuResource, window->gpuCreateInfo));
-    window->gpuResource.commandPool.emplace(gpu::vulkan::MakeCommandPool(window->gpuResource));
-    window->gpuResource.graphicsQueue.emplace(gpu::vulkan::MakeGraphicsQueue(window->gpuResource));
-    window->gpuResource.presentQueue.emplace(gpu::vulkan::MakePresentQueue(window->gpuResource));
-    window->windowResource->swapchainResource.emplace(gpu::vulkan::MakeSwapchainResource(window->gpuResource,*window->windowResource,gpu::vulkan::COLOR_IMAGE_USAGE_FLAG));
-    window->frameResource.emplace(gpu::vulkan::MakeFrameResource(window->gpuResource, gpu::vulkan::SIGNALED_FENCE_CREATE_FLAG));
-    gpu::vulkan::MakeDepthImage(window->gpuResource, *window->windowResource->swapchainResource);
+    gpu::MakeInstance(window->gpuResource, window->gpuCreateInfo);
+    gpu::PickBestPhysicalDevice(window->gpuResource);
+    window->windowResource = gpu::CreateWindow(*window->gpuResource.instance, title, {width, height});
+    gpu::FindGraphicsAndPresentQueueFamilyIndex(window->gpuResource, *window->windowResource);
+    gpu::MakeDevice(window->gpuResource, window->gpuCreateInfo);
+    gpu::MakeCommandPool(window->gpuResource);
+    gpu::MakeGraphicsQueue(window->gpuResource);
+    gpu::MakePresentQueue(window->gpuResource);
+    gpu::MakeSwapchainResource(window->windowResource->swapchainResource, window->gpuResource, *window->windowResource, gpu::COLOR_IMAGE_USAGE_FLAG);
+    gpu::MakeFrameResource(window->frameResource, window->gpuResource, gpu::SIGNALED_FENCE_CREATE_FLAG);
+    gpu::MakeDepthImage(window->gpuResource,window->depthResource, *window->windowResource->swapchainResource);
+    // window->gpuResource.instance.emplace(gpu::vulkan::MakeInstance(window->gpuResource, window->gpuCreateInfo));
+    // window->gpuResource.physicalDevice.emplace(gpu::vulkan::PickBestPhysicalDevice(window->gpuResource));
+    // window->windowResource = windowing::CreateWindow(*window->gpuResource.instance, title, {width, height});
+    // window->gpuResource.queueFamilyIndices.emplace(gpu::vulkan::FindGraphicsAndPresentQueueFamilyIndex(window->gpuResource, *window->windowResource));
+    // window->gpuResource.device.emplace(gpu::vulkan::MakeDevice(window->gpuResource, window->gpuCreateInfo));
+    // window->gpuResource.commandPool.emplace(gpu::vulkan::MakeCommandPool(window->gpuResource));
+    // window->gpuResource.graphicsQueue.emplace(gpu::vulkan::MakeGraphicsQueue(window->gpuResource));
+    // window->gpuResource.presentQueue.emplace(gpu::vulkan::MakePresentQueue(window->gpuResource));
+    // window->windowResource->swapchainResource.emplace(gpu::vulkan::MakeSwapchainResource(window->gpuResource,*window->windowResource,gpu::vulkan::COLOR_IMAGE_USAGE_FLAG));
+    // window->frameResource.emplace(gpu::vulkan::MakeFrameResource(window->gpuResource, gpu::vulkan::SIGNALED_FENCE_CREATE_FLAG));
+    // gpu::vulkan::MakeDepthImage(window->gpuResource, *window->windowResource->swapchainResource);
 
 #ifdef USE_SDL
     SDL_AddEventWatch(FramebufferResizeCallback, window.get());
@@ -731,7 +745,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   class ResourceManagerBase {
     public:
     virtual ~ResourceManagerBase() = default;
-    explicit ResourceManagerBase(const gpu::vulkan::GPUResources& gpu, const std::string_view& _directory,
+    explicit ResourceManagerBase(const gpu::GPUResources& gpu, const std::string_view& _directory,
                                  const std::span<const std::string_view> &extension) : directory(_directory), sourceExtensions(extension), gpuResources(&gpu) {
 
 
@@ -762,7 +776,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       const std::filesystem::path directory{};
       std::span<const std::string_view> sourceExtensions{};
       DirectoryContext directoryContext{};
-      const gpu::vulkan::GPUResources* gpuResources{nullptr};
+      const gpu::GPUResources* gpuResources{nullptr};
       BuiltInResources builtInResources{};
       std::unordered_map<ResourceID, ResourceContext, ResourceIDHash, ResourceIDEq> container{};
 

@@ -10,7 +10,7 @@ module;
 export module ufox_geometry_lib;
 
 import ufox_lib;
-import ufox_graphic_device;
+import ufox_gpu_lib;
 import ufox_engine_lib;
 
 export namespace ufox::geometry {
@@ -112,8 +112,8 @@ export namespace ufox::geometry {
         std::vector<Vertex>                     vertices{};
         std::vector<uint16_t>                   indices{};
 
-        std::optional<gpu::vulkan::Buffer>      vertexBuffer{};
-        std::optional<gpu::vulkan::Buffer>      indexBuffer{};
+        std::optional<gpu::Buffer>      vertexBuffer{};
+        std::optional<gpu::Buffer>      indexBuffer{};
 
         explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::ResourceID& cid_): ResourceBase(name_view, cid_) {
             vertices.assign(std::begin(_vertices), std::end(_vertices));

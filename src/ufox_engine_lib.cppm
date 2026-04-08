@@ -19,6 +19,9 @@ module;
 export module ufox_engine_lib;
 
 import ufox_lib;
+import ufox_gpu_lib;
+
+
 
 export namespace ufox::engine {
 
@@ -27,7 +30,7 @@ export namespace ufox::engine {
   using ResourceInitEventHandler = void(*)(const float& w, const float& h, void* user);
   using StartEventHandler = void(*)(void* user);
   using UpdateBufferEventHandler = void(*)(const uint32_t& currentImage, void* user);
-  using DrawCanvasEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user );
+  using DrawCanvasEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user );
 
   constexpr auto META_TAG_RESOURCE_CONTEXT = "resource-context";
 

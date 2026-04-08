@@ -6,16 +6,18 @@ module;
 export module ufox_render_lib;
 
 import ufox_engine_lib;
+import ufox_gpu_lib;
 
 export namespace ufox::render {
 
-  constexpr size_t PIXEL_BYTE_SIZE = 4;
-  constexpr vk::Format STANDARD_COLOR_TEXTURE_FORMAT = vk::Format::eR8G8B8A8Unorm;
-  constexpr std::string_view TEXTURE_RESOURCE_PATH = "res/textures";
-  constexpr std::array<std::string_view, 5> TEXTURE_RESOURCE_EXTENSIONS = {
+  inline size_t PIXEL_BYTE_SIZE = 4;
+  inline vk::Format STANDARD_COLOR_TEXTURE_FORMAT = vk::Format::eR8G8B8A8Unorm;
+  inline auto TEXTURE_RESOURCE_PATH = "res/textures";
+  inline std::array<std::string_view, 5> TEXTURE_RESOURCE_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".tga", ".bmp"
   };
-  constexpr vk::ImageSubresourceRange DEFAULT_COLOR_SUBRESOURCE_RANGE{
+
+  inline  vk::ImageSubresourceRange DEFAULT_COLOR_SUBRESOURCE_RANGE{
   vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
   struct Color final {
@@ -42,15 +44,14 @@ export namespace ufox::render {
 
 
   struct Texture final : engine::ResourceBase {
+    vk::ImageType                         type{vk::ImageType::e2D};
     vk::Format                            format{STANDARD_COLOR_TEXTURE_FORMAT};
     std::vector<std::byte>                pixels{};
     vk::Extent2D                          extent{1,1};
     vk::ImageTiling                       tiling{vk::ImageTiling::eOptimal};
     vk::ImageSubresourceRange             subresourceRange{DEFAULT_COLOR_SUBRESOURCE_RANGE};
 
-    std::optional<vk::raii::Image>        image{};
-    std::optional<vk::raii::DeviceMemory> memory{};
-    std::optional<vk::raii::ImageView>    view{};
+    gpu::Image                            image{};
     std::optional<vk::raii::Sampler>      sampler{};
 
     explicit Texture(const std::string_view name_view, const std::span<std::byte>& _pixels, const vk::Extent2D _extent, const engine::ResourceID& cid)
@@ -62,8 +63,11 @@ export namespace ufox::render {
     Texture& operator=(const Texture&) = delete;
 
     [[nodiscard]] bool hasGpuResources() const noexcept override {
-      return image.has_value() && view.has_value() && sampler.has_value();
+      return image.hasGpuResources();
     }
+
+    [[nodiscard]] bool hasSampler() const noexcept { return sampler.has_value(); }
+
 
     [[nodiscard]] uint32_t width() const noexcept  { return extent.width; }
     [[nodiscard]] uint32_t height() const noexcept { return extent.height; }
@@ -73,10 +77,8 @@ export namespace ufox::render {
     }
 
     void releaseGpuResources() noexcept override {
+      image.clear();
       if (sampler.has_value()) sampler.reset();
-      if (view.has_value()) view.reset();
-      if (image.has_value()) image.reset();
-      if (memory.has_value()) memory.reset();
     }
 
   };
