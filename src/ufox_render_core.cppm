@@ -12,6 +12,11 @@ module;
 #include <unordered_map>
 #include <map>
 #include <vulkan/vulkan_raii.hpp>
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include <msdf-atlas-gen/msdf-atlas-gen.h>
+#include <glm/glm.hpp>
+#include <nlohmann/json.hpp>
 
 export module ufox_render_core;
 
@@ -27,10 +32,10 @@ using namespace ufox::engine;
 
 export namespace ufox::render {
     namespace procedures {
-        constexpr auto WHITE = "white";
-        constexpr auto BLACK = "black";
-        inline ResourceID BUILTIN_WHITE_ID  {WHITE};
-        inline ResourceID BUILTIN_BLACK_ID  {BLACK};
+        inline auto WHITE = "white";
+        inline auto BLACK = "black";
+        inline ResourceID BUILTIN_WHITE_ID  {"white"};
+        inline ResourceID BUILTIN_BLACK_ID  {"black"};
 
         std::pair<std::vector<std::byte>, vk::Extent2D> CreateSolidColorPixels(const uint32_t width,const uint32_t height,const Color& color) {
             if (width == 0 || height == 0) return {};
@@ -270,6 +275,197 @@ export namespace ufox::render {
             .setID(ResourceID{"default"});
             return MakeTextureContent(manager, pixels, extent, info);
         }
+
+    namespace msdf {
+
+        MSDFFontData GenerateRobotoMSDF(const msdf_atlas::ImageType type) {
+            const std::string fontPath = "res/fonts/Roboto-Regular.ttf";
+            const std::string name = std::filesystem::path(fontPath).stem().string();
+
+            debug::log(debug::LogLevel::eInfo, "=== msdf-atlas-gen 1.4: Generating Roboto MSDF Atlas: {} ===", name);
+
+            MSDFFontData result;
+
+            if (msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype()) {
+                if (msdfgen::FontHandle* font = msdfgen::loadFont(ft, fontPath.c_str())) {
+                constexpr double fontSizeEm = 32.0;
+
+                std::vector<msdf_atlas::GlyphGeometry> glyphs;
+                    msdf_atlas::FontGeometry fontGeometry(&glyphs);
+
+                    fontGeometry.loadCharset(font, 1.0, msdf_atlas::Charset::ASCII);
+
+                    // Edge coloring
+                    for (auto& glyph : glyphs) {
+                      constexpr double maxCornerAngle = 3.0;
+                      glyph.edgeColoring(&msdfgen::edgeColoringInkTrap, maxCornerAngle, 0);
+                    }
+
+                    // Tight packing
+                    msdf_atlas::TightAtlasPacker packer;
+                    packer.setDimensionsConstraint(msdf_atlas::DimensionsConstraint::POWER_OF_TWO_SQUARE);
+                    packer.setScale(fontSizeEm);
+                    packer.setPixelRange(8.0);
+                    packer.setMiterLimit(1.0);
+                    packer.setSpacing(5);
+                    packer.pack(glyphs.data(), static_cast<int>(glyphs.size()));
+
+                    int width = 0, height = 0;
+                    packer.getDimensions(width, height);
+
+                    const std::string namePreFix {"res/fonts/"};
+                    const std::string extension{".png"};
+                    std::string nameEndFix{};
+
+                    switch (type) {
+                    case msdf_atlas::ImageType::MTSDF: {
+                        msdf_atlas::ImmediateAtlasGenerator<float, 4,msdf_atlas::mtsdfGenerator,
+                        msdf_atlas::BitmapAtlasStorage<msdf_atlas::byte, 4>> generator(width, height);
+                        msdf_atlas::GeneratorAttributes attributes;
+                        generator.setAttributes(attributes);
+                        generator.setThreadCount(4);
+                        generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
+
+                        msdfgen::BitmapConstRef<msdf_atlas::byte, 4> bitmapRef = generator.atlasStorage();
+
+                        size_t finalWidth = bitmapRef.width;
+                        size_t finalHeight = bitmapRef.height;
+                        result.pixels.resize(finalWidth * finalHeight * 4);
+
+                        for (int y = 0; y < finalHeight; ++y) {
+                            int srcY = static_cast<int>(finalHeight) - 1 - y;                                 // flip Y
+                            const msdf_atlas::byte* srcRow = bitmapRef.pixels + srcY * finalWidth * 4;
+                            std::byte* dstRow = result.pixels.data() + y * finalWidth * 4;
+
+                            for (int x = 0; x < finalWidth; ++x) {
+                                size_t offset = x * 4;
+                                dstRow[offset + 0] = static_cast<std::byte>(srcRow[offset + 0]); // R
+                                dstRow[offset + 1] = static_cast<std::byte>(srcRow[offset + 1]); // G
+                                dstRow[offset + 2] = static_cast<std::byte>(srcRow[offset + 2]); // B
+                                dstRow[offset + 3] = static_cast<std::byte>(srcRow[offset + 3]); // A
+                            }
+                        }
+
+                        result.extent = vk::Extent2D{
+                            static_cast<uint32_t>(bitmapRef.width),
+                            static_cast<uint32_t>(bitmapRef.height)
+                        };
+
+                        nameEndFix = "_mtsdf";
+
+                        msdfgen::savePng(bitmapRef, (namePreFix + name + nameEndFix + extension).c_str());
+                    }
+                        break;
+                    case msdf_atlas::ImageType::MSDF: {
+                        msdf_atlas::ImmediateAtlasGenerator<float, 3,msdf_atlas::msdfGenerator,
+                        msdf_atlas::BitmapAtlasStorage<msdf_atlas::byte, 3>> generator(width, height);
+                        msdf_atlas::GeneratorAttributes attributes;
+                        generator.setAttributes(attributes);
+                        generator.setThreadCount(4);
+                        generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
+
+                        msdfgen::BitmapConstRef<msdf_atlas::byte, 3> bitmapRef = generator.atlasStorage();
+
+                        size_t finalWidth = bitmapRef.width;
+                        size_t finalHeight = bitmapRef.height;
+                        result.pixels.resize(finalWidth * finalHeight * 4);
+
+                        for (int y = 0; y < finalHeight; ++y) {
+                            int srcY = static_cast<int>(finalHeight) - 1 - y;                                 // flip Y
+                            const msdf_atlas::byte* srcRow = bitmapRef.pixels + srcY * finalWidth * 3;
+                            std::byte* dstRow = result.pixels.data() + y * finalWidth * 4;
+
+                            for (int x = 0; x < finalWidth; ++x) {
+                                size_t offset = x * 4;
+                                dstRow[offset + 0] = static_cast<std::byte>(srcRow[offset + 0]); // R
+                                dstRow[offset + 1] = static_cast<std::byte>(srcRow[offset + 1]); // G
+                                dstRow[offset + 2] = static_cast<std::byte>(srcRow[offset + 2]); // B
+                                dstRow[offset + 3] = std::byte{255}; // A
+                            }
+                        }
+
+                        result.extent = vk::Extent2D{
+                            static_cast<uint32_t>(bitmapRef.width),
+                            static_cast<uint32_t>(bitmapRef.height)
+                        };
+
+                        nameEndFix = "_msdf";
+
+                        msdfgen::savePng(bitmapRef, (namePreFix + name + nameEndFix + extension).c_str());
+                    }
+                        break;
+                    default:
+
+                        break;
+                    }
+
+                    // Glyph data (UVs stay the same - they are already in atlas space)
+                    for (const auto& g : glyphs) {
+                        GlyphContext ctx{};
+                        ctx.codepoint = g.getCodepoint();
+                        ctx.advance = g.getAdvance();
+                        g.getBoxSize(ctx.boxWidth, ctx.boxHeight);
+                        g.getQuadPlaneBounds(ctx.plane.x, ctx.plane.y, ctx.plane.z, ctx.plane.w);
+                        g.getQuadAtlasBounds(ctx.atlas.x, ctx.atlas.y, ctx.atlas.z, ctx.atlas.w);
+                        result.glyphs.push_back(ctx);
+                    }
+
+                    // ResourceID from font path (as you requested)
+                    std::filesystem::path p(fontPath);
+
+                    ResourceContextCreateInfo info{};
+                    info.setName("Roboto-Regular-msdf")
+                        .setSourceType(SourceType::eBuiltIn)//dont build meta
+                        .setCategory("Font")
+                        .setID(ResourceID{p.filename().string()})
+                        .setSourcePath(p)
+                        .setLastWriteTime("");
+
+                    result.contextCreateInfo = info;
+
+
+                    // Save JSON (matching your original style)
+                    nlohmann::json j;
+                    j["resourceID"] = result.contextCreateInfo.id.view();
+                    j["font"] = "Roboto-Regular";
+                    j["size"] = fontSizeEm;
+                    j["glyphs"] = nlohmann::json::array();
+
+                    for (const auto& g : result.glyphs) {
+                        j["glyphs"].push_back({
+                            {"codepoint", g.codepoint},
+                            {"advance",   g.advance},
+                            {"boxWidth",  g.boxWidth},
+                            {"boxHeight", g.boxHeight},
+                            {"plane", {
+                                {"left",   g.plane.x},
+                                {"bottom", g.plane.y},
+                                {"right",  g.plane.z},
+                                {"top",    g.plane.w}
+                            }},
+                            {"atlas", {
+                                {"left",   g.atlas.x},
+                                {"bottom", g.atlas.y},
+                                {"right",  g.atlas.z},
+                                {"top",    g.atlas.w}
+                            }}
+                        });
+                    }
+
+                    std::ofstream out(namePreFix + name + ".json");
+                    if (out.is_open()) {
+                        out << j.dump(4);
+                        out.close();
+                    }
+
+                    msdfgen::destroyFont(font);
+                }
+                msdfgen::deinitializeFreetype(ft);
+            }
+
+            return std::move(result);
+        }
+    }
 }
 
 

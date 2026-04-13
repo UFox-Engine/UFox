@@ -3,6 +3,8 @@
 #include <thread>
 #include <filesystem>
 #include <string>
+#include <vulkan/vulkan_raii.hpp>
+#include <msdf-atlas-gen/msdf-atlas-gen.h>
 
 import ufox_engine_lib;
 import ufox_engine_core;
@@ -15,7 +17,6 @@ import ufox_render_core;
 import ufox_lib;
 
 
-
 int main() {
   try {
     auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
@@ -25,9 +26,15 @@ int main() {
     textureManager.init();
 
 
+    auto result = ufox::render::msdf::GenerateRobotoMSDF(msdf_atlas::ImageType::MTSDF);
+    ufox::debug::log(ufox::debug::LogLevel::eInfo, "MSDF Font: created {}x{} pixels id: {}", result.extent.width, result.extent.height, result.contextCreateInfo.id.view());
+
+    ufox::render::MakeTextureContent(textureManager, result.pixels, result.extent, result.contextCreateInfo);
+
+
+
     ufox::gui::Document doc(window.get(), &meshManager, &textureManager);
     ufox::engine::Camera mainCamera{};
-
 
     window->registerStartEventHandlers([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
     window->registerResizeEventHandlers([](const float& w, const float& h, void* user) {

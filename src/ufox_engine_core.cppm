@@ -556,17 +556,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     gpu::MakeSwapchainResource(window->windowResource->swapchainResource, window->gpuResource, *window->windowResource, gpu::COLOR_IMAGE_USAGE_FLAG);
     gpu::MakeFrameResource(window->frameResource, window->gpuResource, gpu::SIGNALED_FENCE_CREATE_FLAG);
     gpu::MakeDepthImage(window->gpuResource,window->depthResource, *window->windowResource->swapchainResource);
-    // window->gpuResource.instance.emplace(gpu::vulkan::MakeInstance(window->gpuResource, window->gpuCreateInfo));
-    // window->gpuResource.physicalDevice.emplace(gpu::vulkan::PickBestPhysicalDevice(window->gpuResource));
-    // window->windowResource = windowing::CreateWindow(*window->gpuResource.instance, title, {width, height});
-    // window->gpuResource.queueFamilyIndices.emplace(gpu::vulkan::FindGraphicsAndPresentQueueFamilyIndex(window->gpuResource, *window->windowResource));
-    // window->gpuResource.device.emplace(gpu::vulkan::MakeDevice(window->gpuResource, window->gpuCreateInfo));
-    // window->gpuResource.commandPool.emplace(gpu::vulkan::MakeCommandPool(window->gpuResource));
-    // window->gpuResource.graphicsQueue.emplace(gpu::vulkan::MakeGraphicsQueue(window->gpuResource));
-    // window->gpuResource.presentQueue.emplace(gpu::vulkan::MakePresentQueue(window->gpuResource));
-    // window->windowResource->swapchainResource.emplace(gpu::vulkan::MakeSwapchainResource(window->gpuResource,*window->windowResource,gpu::vulkan::COLOR_IMAGE_USAGE_FLAG));
-    // window->frameResource.emplace(gpu::vulkan::MakeFrameResource(window->gpuResource, gpu::vulkan::SIGNALED_FENCE_CREATE_FLAG));
-    // gpu::vulkan::MakeDepthImage(window->gpuResource, *window->windowResource->swapchainResource);
+
 
 #ifdef USE_SDL
     SDL_AddEventWatch(FramebufferResizeCallback, window.get());
@@ -809,6 +799,15 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         ctx.dataPtr = std::move(resource);
         ctx.lastImportTime = std::chrono::file_clock::now();
         ctx.lastWriteTime = info.lastWriteTimeFromMeta;
+        ctx.attachments.reserve(info.attachments.size());
+
+        if (!info.attachments.empty()) {
+          ctx.attachments.reserve(info.attachments.size());
+          for (const auto& attachment : info.attachments) {
+            ctx.attachments.emplace_back(attachment);
+          }
+        }
+
         WriteResourceContextMetaData(ctx);
         return &ctx.dataPtr->iD;
       }
@@ -900,6 +899,25 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
             .setSourceType(SourceType::ePortIn)
             .setLastWriteTime(lastWriteTime);
 
+        if (ctx.contains("attachments") && ctx["attachments"].is_object()) {
+          const auto& attachmentsJson = ctx["attachments"];
+          info.attachments.reserve(attachmentsJson.size());
+
+          for (const auto& [key, value] : attachmentsJson.items()) {
+            if (value.is_string()) {
+              std::string attName = key;                    // key is the tag/name
+              std::string attPathStr = value.get<std::string>();
+
+              if (!attName.empty() && !attPathStr.empty()) {
+                info.attachments.emplace_back(
+                    std::move(attName),
+                    std::filesystem::path(std::move(attPathStr))
+                );
+              }
+            }
+          }
+        }
+
         ResourceID resourceID{idStr};
         fs::path sourcePath = sourcePathStr;
 
@@ -966,18 +984,28 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       debug::log(debug::LogLevel::eWarning, "WriteResourceContextMeta : Failed to get source file last write time");
     }
 
-    const nlohmann::json doc = {
-      { META_TAG_RESOURCE_CONTEXT, {
-                { "name",          context.name },
-                { "id",            context.dataPtr ? context.dataPtr->iD.view() : "" },
-                { "sourcePath",    context.sourcePath.string() },
-                { "category",      context.category },
-                { "lastImportTime", context.lastImportTime == std::chrono::file_clock::time_point{}
-                  ? ""
-                  : TimePointToIso8601(context.lastImportTime) },
-{ "lastWriteTime", lastWriteTimeStr }
-      }}
+    nlohmann::json doc = {
+      {
+        META_TAG_RESOURCE_CONTEXT, {
+              { "name",          context.name },
+              { "id",            context.dataPtr ? context.dataPtr->iD.view() : "" },
+              { "sourcePath",    context.sourcePath.string() },
+              { "category",      context.category },
+              { "lastImportTime", context.lastImportTime == std::chrono::file_clock::time_point{}? "": TimePointToIso8601(context.lastImportTime) },
+              { "lastWriteTime", lastWriteTimeStr }
+        }
+      }
     };
+
+    if (!context.attachments.empty()) {
+      nlohmann::json attObject = nlohmann::json::object();
+
+      for (const auto& [name, path] : context.attachments) {
+        attObject[name] = path.string();        // name becomes the key
+      }
+
+      doc[META_TAG_RESOURCE_CONTEXT]["attachments"] = attObject;
+    }
 
     std::ofstream file(metaPath, std::ios::out | std::ios::trunc);
     if (!file.is_open()) {

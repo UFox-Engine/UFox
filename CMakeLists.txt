@@ -57,6 +57,14 @@ CPMAddPackage(NAME Discadelta GITHUB_REPOSITORY UFox-Engine/Discadelta GIT_TAG 1
 CPMAddPackage(NAME SDL3_image GITHUB_REPOSITORY libsdl-org/SDL_image GIT_TAG release-3.4.0)
 CPMAddPackage(NAME tinyobjloader GITHUB_REPOSITORY tinyobjloader/tinyobjloader GIT_TAG v1.0.6 DOWNLOAD_ONLY YES)
 
+
+CPMAddPackage(NAME msdf-atlas-gen GITHUB_REPOSITORY Chlumsky/msdf-atlas-gen GIT_TAG v1.4
+        OPTIONS
+        "MSDF_ATLAS_BUILD_STANDALONE OFF"
+        "MSDF_ATLAS_USE_SKIA OFF"
+        "MSDF_ATLAS_USE_VCPKG OFF"
+)
+
 if(tinyobjloader_ADDED)
     # Because it's header-only we just create an interface target
     add_library(tinyobjloader INTERFACE)
@@ -116,7 +124,17 @@ target_compile_definitions(Discadelta-module PUBLIC HAS_VULKAN=1)
 
 
 set(LIBS)
-list(APPEND LIBS Vulkan-Headers Freetype::Freetype ktx nlohmann_json Discadelta-module glfw glm-module SDL3_image::SDL3_image SDL3::SDL3 tinyobjloader)
+list(APPEND LIBS
+        Vulkan-Headers
+        Freetype::Freetype
+        ktx
+        nlohmann_json
+        Discadelta-module
+        glfw glm-module
+        SDL3_image::SDL3_image
+        SDL3::SDL3 tinyobjloader
+        msdf-atlas-gen::msdf-atlas-gen
+)
 
 add_executable(UFoxEngine)
 

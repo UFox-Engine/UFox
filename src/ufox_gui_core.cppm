@@ -434,7 +434,7 @@ export namespace ufox::gui {
             v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 0.0f, 0.0f};
             v2->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
             v2->style.backgroundImage = "shaderIcon.png";
-            v3->style.backgroundImage = "rgb.png";
+            v3->style.backgroundImage = "Roboto-Regular.ttf";
 
             rootPanel.rootElement->link(*v1.get());
             rootPanel.rootElement->link(*v2.get());

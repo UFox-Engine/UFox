@@ -2,6 +2,8 @@ module;
 
 #include <optional>
 #include <vulkan/vulkan_raii.hpp>
+#include <vector>
+#include <glm/glm.hpp>
 
 export module ufox_render_lib;
 
@@ -80,8 +82,23 @@ export namespace ufox::render {
       image.clear();
       if (sampler.has_value()) sampler.reset();
     }
-
   };
+  namespace msdf {
+    struct GlyphContext {
+      uint32_t codepoint = 0;
+      double advance = 0.0;
+      int boxWidth {0};
+      int boxHeight {0};
+      glm::dvec4 plane{0.0,0.0,0.0,0.0};
+      glm::dvec4 atlas{0.0,0.0,0.0,0.0};
+    };
 
+    struct MSDFFontData {
+      std::vector<std::byte> pixels{};
+      vk::Extent2D extent{0,0};
+      std::vector<GlyphContext> glyphs{};
+      engine::ResourceContextCreateInfo contextCreateInfo{};
+    };
+  }
 
 }

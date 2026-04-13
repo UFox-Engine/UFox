@@ -151,6 +151,8 @@ export namespace ufox::engine {
     }
   };
 
+  using ResourceAttachment = std::pair<std::string, std::filesystem::path>;
+
   struct ResourceContext {
     std::string                                 name{"empty"};
     SourceType                                  sourceType{SourceType::eBuiltIn};
@@ -159,6 +161,7 @@ export namespace ufox::engine {
     std::filesystem::path                       sourcePath{};
     std::chrono::file_clock::time_point         lastImportTime{};
     std::string                                 lastWriteTime{};
+    std::vector<ResourceAttachment>             attachments{};
 
     void clear() noexcept {
       dataPtr.reset();
@@ -197,6 +200,7 @@ export namespace ufox::engine {
     std::string_view lastWriteTimeFromMeta{};
     SourceType  sourceType{SourceType::eBuiltIn};
     ResourceID       id{};
+    std::vector<ResourceAttachment> attachments{};
 
     constexpr ResourceContextCreateInfo& setID(const ResourceID& id) noexcept {
       this->id = id; return *this;
