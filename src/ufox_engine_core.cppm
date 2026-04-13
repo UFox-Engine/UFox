@@ -800,13 +800,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         ctx.lastImportTime = std::chrono::file_clock::now();
         ctx.lastWriteTime = info.lastWriteTimeFromMeta;
         ctx.attachments.reserve(info.attachments.size());
-
-        if (!info.attachments.empty()) {
-          ctx.attachments.reserve(info.attachments.size());
-          for (const auto& attachment : info.attachments) {
-            ctx.attachments.emplace_back(attachment);
-          }
-        }
+        ctx.attachments = info.attachments;
 
         WriteResourceContextMetaData(ctx);
         return &ctx.dataPtr->iD;
