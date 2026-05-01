@@ -119,9 +119,20 @@ export namespace ufox::engine {
     std::filesystem::path   directoryPath{};
     std::string             lastWriteTimeIso{};   // ISO 8601 string
     uintmax_t               totalSizeBytes{0};
+    size_t                  stateHash{0};
 
     [[nodiscard]] constexpr bool isValid() const noexcept {return !directoryPath.empty() && std::filesystem::exists(directoryPath) && std::filesystem::is_directory(directoryPath);}
     [[nodiscard]] constexpr explicit operator bool() const noexcept {return isValid();}
+
+    void updateHash() noexcept {
+      // Simple, fast, collision-resistant hash for our fields
+      size_t h1 = std::hash<std::string>{}(directoryPath.string());
+      size_t h2 = std::hash<std::string>{}(lastWriteTimeIso);
+      size_t h3 = std::hash<uintmax_t>{}(totalSizeBytes);
+
+      // Combine with good mixing (similar to your utilities style)
+      stateHash = h1 ^ h2 << 1 ^ h3 << 2 ^ h1 >> 3 ^ h2 >> 5 ^ h3 >> 7;
+    }
 
     constexpr void printState() const noexcept {
       if (isValid()) {

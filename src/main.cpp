@@ -83,11 +83,11 @@ int main() {
   try {
     SaveGlyphTypeUnicodeRangesToFile();
     auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
-    ufox::geometry::MeshManager meshManager{*window.get(),window->gpuResource};
+    ufox::geometry::MeshManager meshManager{*window,window->gpuResource};
     meshManager.init();
-    ufox::render::TextureManager textureManager{*window.get(),window->gpuResource};
+    ufox::render::TextureManager textureManager{*window,window->gpuResource};
     textureManager.init();
-    ufox::font::GlyphManager glyph_manager{*window.get(),textureManager};
+    ufox::font::GlyphManager glyph_manager{*window,textureManager};
     glyph_manager.init();
 
     ufox::gui::Document doc(window.get(), &meshManager, &textureManager);

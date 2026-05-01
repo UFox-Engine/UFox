@@ -398,10 +398,12 @@ export namespace ufox::font {
 
         void refreshResource() override {
             debug::log(debug::LogLevel::eInfo, "GlyphManager: refreshResource");
+            DirectoryContext oldContext = ReadDirectoryContextMetaData(directory);
             DirectoryContext newContext{};
             MakeDirectoryContext(directory, newContext);
-            if (DirectoryContextChanged(directoryContext, newContext)) {
+            if (DirectoryContextChanged(oldContext, newContext)) {
                 debug::log(debug::LogLevel::eInfo, "GlyphManager: refreshResource: directory changed");
+                WriteDirectoryContextMetaData(newContext);
             }
             else {
                 debug::log(debug::LogLevel::eInfo, "GlyphManager: refreshResource: directory not changed");

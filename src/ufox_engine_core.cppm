@@ -509,7 +509,7 @@ export namespace ufox::engine {
         }
         case SDL_EVENT_WINDOW_FOCUS_GAINED:{
 
-          gpuResource.device->waitIdle();
+          //gpuResource.device->waitIdle();
           executeGainsFocusEvents();
 
           break;
@@ -666,6 +666,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       // Directory's last write time as ISO string
       auto lastWrite = std::filesystem::last_write_time(dirPath);
       state.lastWriteTimeIso = TimePointToIso8601(lastWrite);
+      state.updateHash();
       outState = state;
     } catch (const std::exception& e) {
       debug::log(debug::LogLevel::eError,"MakeDirectoryContext ({}) : {}", dirPath.string(), e.what());
@@ -675,8 +676,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   [[nodiscard]]constexpr bool DirectoryContextChanged(const DirectoryContext& oldState,const DirectoryContext& newState) noexcept {
     if (!oldState.isValid() || !newState.isValid()) return true;
 
-    return oldState.lastWriteTimeIso != newState.lastWriteTimeIso ||
-           oldState.totalSizeBytes   != newState.totalSizeBytes;
+    return oldState.stateHash != newState.stateHash;
   }
 
   bool WriteDirectoryContextMetaData(const DirectoryContext& state) {
@@ -690,9 +690,10 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
     nlohmann::json doc = {
       {"directory-context", {
-                {"path",           state.directoryPath.string()},
-                {"lastWriteTime",  state.lastWriteTimeIso},
-                {"totalSizeBytes", state.totalSizeBytes}
+        {"path",           state.directoryPath.string()},
+        {"lastWriteTime",  state.lastWriteTimeIso},
+        {"totalSizeBytes", state.totalSizeBytes},
+        {"stateHash",      state.stateHash}
       }}
     };
 
@@ -737,6 +738,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
       state.lastWriteTimeIso = m.value("lastWriteTime", "");
       state.totalSizeBytes   = m.value<uintmax_t>("totalSizeBytes", 0);
+      state.stateHash = m.value<size_t>("stateHash", 0);
 
       debug::log(debug::LogLevel::eInfo, "Loaded directory state meta for {}", dirPath.string());
     }
@@ -760,6 +762,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
 
         EnsureDirectoryExists(directory);
+        DirectoryContext directoryContext{};
         MakeDirectoryContext(directory, directoryContext);
         WriteDirectoryContextMetaData(directoryContext);
 
@@ -787,7 +790,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       UFoxWindow* window = nullptr;
       const std::filesystem::path directory{};
       std::span<const std::string_view> sourceExtensions{};
-      DirectoryContext directoryContext{};
       const gpu::GPUResources* gpuResources{nullptr};
       BuiltInResources builtInResources{};
       std::unordered_map<ResourceID, ResourceContext, ResourceIDHash, ResourceIDEq> container{};
