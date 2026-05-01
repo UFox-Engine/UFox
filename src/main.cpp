@@ -14,24 +14,81 @@ import ufox_geometry_lib;
 import ufox_geometry_core;
 import ufox_render_lib;
 import ufox_render_core;
+import ufox_font_lib;
+import ufox_font_core;
 import ufox_lib;
 
 
+  void SaveGlyphTypeUnicodeRangesToFile(const std::string& filename = "glyph_unicode_ranges.txt") noexcept {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+      std::cerr << "Failed to open file for writing: " << filename << std::endl;
+      return;
+    }
+
+    auto writeRange = [&](const char* name, uint32_t start, uint32_t end) {
+      file << name << ":\n";
+      for (uint32_t c = start; c <= end; ++c) {
+        file << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << c;
+        if (c != end) file << ",";
+      }
+      file << "\n\n";
+    };
+
+    file << "=== GlyphType Unicode Ranges ===\n\n";
+
+    file << "Latin:\n";
+    writeRange("Basic Latin", 0x0000, 0x007F);
+    writeRange("Latin-1 Supplement", 0x0080, 0x00FF);
+
+    file << "Cyrillic:\n";
+    writeRange("Cyrillic", 0x0400, 0x04FF);
+    writeRange("Cyrillic Supplement", 0x0500, 0x052F);
+
+    file << "Greek:\n";
+    writeRange("Greek and Coptic", 0x0370, 0x03FF);
+
+    file << "Hanzi (Chinese):\n";
+    writeRange("CJK Unified Ideographs", 0x4E00, 0x9FFF);
+    writeRange("CJK Extension A", 0x3400, 0x4DBF);
+
+    file << "Kanji (Japanese):\n";
+    writeRange("Hiragana + Katakana", 0x3040, 0x30FF);
+    writeRange("CJK Unified Ideographs", 0x4E00, 0x9FFF);
+    writeRange("CJK Extension A", 0x3400, 0x4DBF);
+
+    file << "Hangul (Korean):\n";
+    writeRange("Hangul Syllables", 0xAC00, 0xD7AF);
+    writeRange("Hangul Jamo", 0x1100, 0x11FF);
+
+    file << "Thai:\n";
+    writeRange("Thai", 0x0E01, 0x0E5B);
+
+    file << "BuiltIn (ASCII fallback):\n";
+    writeRange("ASCII", 0x0020, 0x007F);
+
+    file << "=== End of GlyphType Unicode Ranges ===\n";
+
+    file.close();
+    std::cout << "Unicode ranges saved to: " << filename << std::endl;
+  }
+
+// int main() {
+//     SaveGlyphTypeUnicodeRangesToFile();
+//
+//     return 0;
+// }
+
 int main() {
   try {
+    SaveGlyphTypeUnicodeRangesToFile();
     auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
-    ufox::geometry::MeshManager meshManager{window->gpuResource};
+    ufox::geometry::MeshManager meshManager{*window.get(),window->gpuResource};
     meshManager.init();
-    ufox::render::TextureManager textureManager{window->gpuResource};
+    ufox::render::TextureManager textureManager{*window.get(),window->gpuResource};
     textureManager.init();
-
-
-    auto result = ufox::render::msdf::GenerateRobotoMSDF(msdf_atlas::ImageType::MTSDF);
-    ufox::debug::log(ufox::debug::LogLevel::eInfo, "MSDF Font: created {}x{} pixels id: {}", result.extent.width, result.extent.height, result.contextCreateInfo.id.view());
-
-    ufox::render::MakeTextureContent(textureManager, result.pixels, result.extent, result.contextCreateInfo);
-
-
+    ufox::font::GlyphManager glyph_manager{*window.get(),textureManager};
+    glyph_manager.init();
 
     ufox::gui::Document doc(window.get(), &meshManager, &textureManager);
     ufox::engine::Camera mainCamera{};

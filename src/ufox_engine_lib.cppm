@@ -29,6 +29,7 @@ export namespace ufox::engine {
   using SystemInitEventHandler = void(*)(void* user);
   using ResourceInitEventHandler = void(*)(const float& w, const float& h, void* user);
   using StartEventHandler = void(*)(void* user);
+  using GainsFocusEventHandler = void(*)(void* user);
   using UpdateBufferEventHandler = void(*)(const uint32_t& currentImage, void* user);
   using DrawCanvasEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user );
 
@@ -168,6 +169,7 @@ export namespace ufox::engine {
       sourcePath.clear();
       lastImportTime = {};
       lastWriteTime.clear();
+      attachments.clear();
     }
   };
 
@@ -178,29 +180,29 @@ export namespace ufox::engine {
   };
 
   struct Transform {
-    glm::vec3             position{0.0f};
-    glm::quat             rotation{glm::vec3{0.0f}};
-    glm::vec3             scale{1.0f};
+    glm::vec3                         position{0.0f};
+    glm::quat                         rotation{glm::vec3{0.0f}};
+    glm::vec3                         scale{1.0f};
   };
 
   struct Camera {
-    Transform             transform{};
-    ViewProjectionType    projectionType{ViewProjectionType::ePerspective};
-    float                 nearPlane{0.1f};
-    float                 farPlane{5000.0f};
-    float                 fov{90.0f};
-    float                 orthoSize{10.0f};
-    float                 aspectRatio{1.0f};
+    Transform                         transform{};
+    ViewProjectionType                projectionType{ViewProjectionType::ePerspective};
+    float                             nearPlane{0.1f};
+    float                             farPlane{5000.0f};
+    float                             fov{90.0f};
+    float                             orthoSize{10.0f};
+    float                             aspectRatio{1.0f};
   };
 
   struct ResourceContextCreateInfo {
-    std::filesystem::path sourcePath{};
-    std::string_view name{};
-    std::string_view category{};
-    std::string_view lastWriteTimeFromMeta{};
-    SourceType  sourceType{SourceType::eBuiltIn};
-    ResourceID       id{};
-    std::vector<ResourceAttachment> attachments{};
+    std::filesystem::path             sourcePath{};
+    std::string                       name{};
+    std::string                       category{};
+    std::string                       lastWriteTimeFromMeta{};
+    SourceType                        sourceType{SourceType::eBuiltIn};
+    ResourceID                        id{};
+    std::vector<ResourceAttachment>   attachments{};
 
     constexpr ResourceContextCreateInfo& setID(const ResourceID& id) noexcept {
       this->id = id; return *this;

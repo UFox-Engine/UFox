@@ -6,7 +6,6 @@ project(UFoxEngine LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-
 # Use C++23 without compiler-specific extensions
 
 
@@ -16,6 +15,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Optional: Output dir for binaries
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+
+
 
 # SPDX-License-Identifier: MIT
 #
@@ -150,6 +151,7 @@ target_sources(UFox-modules
         PUBLIC
         FILE_SET CXX_MODULES TYPE CXX_MODULES
         FILES
+        src/ufox_nanoid.cppm
         src/ufox_Lib.cppm
         src/ufox_gpu_lib.cppm
         src/ufox_gpu_core.cppm
@@ -160,9 +162,10 @@ target_sources(UFox-modules
         src/ufox_geometry_core.cppm
         src/ufox_render_lib.cppm
         src/ufox_render_core.cppm
+        src/ufox_font_lib.cppm
+        src/ufox_font_core.cppm
         src/ufox_gui_lib.cppm
         src/ufox_gui_core.cppm
-        src/ufox_nanoid.cppm
 )
 
 target_link_libraries(UFox-modules PRIVATE ${LIBS})
@@ -244,3 +247,30 @@ foreach(SLANG ${SHADER_SLANG_SOURCES})
     add_slang_shader_target(slang_${FILE_NAME} SOURCES ${SLANG})
     add_dependencies(UFoxEngine slang_${FILE_NAME})
 endforeach()
+
+set(RESOURCES_SOURCE_DIR "${CMAKE_SOURCE_DIR}/res")
+set(RESOURCES_DEST_DIR   "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/res")
+
+file(MAKE_DIRECTORY ${RESOURCES_DEST_DIR})
+
+file(GLOB_RECURSE RESOURCE_FILES LIST_DIRECTORIES false "${RESOURCES_SOURCE_DIR}/*")
+
+add_custom_target(CopyResources ALL
+        COMMENT "Copying project resources → ${RESOURCES_DEST_DIR}"
+)
+
+foreach(RESOURCE_FILE ${RESOURCE_FILES})
+    file(RELATIVE_PATH REL_PATH ${RESOURCES_SOURCE_DIR} ${RESOURCE_FILE})
+    set(DEST_FILE "${RESOURCES_DEST_DIR}/${REL_PATH}")
+    get_filename_component(DEST_DIR ${DEST_FILE} DIRECTORY)
+
+    add_custom_command(
+            TARGET CopyResources POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${DEST_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RESOURCE_FILE}" "${DEST_FILE}"
+            COMMENT "Copying ${REL_PATH}"
+            VERBATIM
+    )
+endforeach()
+
+add_dependencies(UFoxEngine CopyResources)

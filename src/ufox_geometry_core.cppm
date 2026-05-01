@@ -391,20 +391,24 @@ export namespace ufox::geometry {
 
     class MeshManager final : ResourceManagerBase {
     public:
-        explicit MeshManager(const gpu::GPUResources& gpu) :
-        ResourceManagerBase(gpu, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {}
+        explicit MeshManager(UFoxWindow& _window,const gpu::GPUResources& gpu) :
+        ResourceManagerBase(_window,gpu, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {}
 
         ~MeshManager() override {
             clearAllGpuResources(*this);
         }
 
-        void makeResource(const ResourceContextCreateInfo &info) override {
+        void makeResource(ResourceContextCreateInfo &info) override {
             std::vector<Vertex> vertices;
             std::vector<uint16_t> indices;
 
             if (LoadMeshFromFile(info.sourcePath, vertices, indices)) {
                 MakeMeshContent(*this, vertices, indices, info);
             }
+        }
+
+        void refreshResource() override {
+
         }
 
         void init() override {

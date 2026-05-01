@@ -169,6 +169,13 @@ export namespace ufox::engine {
       std::erase_if(startEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
+    void registerGainsFocusEventHandlers(GainsFocusEventHandler cb, void* user) {
+      gainsFocusEventHandlers.emplace_back(cb, user);
+    }
+    void unregisterGainsFocusEventHandlers(void* user) {
+      std::erase_if(gainsFocusEventHandlers, [user](auto& p){ return p.second == user; });
+    }
+
     void registerUpdateBufferEventHandlers(UpdateBufferEventHandler cb, void* user) {
       updateBufferEventHandlers.emplace_back(cb, user);
     }
@@ -284,6 +291,7 @@ export namespace ufox::engine {
     std::vector<std::pair<ResourceInitEventHandler, void*>>       resourceInitEventHandlers{};
     std::vector<std::pair<ResizeEventHandler, void*>>             resizeEventHandlers{};
     std::vector<std::pair<StartEventHandler, void*>>              startEventHandlers{};
+    std::vector<std::pair<GainsFocusEventHandler, void*>>         gainsFocusEventHandlers{};
     std::vector<std::pair<UpdateBufferEventHandler, void*>>       updateBufferEventHandlers{};
     std::vector<std::pair<DrawCanvasEventHandler, void*>>         renderPassEventHandlers{};
 
@@ -327,6 +335,12 @@ export namespace ufox::engine {
         if (callback) callback(used);
       }
       startFrameExecuted = true;
+    }
+
+    void executeGainsFocusEvents() {
+      for (auto [callback, used] : gainsFocusEventHandlers) {
+        if (callback) callback(used);
+      }
     }
 
     void executeUpdateBufferEvents(const uint32_t& imageIndex) {
@@ -493,6 +507,13 @@ export namespace ufox::engine {
 
           break;
         }
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:{
+
+          gpuResource.device->waitIdle();
+          executeGainsFocusEvents();
+
+          break;
+        }
         case SDL_EVENT_MOUSE_BUTTON_DOWN:{
           // input::MouseButton button = input::MouseButton::eNone;
           // input::ActionPhase phase = input::ActionPhase::eStart;
@@ -646,7 +667,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       auto lastWrite = std::filesystem::last_write_time(dirPath);
       state.lastWriteTimeIso = TimePointToIso8601(lastWrite);
       outState = state;
-      debug::log(debug::LogLevel::eInfo, "MakeDirectoryContext ({}) : success", dirPath.string());
     } catch (const std::exception& e) {
       debug::log(debug::LogLevel::eError,"MakeDirectoryContext ({}) : {}", dirPath.string(), e.what());
     }
@@ -665,7 +685,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       return false;
     }
 
-    const std::string metaFilename = state.directoryPath.filename().string() + ".ufox.meta";
+    const std::string metaFilename = state.directoryPath.filename().string() + ".meta";
     const auto metaPath = state.directoryPath.parent_path() / metaFilename;
 
     nlohmann::json doc = {
@@ -701,12 +721,12 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       return state;
     }
 
-    const std::string metaFilename = dirPath.filename().string() + ".ufox.meta";
+    const std::string metaFilename = dirPath.filename().string() + ".meta";
     const auto metaPath = dirPath.parent_path() / metaFilename;
 
     if (!std::filesystem::exists(metaPath)) {
       debug::log(debug::LogLevel::eInfo, "No previous directory meta found for {}", dirPath.string());
-      return state;   // first run is normal
+      return state;
     }
 
     try {
@@ -735,8 +755,8 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   class ResourceManagerBase {
     public:
     virtual ~ResourceManagerBase() = default;
-    explicit ResourceManagerBase(const gpu::GPUResources& gpu, const std::string_view& _directory,
-                                 const std::span<const std::string_view> &extension) : directory(_directory), sourceExtensions(extension), gpuResources(&gpu) {
+    explicit ResourceManagerBase(UFoxWindow& _window,const gpu::GPUResources& gpu, const std::string_view& _directory,
+                                 const std::span<const std::string_view> &extension) : window(&_window), directory(_directory), sourceExtensions(extension), gpuResources(&gpu) {
 
 
         EnsureDirectoryExists(directory);
@@ -746,7 +766,8 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     }
 
     virtual void init() = 0;
-    virtual void makeResource(const ResourceContextCreateInfo& info) = 0;
+    virtual void makeResource(ResourceContextCreateInfo& info) = 0;
+    virtual void refreshResource()=0;
 
     [[nodiscard]] ResourceContext* getResourceContext(const ResourceID& id) noexcept {
       const auto it = container.find(id);
@@ -763,6 +784,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     }
 
     protected:
+      UFoxWindow* window = nullptr;
       const std::filesystem::path directory{};
       std::span<const std::string_view> sourceExtensions{};
       DirectoryContext directoryContext{};
@@ -893,21 +915,23 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
             .setSourceType(SourceType::ePortIn)
             .setLastWriteTime(lastWriteTime);
 
-        if (ctx.contains("attachments") && ctx["attachments"].is_object()) {
+        if (ctx.contains("attachments") && ctx["attachments"].is_array()) {
           const auto& attachmentsJson = ctx["attachments"];
           info.attachments.reserve(attachmentsJson.size());
 
-          for (const auto& [key, value] : attachmentsJson.items()) {
-            if (value.is_string()) {
-              std::string attName = key;                    // key is the tag/name
-              std::string attPathStr = value.get<std::string>();
+          for (const auto& attachmentJson : attachmentsJson) {
+            if (!attachmentJson.is_object()) {
+              continue;
+            }
 
-              if (!attName.empty() && !attPathStr.empty()) {
-                info.attachments.emplace_back(
-                    std::move(attName),
-                    std::filesystem::path(std::move(attPathStr))
-                );
-              }
+            const std::string attName = attachmentJson.value("name", "");
+            const std::string attPathStr = attachmentJson.value("path", "");
+
+            if (!attName.empty() && !attPathStr.empty()) {
+              info.attachments.emplace_back(
+                attName,
+                std::filesystem::path(attPathStr)
+              );
             }
           }
         }
@@ -942,24 +966,10 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     }
   }
 
-  void WriteResourceContextMetaData(const ResourceContext& context) {
-    if (context.sourceType == SourceType::eBuiltIn) {
-      return;
-    }
-
-    if (context.name.empty() || context.sourcePath.empty()) {
-      debug::log(debug::LogLevel::eWarning,"WriteResourceContextMeta : name or sourcePath is empty");
-      return;
-    }
-
-    const std::string filename = context.name + ".ufox.meta";
-    const auto metaPath = context.sourcePath.parent_path() / filename;
-
-    // Get source file last write time as ISO 8601 string
-    std::string lastWriteTimeStr;
+  void GetFileWriteTime(const std::filesystem::path& path, std::string& outTime) {
     try {
-      if (std::filesystem::exists(context.sourcePath)) {
-        auto fileTime = std::filesystem::last_write_time(context.sourcePath);
+      if (std::filesystem::exists(path)) {
+        auto fileTime = std::filesystem::last_write_time(path);
         auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(fileTime);
         auto timeT = std::chrono::system_clock::to_time_t(sysTime);
 
@@ -971,12 +981,31 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 #endif
         std::ostringstream oss;
         oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
-        lastWriteTimeStr = oss.str();
+        outTime = oss.str();
       }
     }
     catch (...) {
       debug::log(debug::LogLevel::eWarning, "WriteResourceContextMeta : Failed to get source file last write time");
     }
+  }
+
+  void WriteResourceContextMetaData(const ResourceContext& context) {
+    if (context.sourceType == SourceType::eBuiltIn) {
+      return;
+    }
+
+    if (context.name.empty() || context.sourcePath.empty()) {
+      debug::log(debug::LogLevel::eWarning,"WriteResourceContextMeta : name or sourcePath is empty");
+      return;
+    }
+
+    const std::string filename = context.name + ".meta";
+    const auto metaPath = context.sourcePath.parent_path() / filename;
+
+    // Get source file last write time as ISO 8601 string
+    std::string lastWriteTimeStr;
+
+    GetFileWriteTime(context.sourcePath, lastWriteTimeStr);
 
     nlohmann::json doc = {
       {
@@ -992,13 +1021,16 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     };
 
     if (!context.attachments.empty()) {
-      nlohmann::json attObject = nlohmann::json::object();
+      nlohmann::json attArray = nlohmann::json::array();
 
       for (const auto& [name, path] : context.attachments) {
-        attObject[name] = path.string();        // name becomes the key
+        attArray.push_back({
+          { "name", name },
+          { "path", path.string() }
+        });
       }
 
-      doc[META_TAG_RESOURCE_CONTEXT]["attachments"] = attObject;
+      doc[META_TAG_RESOURCE_CONTEXT]["attachments"] = attArray;
     }
 
     std::ofstream file(metaPath, std::ios::out | std::ios::trunc);

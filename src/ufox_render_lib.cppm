@@ -1,9 +1,13 @@
 module;
 
-#include <optional>
-#include <vulkan/vulkan_raii.hpp>
-#include <vector>
+#include "msdf-atlas-gen/AtlasGenerator.h"
+#include "msdf-atlas-gen/Charset.h"
+
 #include <glm/glm.hpp>
+#include <optional>
+#include <set>
+#include <vector>
+#include <vulkan/vulkan_raii.hpp>
 
 export module ufox_render_lib;
 
@@ -15,6 +19,7 @@ export namespace ufox::render {
   inline size_t PIXEL_BYTE_SIZE = 4;
   inline vk::Format STANDARD_COLOR_TEXTURE_FORMAT = vk::Format::eR8G8B8A8Unorm;
   inline auto TEXTURE_RESOURCE_PATH = "res/textures";
+
   inline std::array<std::string_view, 5> TEXTURE_RESOURCE_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".tga", ".bmp"
   };
@@ -56,9 +61,8 @@ export namespace ufox::render {
     gpu::Image                            image{};
     std::optional<vk::raii::Sampler>      sampler{};
 
-    explicit Texture(const std::string_view name_view, const std::span<std::byte>& _pixels, const vk::Extent2D _extent, const engine::ResourceID& cid)
-        : ResourceBase(name_view, cid), extent(_extent) {
-      pixels.assign(std::begin(_pixels), std::end(_pixels));
+    explicit Texture(const std::string_view name_view, std::vector<std::byte>& _pixels, const vk::Extent2D _extent, const engine::ResourceID& cid)
+        : ResourceBase(name_view, cid), pixels(std::move(_pixels)), extent(_extent) {
     }
 
     Texture(const Texture&) = delete;
@@ -83,22 +87,7 @@ export namespace ufox::render {
       if (sampler.has_value()) sampler.reset();
     }
   };
-  namespace msdf {
-    struct GlyphContext {
-      uint32_t codepoint = 0;
-      double advance = 0.0;
-      int boxWidth {0};
-      int boxHeight {0};
-      glm::dvec4 plane{0.0,0.0,0.0,0.0};
-      glm::dvec4 atlas{0.0,0.0,0.0,0.0};
-    };
 
-    struct MSDFFontData {
-      std::vector<std::byte> pixels{};
-      vk::Extent2D extent{0,0};
-      std::vector<GlyphContext> glyphs{};
-      engine::ResourceContextCreateInfo contextCreateInfo{};
-    };
-  }
-
+  using TextureDataBindInfo = std::pair<std::vector<std::byte>, vk::Extent2D>;
 }
+
