@@ -329,8 +329,13 @@ export namespace ufox::font {
                 outInfo.setCategory("Font");
 
                 std::string jsonPath = namePreFix + outInfo.name + "_" + blockName+".json";
-                if ( WriteGlyphToJson(jsonPath, binding))
+                if (WriteGlyphToJson(jsonPath, binding)) {
                     outInfo.attachments.emplace_back(GLYPH_JSON_ATTACHMENT_KEY, jsonPath);
+
+                    if (!atlasInfo.sourcePath.empty()) {
+                        outInfo.attachments.emplace_back(GLYPH_ATLAS_ATTACHMENT_KEY, atlasInfo.sourcePath);
+                    }
+                }
 
                 success = true;
                 msdfgen::destroyFont(font);
@@ -414,17 +419,19 @@ export namespace ufox::font {
 
         void updateResource() override {
             debug::log(debug::LogLevel::eInfo, "GlyphManager: updateResource");
-            // for (auto &ctx : container | std::views::values) {
-            //     auto& file = ctx.sourcePath;
-            //     std::string lastWriteTimeStr;
-            //     GetFileWriteTime(file, lastWriteTimeStr);
-            //
-            //     if (lastWriteTimeStr != ctx.lastWriteTime) {
-            //         ResourceContextCreateInfo info{};
-            //         MakeResourceContextCreateInfo(ctx, info, lastWriteTimeStr);
-            //         makeResource(info);
-            //     }
-            // }
+            for (auto &ctx : container | std::views::values) {
+                auto& file = ctx.sourcePath;
+                std::string lastWriteTimeStr;
+                GetFileWriteTime(file, lastWriteTimeStr);
+
+                if (lastWriteTimeStr != ctx.lastWriteTime) {
+                    ResourceContextCreateInfo info{};
+                    MakeResourceContextCreateInfo(ctx, info, lastWriteTimeStr);
+                    makeResource(info);
+                }
+            }
+
+            textureManager.updateResource();
         }
 
         // Placeholder for future registration (empty for now)
@@ -456,11 +463,20 @@ export namespace ufox::font {
                 return {};
             }
 
-            // If the attachment size does not match the block size, remake the data.
-            if (blocks.size() != info.attachments.size()) {
+            std::vector<std::filesystem::path> glyphJsonPaths;
+            glyphJsonPaths.reserve(blocks.size());
+
+            for (const auto& [key, path] : info.attachments) {
+                if (key == GLYPH_JSON_ATTACHMENT_KEY) {
+                    glyphJsonPaths.push_back(path);
+                }
+            }
+
+            // If the glyph JSON attachment size does not match the block size, remake the data.
+            if (blocks.size() != glyphJsonPaths.size()) {
                 debug::log(
                     debug::LogLevel::eInfo,
-                    "GlyphManager: tryLoadBindInfosFromCache: cache attachment count mismatch for font: {}. Regenerating.",
+                    "GlyphManager: tryLoadBindInfosFromCache: cache glyph json attachment count mismatch for font: {}. Regenerating.",
                     info.name
                 );
                 return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
@@ -470,16 +486,7 @@ export namespace ufox::font {
             bindInfos.reserve(blocks.size());
 
             for (size_t i = 0; i < blocks.size(); ++i) {
-                const auto& [key, jsonPath] = info.attachments[i];
-
-                if (key != GLYPH_JSON_ATTACHMENT_KEY) {
-                    debug::log(
-                        debug::LogLevel::eInfo,
-                        "GlyphManager: tryLoadBindInfosFromCache: invalid attachment key for font: {}. Regenerating.",
-                        info.name
-                    );
-                    return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
-                }
+                const auto& jsonPath = glyphJsonPaths[i];
 
                 GlyphDataBindInfo bindInfo{};
                 if (!ReadGlyphFromJson(jsonPath, bindInfo)) {

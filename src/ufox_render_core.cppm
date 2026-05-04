@@ -177,7 +177,6 @@ export namespace ufox::render {
         }
 
         void updateResource() override {
-            debug::log(debug::LogLevel::eInfo, "TextureManager: updateResource");
             for (auto &ctx : container | std::views::values) {
                 auto& file = ctx.sourcePath;
                 std::string lastWriteTimeStr;
@@ -194,6 +193,8 @@ export namespace ufox::render {
             for (auto& [handler, userData] : updateTextureEventHandlers) {
                 handler(userData);
             }
+
+            debug::log(debug::LogLevel::eInfo, "TextureManager: updateResource: success");
         }
 
         void init() override {
@@ -226,7 +227,7 @@ export namespace ufox::render {
             return bindResourceToContext(res, info);
         }
 
-        void rebuildTextureMap(std::map<const ResourceID,const uint32_t>* textureMap) const noexcept {
+        void makeTextureMap(std::map<const ResourceID,const uint32_t>* textureMap) const noexcept {
             textureMap->clear();
 
             uint32_t index = 0;

@@ -798,6 +798,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   class ResourceManagerBase;
   void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<const std::string_view>& sourceExtensions,ResourceManagerBase* manager);
   void WriteResourceContextMetaData(const ResourceContext& context);
+  void RemoveMissingSourceMetaData(const std::filesystem::path& metaPath,const nlohmann::json& ctx,ResourceManagerBase* manager);
 
   class ResourceManagerBase {
     public:
@@ -829,6 +830,21 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
     [[nodiscard]] ResourceContext* getResourceContext(const char* id) noexcept {
       return id ? getResourceContext(std::string_view{id}) : nullptr;
+    }
+
+    bool removeResourceContext(const ResourceID& id) {
+      const auto it = container.find(id);
+      if (it == container.end()) {
+        return false;
+      }
+
+      if (it->second.dataPtr && it->second.dataPtr->hasGpuResources()) {
+        it->second.dataPtr->releaseGpuResources();
+      }
+
+      container.erase(it);
+      debug::log(debug::LogLevel::eInfo, "removeResourceContext");
+      return true;
     }
 
     protected:
@@ -905,6 +921,59 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         }
   };
 
+  void RemoveMissingSourceMetaData(const std::filesystem::path& metaPath, const nlohmann::json& ctx, ResourceManagerBase* manager) {
+    const std::string idStr = ctx.value("id", "");
+    const std::string sourcePathStr = ctx.value("sourcePath", "");
+
+    debug::log(
+      debug::LogLevel::eInfo,
+      "Removing stale resource metadata: {} missing source: {}",
+      metaPath.string(),
+      sourcePathStr
+    );
+
+    if (!idStr.empty() && manager) {
+      manager->removeResourceContext(ResourceID{idStr});
+    }
+
+    if (ctx.contains("attachments") && ctx["attachments"].is_array()) {
+      for (const auto& attachmentJson : ctx["attachments"]) {
+        if (!attachmentJson.is_object()) {
+          continue;
+        }
+
+        const std::string attachmentPathStr = attachmentJson.value("path", "");
+        if (attachmentPathStr.empty()) {
+          continue;
+        }
+
+        std::error_code ec;
+        std::filesystem::remove(std::filesystem::path{attachmentPathStr}, ec);
+
+        if (ec) {
+          debug::log(
+            debug::LogLevel::eWarning,
+            "Failed to remove stale attachment: {} error: {}",
+            attachmentPathStr,
+            ec.message()
+          );
+        }
+      }
+    }
+
+    std::error_code ec;
+    std::filesystem::remove(metaPath, ec);
+
+    if (ec) {
+      debug::log(
+        debug::LogLevel::eWarning,
+        "Failed to remove stale metadata: {} error: {}",
+        metaPath.string(),
+        ec.message()
+      );
+    }
+  }
+
   void ReadResourceContextMetaData(const std::filesystem::path& rootDirectory,const std::span<const std::string_view>& sourceExtensions, ResourceManagerBase* manager) {
     namespace fs = std::filesystem;
     if (!fs::is_directory(rootDirectory)) {
@@ -949,14 +1018,19 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
     for (const auto& entry : sourceMetaFilePaths) {
       try {
-        std::ifstream file(entry);
-        if (!file.is_open()) {
-          debug::log(debug::LogLevel::eWarning,
-                     "Failed to open metadata file: {}", entry.string());
-          continue;
+        nlohmann::json doc;
+
+        {
+          std::ifstream file(entry);
+          if (!file.is_open()) {
+            debug::log(debug::LogLevel::eWarning,
+                       "Failed to open metadata file: {}", entry.string());
+            continue;
+          }
+
+          doc = nlohmann::json::parse(file);
         }
 
-        nlohmann::json doc = nlohmann::json::parse(file);
         const auto& ctx = doc.value(META_TAG_RESOURCE_CONTEXT, nlohmann::json{});
 
         if (!ctx.is_object()) {
@@ -969,13 +1043,21 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         const std::string idStr         = ctx.value("id", "");
         const std::string sourcePathStr = ctx.value("sourcePath", "");
         const std::string category      = ctx.value("category", "Miscellaneous");
-        const std::string lastWriteTime = ctx.value("lastWriteTime", "");   // ← Read from meta
+        const std::string lastWriteTime = ctx.value("lastWriteTime", "");
 
         if (name.empty() || idStr.empty() || sourcePathStr.empty()) {
           debug::log(debug::LogLevel::eWarning,
                      "Metadata missing required fields: {}", entry.string());
           continue;
         }
+
+        fs::path sourcePath = sourcePathStr;
+
+        if (!fs::exists(sourcePath)) {
+          RemoveMissingSourceMetaData(entry, ctx, manager);
+          continue;
+        }
+
         ResourceContextCreateInfo info{};
         info.setSourcePath(sourcePathStr)
             .setName(name)
@@ -1006,7 +1088,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         }
 
         ResourceID resourceID{idStr};
-        fs::path sourcePath = sourcePathStr;
 
         manager->makeResource(info);
 
