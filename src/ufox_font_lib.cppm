@@ -125,6 +125,7 @@ struct GlyphContext {
   // Font Style (simple enum, no flags)
   // ──────────────────────────────────────────────────────────────
   enum class GlyphStyle : uint8_t {
+    eUnknown,
     eRegular,
     eBold,
     eItalic,

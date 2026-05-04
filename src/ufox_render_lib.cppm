@@ -27,6 +27,8 @@ export namespace ufox::render {
   inline  vk::ImageSubresourceRange DEFAULT_COLOR_SUBRESOURCE_RANGE{
   vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 
+  using UpdateTextureEventHandler = void(*)(void* user);
+
   struct Color final {
     std::byte r{255};
     std::byte g{255};

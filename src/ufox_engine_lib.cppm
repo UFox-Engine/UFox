@@ -214,6 +214,7 @@ export namespace ufox::engine {
     SourceType                        sourceType{SourceType::eBuiltIn};
     ResourceID                        id{};
     std::vector<ResourceAttachment>   attachments{};
+    bool                              overwrite{false};
 
     constexpr ResourceContextCreateInfo& setID(const ResourceID& id) noexcept {
       this->id = id; return *this;
@@ -232,6 +233,12 @@ export namespace ufox::engine {
     }
     constexpr ResourceContextCreateInfo& setSourceType(const SourceType& type) noexcept {
       this->sourceType = type; return *this;
+    }
+    constexpr ResourceContextCreateInfo& setAttachments(const std::vector<ResourceAttachment>& attachments) noexcept {
+      this->attachments = attachments; return *this;
+    }
+    constexpr ResourceContextCreateInfo& setOverwrite(const bool& overwrite) noexcept {
+      this->overwrite = overwrite; return *this;
     }
   };
 

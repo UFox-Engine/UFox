@@ -4,6 +4,8 @@
 
 module;
 
+#include "GLFW/glfw3.h"
+
 #include <chrono>
 #include <fstream>
 #include <memory>
@@ -128,9 +130,25 @@ export namespace ufox::engine {
 
   class UFoxWindow {
   public:
+
+    ~UFoxWindow() {
+      if (gpuResource.device) {
+        gpuResource.device->waitIdle();
+      }
+      pauseRendering = true;
+      if (windowResource->swapchainResource) {
+        windowResource->swapchainResource->Clear();
+      }
+
+      running = false;
+#ifdef USE_SDL
+      SDL_RemoveEventWatch(FramebufferResizeCallback, this);
+#endif
+    }
+
     gpu::GraphicDeviceCreateInfo                          gpuCreateInfo{};
     gpu::GPUResources                                     gpuResource{};
-    std::optional<gpu::WindowResource>         windowResource{};
+    std::optional<gpu::WindowResource>                    windowResource{};
     std::optional<gpu::FrameResource>                     frameResource{};
     std::optional<gpu::DepthImageResource>                depthResource{};
 
@@ -192,7 +210,6 @@ export namespace ufox::engine {
       std::erase_if(renderPassEventHandlers, [user](auto& p){ return p.second == user; });
     }
 
-
     template<typename T>
     [[nodiscard]] static std::vector<T> ReadFileImpl(const std::string& filename) {
       std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -223,7 +240,6 @@ export namespace ufox::engine {
     [[nodiscard]] static std::vector<std::byte> ReadFileBinary(const std::string& filename) {
       return ReadFileImpl<std::byte>(filename);
     }
-
 
     [[nodiscard]] uint32_t getImageCount() const {
       return windowResource->swapchainResource.value().getImageCount();
@@ -420,8 +436,6 @@ export namespace ufox::engine {
       cmb.end();
     }
 
-
-
     void drawFrame() {
       while ( vk::Result::eTimeout == gpuResource.device->waitForFences( *frameResource->getCurrentDrawFence(), vk::True, UINT64_MAX ) )
         ;
@@ -589,6 +603,40 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     return window;
   }
 
+  void GetFileWriteTime(const std::filesystem::path& path, std::string& outTime) {
+    try {
+      if (std::filesystem::exists(path)) {
+        auto fileTime = std::filesystem::last_write_time(path);
+        auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(fileTime);
+        auto timeT = std::chrono::system_clock::to_time_t(sysTime);
+
+        std::tm utcTime{};
+  #if defined(_WIN32)
+        gmtime_s(&utcTime, &timeT);
+  #else
+        gmtime_r(&timeT, &utcTime);
+  #endif
+        std::ostringstream oss;
+        oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
+        outTime = oss.str();
+      }
+    }
+    catch (...) {
+      debug::log(debug::LogLevel::eWarning, "WriteResourceContextMeta : Failed to get source file last write time");
+    }
+  }
+
+  void MakeResourceContextCreateInfo(const ResourceContext& ctx, ResourceContextCreateInfo& outInfo, const std::string_view lastWriteTime = "") {
+    outInfo.setSourcePath(ctx.sourcePath)
+      .setName(ctx.name)
+      .setID(ctx.dataPtr ? ctx.dataPtr->iD : ResourceID{})
+      .setCategory(ctx.category)
+      .setSourceType(ctx.sourceType)
+      .setLastWriteTime(!lastWriteTime.empty() ? lastWriteTime : ctx.lastWriteTime)
+      .setAttachments(ctx.attachments)
+      .setOverwrite(!lastWriteTime.empty());
+  }
+
   constexpr void EnsureDirectoryExists(const std::filesystem::path& dirPath) noexcept{
     if (dirPath.empty()) {
       debug::log(debug::LogLevel::eWarning,
@@ -705,7 +753,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
     try {
       file << std::setw(2) << doc << std::endl;
-      debug::log(debug::LogLevel::eInfo, "WriteDirectoryMeta ({}) : success" , metaPath.string());
       return true;
     }
     catch (const std::exception& e) {
@@ -726,7 +773,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     const auto metaPath = dirPath.parent_path() / metaFilename;
 
     if (!std::filesystem::exists(metaPath)) {
-      debug::log(debug::LogLevel::eInfo, "No previous directory meta found for {}", dirPath.string());
       return state;
     }
 
@@ -740,7 +786,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       state.totalSizeBytes   = m.value<uintmax_t>("totalSizeBytes", 0);
       state.stateHash = m.value<size_t>("stateHash", 0);
 
-      debug::log(debug::LogLevel::eInfo, "Loaded directory state meta for {}", dirPath.string());
     }
     catch (const std::exception& e) {
       debug::log(debug::LogLevel::eWarning,
@@ -770,7 +815,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
     virtual void init() = 0;
     virtual void makeResource(ResourceContextCreateInfo& info) = 0;
-    virtual void refreshResource()=0;
+    virtual void updateResource()=0;
 
     [[nodiscard]] ResourceContext* getResourceContext(const ResourceID& id) noexcept {
       const auto it = container.find(id);
@@ -806,12 +851,23 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         return it->second.sourceType == SourceType::eBuiltIn;
       }
 
-      ResourceID makeResourceContext(const ResourceID& builtInId = {}) {
-        const auto& id = builtInId.IsValid()? builtInId : ResourceID(nanoid::generate(12));
+      bool makeResourceContext(ResourceID& id, const bool& overwrite) {
+        if (!id.IsValid()) {
+          do {
+            id = ResourceID(nanoid::generate(12));
+          } while (container.contains(id));
+        }
+
         auto [it, inserted] = container.try_emplace(id, ResourceContext{});
+
+        if (!inserted && !overwrite) {
+          return false;
+        }
+
         auto& slot = it->second;
         slot.lastImportTime = std::chrono::file_clock::now();
-        return id;
+
+        return true;
       }
 
      [[nodiscard]] const ResourceID* bindResourceToContext(std::unique_ptr<ResourceBase>& resource, const ResourceContextCreateInfo& info) {
@@ -828,6 +884,17 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
         WriteResourceContextMetaData(ctx);
         return &ctx.dataPtr->iD;
+      }
+
+      void refreshResource() {
+        const DirectoryContext oldContext = ReadDirectoryContextMetaData(directory);
+        DirectoryContext newContext{};
+        MakeDirectoryContext(directory, newContext);
+        if (DirectoryContextChanged(oldContext, newContext)) {
+          WriteDirectoryContextMetaData(newContext);
+          ReadResourceContextMetaData(directory, sourceExtensions, this);
+        }
+        updateResource();
       }
 
       static void clearAllGpuResources(ResourceManagerBase& manager) {
@@ -968,29 +1035,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     }
   }
 
-  void GetFileWriteTime(const std::filesystem::path& path, std::string& outTime) {
-    try {
-      if (std::filesystem::exists(path)) {
-        auto fileTime = std::filesystem::last_write_time(path);
-        auto sysTime = std::chrono::clock_cast<std::chrono::system_clock>(fileTime);
-        auto timeT = std::chrono::system_clock::to_time_t(sysTime);
-
-        std::tm utcTime{};
-#if defined(_WIN32)
-        gmtime_s(&utcTime, &timeT);
-#else
-        gmtime_r(&timeT, &utcTime);
-#endif
-        std::ostringstream oss;
-        oss << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
-        outTime = oss.str();
-      }
-    }
-    catch (...) {
-      debug::log(debug::LogLevel::eWarning, "WriteResourceContextMeta : Failed to get source file last write time");
-    }
-  }
-
   void WriteResourceContextMetaData(const ResourceContext& context) {
     if (context.sourceType == SourceType::eBuiltIn) {
       return;
@@ -1049,4 +1093,9 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       debug::log(debug::LogLevel::eError,"WriteResourceContextMeta : Exception while writing metadata {} : {}", metaPath.string(), e.what());
     }
   }
+
+  [[nodiscard]] ResourceID ResolveResourceID(const ResourceContextCreateInfo& info) {
+    return info.sourceType == SourceType::eBuiltIn ? info.id : ResourceID{info.sourcePath.filename().string()};
+  }
+
 }

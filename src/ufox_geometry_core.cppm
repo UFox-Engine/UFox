@@ -392,9 +392,12 @@ export namespace ufox::geometry {
     class MeshManager final : ResourceManagerBase {
     public:
         explicit MeshManager(UFoxWindow& _window,const gpu::GPUResources& gpu) :
-        ResourceManagerBase(_window,gpu, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {}
+        ResourceManagerBase(_window,gpu, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {
+            window->registerGainsFocusEventHandlers([](void* user){static_cast<MeshManager*>(user)->refreshResource(); }, this);
+        }
 
         ~MeshManager() override {
+            window->unregisterGainsFocusEventHandlers(this);
             clearAllGpuResources(*this);
         }
 
@@ -407,7 +410,7 @@ export namespace ufox::geometry {
             }
         }
 
-        void refreshResource() override {
+        void updateResource() override {
 
         }
 
@@ -418,7 +421,9 @@ export namespace ufox::geometry {
         }
 
         const ResourceID* makeMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
-            const ResourceID& id = makeResourceContext(info.id);
+            ResourceID id = ResolveResourceID(info);
+            if(!makeResourceContext(id, info.overwrite)) return nullptr;
+
             std::unique_ptr<ResourceBase> res = std::make_unique<Mesh>(info.name, vertices, indices, id);
             auto* mesh = dynamic_cast<Mesh*>(res.get());
             MakeVertexBuffer(*gpuResources, *mesh);

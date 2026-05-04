@@ -159,10 +159,14 @@ export namespace ufox::render {
     class TextureManager final : public ResourceManagerBase {
     public:
         explicit TextureManager(UFoxWindow& _window,const gpu::GPUResources& gpu)
-            : ResourceManagerBase(_window,gpu, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {}
+            : ResourceManagerBase(_window,gpu, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {
+            window->registerGainsFocusEventHandlers([](void* user){static_cast<TextureManager*>(user)->refreshResource(); }, this);
+        }
 
         ~TextureManager() override {
+            window->unregisterGainsFocusEventHandlers(this);
             clearAllGpuResources(*this);
+            updateTextureEventHandlers.clear();
         }
 
         void makeResource(ResourceContextCreateInfo &info) override {
@@ -172,8 +176,24 @@ export namespace ufox::render {
             }
         }
 
-        void refreshResource() override {
+        void updateResource() override {
+            debug::log(debug::LogLevel::eInfo, "TextureManager: updateResource");
+            for (auto &ctx : container | std::views::values) {
+                auto& file = ctx.sourcePath;
+                std::string lastWriteTimeStr;
+                GetFileWriteTime(file, lastWriteTimeStr);
 
+                if (lastWriteTimeStr != ctx.lastWriteTime) {
+                    ResourceContextCreateInfo info{};
+                    MakeResourceContextCreateInfo(ctx, info, lastWriteTimeStr);
+                    makeResource(info);
+                }
+            }
+
+            gpuResources->device->waitIdle();
+            for (auto& [handler, userData] : updateTextureEventHandlers) {
+                handler(userData);
+            }
         }
 
         void init() override {
@@ -191,8 +211,12 @@ export namespace ufox::render {
 
         const ResourceID* makeTexture(TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {
             auto& [pixels, extent] = bindInfo;
-            const ResourceID& id = info.sourceType == SourceType::eBuiltIn ? info.id : ResourceID{info.sourcePath.filename().string()};
-            makeResourceContext(id);
+            ResourceID id = ResolveResourceID(info);
+            if(!makeResourceContext(id, info.overwrite)) {
+                debug::log(debug::LogLevel::eWarning, "TextureManager: makeTexture: skip");
+                return nullptr;
+            }
+
             std::unique_ptr<ResourceBase> res = std::make_unique<Texture>(info.name, pixels, extent, id);
             const auto texture = dynamic_cast<Texture*>(res.get());
             MakeTexture2D(*gpuResources, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,vk::MemoryPropertyFlagBits::eDeviceLocal);
@@ -202,7 +226,7 @@ export namespace ufox::render {
             return bindResourceToContext(res, info);
         }
 
-        void buildTextureMap(std::map<const ResourceID,const uint32_t>* textureMap) const noexcept {
+        void rebuildTextureMap(std::map<const ResourceID,const uint32_t>* textureMap) const noexcept {
             textureMap->clear();
 
             uint32_t index = 0;
@@ -235,12 +259,20 @@ export namespace ufox::render {
             return texture;
         }
 
+        void registerUpdateTextureEventHandler(UpdateTextureEventHandler handler, void* userData) {
+            updateTextureEventHandlers.emplace_back(handler, userData);
+        }
+
+        void unregisterUpdateTextureEventHandler(void* userData) {
+            std::erase_if(updateTextureEventHandlers, [userData](auto& p){ return p.second == userData; });
+        }
+
     private:
         uint32_t maxDescriptorSetSamplerImages{1};
+        std::vector<std::pair<UpdateTextureEventHandler,void*>> updateTextureEventHandlers{};
     };
 
     const ResourceID* MakeTextureContent(TextureManager& manager, TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {
-        debug::log(debug::LogLevel::eInfo, "MakeTextureContent: id: {}", info.id.view());
         return manager.makeTexture(bindInfo, info);
     }
 
@@ -252,7 +284,6 @@ export namespace ufox::render {
             .setSourceType(SourceType::eBuiltIn)
             .setCategory("Standard")
             .setID(procedures::BUILTIN_WHITE_ID);
-        debug::log(debug::LogLevel::eInfo, "MakeWhiteTexture: id: {}", info.id.view());
             return MakeTextureContent(manager, bindInfo, info);
         }
 

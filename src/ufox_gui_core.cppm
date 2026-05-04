@@ -338,7 +338,7 @@ export namespace ufox::gui {
         renderResource.descriptorPool.emplace(*gpu.device, poolInfo);
     }
 
-    void MakeDescriptorSets(const UFoxWindow& window, const uint32_t& imageCount, const Viewpanel& panel, RenderResource& renderResource, const TextureManager & manager, const uint32_t& maxImageSize) {
+    void MakeDescriptorSets(const UFoxWindow& window, const uint32_t& imageCount, const Viewpanel& panel, RenderResource& renderResource, const TextureManager & manager, const uint32_t& samplerImageCount) {
         std::vector<vk::DescriptorSetLayout> layouts(imageCount, *renderResource.descriptorSetLayout);
         vk::DescriptorSetAllocateInfo allocInfo{};
         allocInfo
@@ -351,6 +351,8 @@ export namespace ufox::gui {
 
         std::vector<vk::DescriptorImageInfo> imageInfo = manager.makeImageDescriptorImageInfos();
         debug::log(debug::LogLevel::eInfo, "GUI Document MakeDescriptorSets : Susses {}", imageInfo.size());
+
+        const uint32_t descriptorCount = std::min<uint32_t>(samplerImageCount, static_cast<uint32_t>(imageInfo.size()));
 
         for (size_t i =0; i < imageCount; i++) {
             vk::DescriptorBufferInfo ssboInfo = panel.MakeDescriptorBufferInfo(i);
@@ -367,12 +369,14 @@ export namespace ufox::gui {
             .setDstBinding(2)
             .setDstArrayElement(0)
             .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(imageInfo.size())
+            .setDescriptorCount(descriptorCount)
             .setPImageInfo(imageInfo.data());
             renderResource.descriptorSets.push_back(std::move(sets[i]));
             window.gpuResource.device->updateDescriptorSets(write, {});
         }
     }
+
+
 
     inline ResourceID TESTER_TEXTURE_ID{"grok-image-b9472c20-0cfc-4f3d-b558-d5c3066aa081.jpg"};
 
@@ -386,6 +390,10 @@ export namespace ufox::gui {
                 window->registerUpdateBufferEventHandlers([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
                 window->registerDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
                     const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, depthAttachment);}, this);
+            }
+
+            if (_textureManager != nullptr) {
+                textureManager->registerUpdateTextureEventHandler([](void* user) { static_cast<Document*>(user)->updateTextureDescriptorSets();}, this);
             }
         }
 
@@ -403,6 +411,10 @@ export namespace ufox::gui {
                 meshManager = nullptr;
             }
 
+            if (textureManager != nullptr) {
+                textureManager->unregisterUpdateTextureEventHandler(this);
+                textureManager = nullptr;
+            }
         }
 
         void init() {
@@ -454,15 +466,10 @@ export namespace ufox::gui {
                     .setCategory("GUI");
                 meshID = MakeMeshContent(*meshManager, RectVertices, RectIndices, info);
                 mesh = meshManager->getMesh(*meshID);
-                if (mesh) {
-                    debug::log(debug::LogLevel::eInfo, "GUI Document InitMesh ({}): Susses", mesh->name);
-                }
             }
 
-            uint32_t samplerImageCount = MAX_GUI_TEXTURES;
-
             samplerImageCount = textureManager->getMaxDescriptorSetSamplerImages(samplerImageCount);
-            textureManager->buildTextureMap(&textureMap);
+            textureManager->rebuildTextureMap(&textureMap);
 
             const gpu::GPUResources& gpu = window->gpuResource;
             makeUniformResource();
@@ -492,6 +499,7 @@ export namespace ufox::gui {
         const Texture* texture{nullptr};
         RenderResource renderResource{};
         std::map<const ResourceID, const uint32_t> textureMap{};
+        uint32_t samplerImageCount = MAX_GUI_TEXTURES;
 
         void makeUniformResource() {
             rootPanel.makeSSBO(window->gpuResource, window->getImageCount());
@@ -511,6 +519,25 @@ export namespace ufox::gui {
 
         void updateUniformBuffer(const uint32_t& currentImage) const {
             rootPanel.updateUniformBuffer(currentImage);
+        }
+
+        void updateTextureDescriptorSets() const {
+            if (renderResource.descriptorSets.empty()) return;
+            const std::vector<vk::DescriptorImageInfo> imageInfo = textureManager->makeImageDescriptorImageInfos();
+            debug::log(debug::LogLevel::eInfo, "GUI Document updateTextureDescriptorSets : Susses {}", imageInfo.size());
+
+            const uint32_t descriptorCount = std::min<uint32_t>(samplerImageCount, static_cast<uint32_t>(imageInfo.size()));
+
+            for (size_t i = 0; i < window->getImageCount(); i++) {
+                vk::WriteDescriptorSet write{};
+                write.setDstSet(*renderResource.descriptorSets[i])
+                    .setDstBinding(2)
+                    .setDstArrayElement(0)
+                    .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+                    .setDescriptorCount(descriptorCount)
+                    .setPImageInfo(imageInfo.data());
+                window->gpuResource.device->updateDescriptorSets({write}, {});
+            }
         }
 
         void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource,
