@@ -127,6 +127,34 @@ export namespace ufox::engine {
     return glm::ortho(0.0f, width, 0.0f, height, -1.0f, 0.0f);
   }
 
+  template<typename Callback>
+  class EventList {
+  public:
+    using Entry = std::pair<Callback, void*>;
+
+    void add(Callback callback, void* user) {
+      handlers.emplace_back(callback, user);
+    }
+
+    void remove(void* user) {
+      std::erase_if(handlers, [user](const Entry& entry) {
+        return entry.second == user;
+      });
+    }
+
+    template<typename... Args>
+    void execute(Args&&... args) const {
+      for (const auto& [callback, user] : handlers) {
+        if (callback) {
+          callback(std::forward<Args>(args)..., user);
+        }
+      }
+    }
+
+  private:
+    std::vector<Entry> handlers{};
+  };
+
 
   class UFoxWindow {
   public:
@@ -155,59 +183,66 @@ export namespace ufox::engine {
 
     [[nodiscard]] constexpr bool isRunning() const { return running; }
 
-    void registerResizeEventHandlers(ResizeEventHandler cb, void* user) {
-      resizeEventHandlers.emplace_back(cb, user);
+    template<EventType Type>
+    void registerCallbackEvent(EventTraits<Type>::Handler callback, void* user) {
+      getEventList<Type>().add(callback, user);
     }
 
-    void unregisterResizeEventHandlers(void* user) {  // simple by pointer
-      std::erase_if(resizeEventHandlers, [user](auto& p){ return p.second == user; });
+    void unregisterCallbackEvent(const EventType type, void* user) {
+      switch (type) {
+      case EventType::eResize:
+        resizeEventHandlers.remove(user);
+        break;
+      case EventType::eSystemInit:
+        systemInitEvents.remove(user);
+        break;
+      case EventType::ePostSystemInit:
+        postSystemInitEvents.remove(user);
+        break;
+      case EventType::eStart:
+        startEvents.remove(user);
+        break;
+      case EventType::eGainsFocus:
+        gainsFocusEvents.remove(user);
+        break;
+      case EventType::ePostGainsFocus:
+        postGainsFocusEvents.remove(user);
+        break;
+      case EventType::eUpdateBuffer:
+        updateBufferEvents.remove(user);
+        break;
+      case EventType::eRenderPass:
+        renderPassEvents.remove(user);
+        break;
+      }
     }
 
-    void registerSystemInitEventHandlers(SystemInitEventHandler cb, void* user) {
-      systemInitEventHandlers.emplace_back(cb, user);
-    }
-
-    void unregisterSystemInitEventHandlers(void* user) {
-      std::erase_if(systemInitEventHandlers, [user](auto& p){ return p.second == user; });
-    }
-
-    void registerResourceInitEventHandlers(ResourceInitEventHandler cb, void* user) {
-      resourceInitEventHandlers.emplace_back(cb, user);
-    }
-
-    void unregisterResourceInitEventHandlers(void* user) {
-      std::erase_if(resourceInitEventHandlers, [user](auto& p){ return p.second == user; });
-    }
-
-    void registerStartEventHandlers(StartEventHandler cb, void* user) {
-      startEventHandlers.emplace_back(cb, user);
-    }
-
-    void unregisterStartEventHandlers(void* user) {
-      std::erase_if(startEventHandlers, [user](auto& p){ return p.second == user; });
-    }
-
-    void registerGainsFocusEventHandlers(GainsFocusEventHandler cb, void* user) {
-      gainsFocusEventHandlers.emplace_back(cb, user);
-    }
-    void unregisterGainsFocusEventHandlers(void* user) {
-      std::erase_if(gainsFocusEventHandlers, [user](auto& p){ return p.second == user; });
-    }
-
-    void registerUpdateBufferEventHandlers(UpdateBufferEventHandler cb, void* user) {
-      updateBufferEventHandlers.emplace_back(cb, user);
-    }
-
-    void unregisterUpdateBufferEventHandlers(void* user) {
-      std::erase_if(updateBufferEventHandlers, [user](auto& p){ return p.second == user; });
-    }
-
-    void registerDrawCanvasEventHandlers(DrawCanvasEventHandler cb, void* user) {
-      renderPassEventHandlers.emplace_back(cb, user);
-    }
-
-    void unregisterDrawCanvasEventHandlers(void* user) {
-      std::erase_if(renderPassEventHandlers, [user](auto& p){ return p.second == user; });
+    template<EventType Type>
+    auto& getEventList() {
+      if constexpr (Type == EventType::eResize) {
+        return resizeEventHandlers;
+      }
+      else if constexpr (Type == EventType::eSystemInit) {
+        return systemInitEvents;
+      }
+      else if constexpr (Type == EventType::ePostSystemInit) {
+        return postSystemInitEvents;
+      }
+      else if constexpr (Type == EventType::eStart) {
+        return startEvents;
+      }
+      else if constexpr (Type == EventType::eGainsFocus) {
+        return gainsFocusEvents;
+      }
+      else if constexpr (Type == EventType::ePostGainsFocus) {
+        return postGainsFocusEvents;
+      }
+      else if constexpr (Type == EventType::eUpdateBuffer) {
+        return updateBufferEvents;
+      }
+      else if constexpr (Type == EventType::eRenderPass) {
+        return renderPassEvents;
+      }
     }
 
     template<typename T>
@@ -286,30 +321,35 @@ export namespace ufox::engine {
       recreateSwapchain();
       updateScreenProjectionBuffer(fw, fh);
 
-      for (auto [callback, used] : resizeEventHandlers) {
-        if (callback) callback(fw, fh, used);
-      }
+      resizeEventHandlers.execute(fw, fh);
 
       drawFrame();
     }
 
-    [[nodiscard]] vk::DescriptorBufferInfo MakeScreenViewProjectionBufferInfo() const {
+    [[nodiscard]] vk::DescriptorBufferInfo makeScreenViewProjectionBufferInfo() const {
+      if (!screenViewProjectionBuffer.has_value() ||!screenViewProjectionBuffer->data.has_value()) {
+        throw std::runtime_error("MakeScreenViewProjectionBufferInfo : screen view projection buffer is not initialized");
+      }
+
       vk::DescriptorBufferInfo bufferInfo{};
       bufferInfo
         .setBuffer(*screenViewProjectionBuffer.value().data)
         .setOffset(0)
         .setRange(MAT4_BUFFER_SIZE);
+
       return bufferInfo;
+
     }
 
   private:
-    std::vector<std::pair<SystemInitEventHandler, void*>>         systemInitEventHandlers{};
-    std::vector<std::pair<ResourceInitEventHandler, void*>>       resourceInitEventHandlers{};
-    std::vector<std::pair<ResizeEventHandler, void*>>             resizeEventHandlers{};
-    std::vector<std::pair<StartEventHandler, void*>>              startEventHandlers{};
-    std::vector<std::pair<GainsFocusEventHandler, void*>>         gainsFocusEventHandlers{};
-    std::vector<std::pair<UpdateBufferEventHandler, void*>>       updateBufferEventHandlers{};
-    std::vector<std::pair<DrawCanvasEventHandler, void*>>         renderPassEventHandlers{};
+    EventList<SystemInitEventHandler>                             systemInitEvents{};
+    EventList<PostSystemInitEventHandler>                         postSystemInitEvents{};
+    EventList<ResizeEventHandler>                                 resizeEventHandlers{};
+    EventList<StartEventHandler>                                  startEvents{};
+    EventList<GainsFocusEventHandler>                             gainsFocusEvents{};
+    EventList<PostGainsFocusEventHandler>                         postGainsFocusEvents{};
+    EventList<UpdateBufferEventHandler>                           updateBufferEvents{};
+    EventList<DrawCanvasEventHandler>                             renderPassEvents{};
 
     bool                                                          running {false};
     bool                                                          framebufferResized {false};
@@ -332,43 +372,35 @@ export namespace ufox::engine {
       }
     }
 
-    void executeInitEvents() {
-      initGPUBufferResource();
-      for (auto [callback, used] : systemInitEventHandlers) {
-        if (callback) callback(used);
-      }
+    void executeInitEvents() const {
+      systemInitEvents.execute();
     }
 
     void executeResourceInitEvents(const float& width, const float& height) {
-      for (auto [callback, used] : resourceInitEventHandlers) {
-        if (callback) callback(width, height, used);
-      }
+      initGPUBufferResource();
+      postSystemInitEvents.execute(width, height);
     }
 
     void executeStartEvents() {
       if (startFrameExecuted) return;
-      for (auto [callback, used] : startEventHandlers) {
-        if (callback) callback(used);
-      }
+      startEvents.execute();
       startFrameExecuted = true;
     }
 
-    void executeGainsFocusEvents() {
-      for (auto [callback, used] : gainsFocusEventHandlers) {
-        if (callback) callback(used);
-      }
+    void executeGainsFocusEvents() const {
+      gainsFocusEvents.execute();
     }
 
-    void executeUpdateBufferEvents(const uint32_t& imageIndex) {
-      for (auto [callback, used] : updateBufferEventHandlers) {
-        if (callback) callback(imageIndex, used);
-      }
+    void executePostGainsFocusEvents() const {
+      postGainsFocusEvents.execute();
+    }
+
+    void executeUpdateBufferEvents(const uint32_t& imageIndex) const {
+      updateBufferEvents.execute(imageIndex);
     }
 
     void executeRenderPassEvents(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment) {
-      for (auto [callback, used] : renderPassEventHandlers) {
-        if (callback) callback(cmb, imageIndex, *windowResource, colorAttachment, depthAttachment, used);
-      }
+     renderPassEvents.execute(cmb, imageIndex, *windowResource, colorAttachment, depthAttachment);
     }
 
     vk::Extent2D recreateSwapchain() {
@@ -523,8 +555,9 @@ export namespace ufox::engine {
         }
         case SDL_EVENT_WINDOW_FOCUS_GAINED:{
 
-          //gpuResource.device->waitIdle();
+          gpuResource.device->waitIdle();
           executeGainsFocusEvents();
+          executePostGainsFocusEvents();
 
           break;
         }
@@ -814,9 +847,11 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
     }
 
-    virtual void init() = 0;
-    virtual void makeResource(ResourceContextCreateInfo& info) = 0;
-    virtual void updateResource()=0;
+    virtual void onSystemInit() = 0;
+    virtual void onPostSystemInit(const float& width, const float& height) = 0;
+    virtual void onMakeResource(ResourceContextCreateInfo& info) = 0;
+    virtual void onGainsFocus() = 0;
+    virtual void onPostGainsFocus() = 0;
 
     [[nodiscard]] ResourceContext* getResourceContext(const ResourceID& id) noexcept {
       const auto it = container.find(id);
@@ -843,7 +878,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       }
 
       container.erase(it);
-      debug::log(debug::LogLevel::eInfo, "removeResourceContext");
       return true;
     }
 
@@ -910,7 +944,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
           WriteDirectoryContextMetaData(newContext);
           ReadResourceContextMetaData(directory, sourceExtensions, this);
         }
-        updateResource();
       }
 
       static void clearAllGpuResources(ResourceManagerBase& manager) {
@@ -924,13 +957,6 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   void RemoveMissingSourceMetaData(const std::filesystem::path& metaPath, const nlohmann::json& ctx, ResourceManagerBase* manager) {
     const std::string idStr = ctx.value("id", "");
     const std::string sourcePathStr = ctx.value("sourcePath", "");
-
-    debug::log(
-      debug::LogLevel::eInfo,
-      "Removing stale resource metadata: {} missing source: {}",
-      metaPath.string(),
-      sourcePathStr
-    );
 
     if (!idStr.empty() && manager) {
       manager->removeResourceContext(ResourceID{idStr});
@@ -1089,7 +1115,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 
         ResourceID resourceID{idStr};
 
-        manager->makeResource(info);
+        manager->onMakeResource(info);
 
         if (sourceFilePaths.contains(sourcePath)) {
           sourceFilePaths.erase(sourcePath);
@@ -1112,7 +1138,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
           .setSourceType(SourceType::ePortIn)
           .setLastWriteTime("");
 
-      manager->makeResource(info);
+      manager->onMakeResource(info);
     }
   }
 

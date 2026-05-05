@@ -352,27 +352,24 @@ export namespace ufox::font {
     class GlyphManager final : public ResourceManagerBase {
     public:
         explicit GlyphManager(UFoxWindow& _window, render::TextureManager& _textureManager): ResourceManagerBase(_window,{}, FONT_RESOURCE_PATH, FONT_RESOURCE_EXTENSIONS), textureManager(_textureManager) {
-            window->registerGainsFocusEventHandlers([](void* user){static_cast<GlyphManager*>(user)->refreshResource(); }, this);
+            window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<GlyphManager*>(user)->onSystemInit(); }, this);
+            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<GlyphManager*>(user)->onGainsFocus(); }, this);
         }
 
         ~GlyphManager() override {
-            window->unregisterGainsFocusEventHandlers(this);
+            window->unregisterCallbackEvent(EventType::eSystemInit,this);
+            window->unregisterCallbackEvent(EventType::eGainsFocus,this);
         }
 
-        void init() override {
-            ReadResourceContextMetaData(directory, sourceExtensions, this);
-            // builtInResources will be filled later
-            debug::log(debug::LogLevel::eInfo, "GlyphManager: init success");
-        }
 
-        void makeResource(ResourceContextCreateInfo& info) override {
+        void onMakeResource(ResourceContextCreateInfo& info) override {
             const ResourceID searchedID{info.sourcePath.parent_path().filename().string()};
 
             const GlyphStyle resourceStyle = GetGlyphStyle(info.name);
             if (resourceStyle == GlyphStyle::eUnknown) {
                 debug::log(
                     debug::LogLevel::eInfo,
-                    "GlyphManager: makeResource: skipped unsupported glyph style for font: {}",
+                    "GlyphManager: onMakeResource: skipped unsupported glyph style for font: {}",
                     info.name
                 );
                 return;
@@ -384,7 +381,7 @@ export namespace ufox::font {
             if (it == sourceTypeMap.end()) {
                 debug::log(
                     debug::LogLevel::eWarning,
-                    "GlyphManager: makeResource: no glyph source type entry found for source path: {} searchedID: {}",
+                    "GlyphManager: onMakeResource: no glyph source type entry found for source path: {} searchedID: {}",
                     info.sourcePath.string(),
                     searchedID.view()
                 );
@@ -395,7 +392,7 @@ export namespace ufox::font {
             if (bindInfos.empty()) {
                 debug::log(
                     debug::LogLevel::eWarning,
-                    "GlyphManager: makeResource: no glyph bind infos were created for font: {}",
+                    "GlyphManager: onMakeResource: no glyph bind infos were created for font: {}",
                     info.name
                 );
                 return;
@@ -407,7 +404,7 @@ export namespace ufox::font {
                 if (atlasInfo.id.view().empty() || glyphContexts.empty()) {
                     debug::log(
                         debug::LogLevel::eWarning,
-                        "GlyphManager: makeResource: skipped invalid glyph bind info for font: {}",
+                        "GlyphManager: onMakeResource: skipped invalid glyph bind info for font: {}",
                         info.name
                     );
                     continue;
@@ -417,8 +414,17 @@ export namespace ufox::font {
             }
         }
 
-        void updateResource() override {
-            debug::log(debug::LogLevel::eInfo, "GlyphManager: updateResource");
+        void onSystemInit() override {
+            ReadResourceContextMetaData(directory, sourceExtensions, this);
+            // builtInResources will be filled later
+            debug::log(debug::LogLevel::eInfo, "GlyphManager: init success");
+        }
+
+        void onPostSystemInit(const float &width, const float &height) override {}
+
+        void onGainsFocus() override {
+            refreshResource();
+
             for (auto &ctx : container | std::views::values) {
                 auto& file = ctx.sourcePath;
                 std::string lastWriteTimeStr;
@@ -427,12 +433,12 @@ export namespace ufox::font {
                 if (lastWriteTimeStr != ctx.lastWriteTime) {
                     ResourceContextCreateInfo info{};
                     MakeResourceContextCreateInfo(ctx, info, lastWriteTimeStr);
-                    makeResource(info);
+                    onMakeResource(info);
                 }
             }
-
-            textureManager.updateResource();
         }
+
+        void onPostGainsFocus() override {}
 
         // Placeholder for future registration (empty for now)
         const ResourceID* makeGlyph(const ResourceID& atlasTextureID, const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block, const GlyphStyle& style, const ResourceContextCreateInfo& info) {

@@ -48,6 +48,42 @@ export namespace ufox::gui {
         }
     }
 
+    [[nodiscard]] glm::vec4 ComputeImageUVRect(const float elementWidth, const float elementHeight, const float textureWidth, const float textureHeight, const ImageScaleMode mode) noexcept{
+        if (textureWidth <= 0.0f || textureHeight <= 0.0f || elementWidth <= 0.0f || elementHeight <= 0.0f)
+            return {0.0f, 0.0f, 1.0f, 1.0f};
+
+        const float elemAspect = elementWidth / elementHeight;
+        const float texAspect  = textureWidth / textureHeight;
+
+        switch (mode) {
+        case ImageScaleMode::eStretchToFill:
+            return {0.0f, 0.0f, 1.0f, 1.0f};
+
+        case ImageScaleMode::eScaleToFit: {   // Contain
+            if (elemAspect > texAspect) {
+                // Fit to height → letterbox on sides
+                const float uvWidth = texAspect / elemAspect;
+                return {(1.0f - uvWidth) * 0.5f, 0.0f, uvWidth, 1.0f};
+            }
+            // Fit to width → pillarbox on top/bottom
+            const float uvHeight = elemAspect / texAspect;
+            return {0.0f, (1.0f - uvHeight) * 0.5f, 1.0f, uvHeight};
+        }
+
+        case ImageScaleMode::eScaleAndCrop: { // Cover
+            if (elemAspect > texAspect) {
+                // Crop top and bottom
+                const float uvHeight = elemAspect / texAspect;
+                return {0.0f, (1.0f - uvHeight) * 0.5f, 1.0f, uvHeight};
+            }
+            // Crop left and right
+            const float uvWidth = texAspect / elemAspect;
+            return {(1.0f - uvWidth) * 0.5f, 0.0f, uvWidth, 1.0f};
+        }
+        }
+        return {0.0f, 0.0f, 1.0f, 1.0f};
+    }
+
     class Viewpanel;
     class VisualElement;
     constexpr void DestroyVisualElement(VisualElement* element) noexcept;
@@ -136,20 +172,12 @@ export namespace ufox::gui {
         return VisualElementHandler{new VisualElement(name), DestroyVisualElement};
     }
 
-    void AccumulateVisualElementUniformData(std::vector<UniformData>& uniformDatas, const VisualElement& element, const std::map<const ResourceID, const uint32_t>& textureMap) {
+    void AccumulateVisualElementUniformData(std::vector<UniformData>& uniformDatas, const VisualElement& element, const TextureManager& textureManager) {
         if (!element.rect || !element.rect.get()) {
             return;  // safety - invalid rect context
         }
 
         const auto& seg = element.rect.get()->content;
-
-        uint32_t imageIndex {0};
-        if (const auto it = textureMap.find(ResourceID{element.style.backgroundImage});it != textureMap.end()) {
-            imageIndex = it->second;
-        }
-        else if (const auto it = textureMap.find(ResourceID{"default"});it != textureMap.end()) {
-            imageIndex = it->second;
-        }
 
         // Build model matrix – position + non-uniform scale
         // Note: we're using scale for width/height — very common for 2D UI
@@ -160,7 +188,7 @@ export namespace ufox::gui {
         );
 
         UniformData data{};
-        data.imageIndex = imageIndex;
+        data.imageIndex = textureManager.getTextureIndex(ResourceID{element.style.backgroundImage});
         data.model = model;
         data.imageColor = element.style.imageColor;
         data.backgroundColor = element.style.backgroundColor;
@@ -170,7 +198,7 @@ export namespace ufox::gui {
         // Recurse into THIS element's children — not root!
         for (const VisualElement* child : element.hierarchy) {
             if (child) {
-                AccumulateVisualElementUniformData(uniformDatas, *child, textureMap);
+                AccumulateVisualElementUniformData(uniformDatas, *child, textureManager);
             }
         }
     }
@@ -183,17 +211,16 @@ export namespace ufox::gui {
         discadelta::RectSegmentContextHandler   rect{nullptr, discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
         VisualElementHandler                    rootElement{nullptr, DestroyVisualElement};
 
-        void makeUniformData() {
+        void rebuildUniformData() {
             std::map<const ResourceID, const uint32_t> textureMap{};
-            textureManager->makeTextureMap(&textureMap);
             uniformData.clear();
             uniformData.reserve(rootElement->rect->branchCount);
-            AccumulateVisualElementUniformData(uniformData, *rootElement.get(), textureMap);
+            AccumulateVisualElementUniformData(uniformData, *rootElement.get(), *textureManager);
         }
 
         void onResize(const float& width, const float& height) {
             discadelta::UpdateSegments(*rootElement->rect, width, height, true);
-            makeUniformData();
+            rebuildUniformData();
         }
 
         void updateUniformBuffer(const uint32_t& imageIndex) const {
@@ -222,13 +249,13 @@ export namespace ufox::gui {
             std::vector<vk::DescriptorBufferInfo> bufferInfo{};
             bufferInfo.reserve(uniformBuffer.size());
 
-            for (size_t i = 0; i < uniformBuffer.size(); i++) {
+            for (const auto &[memory, data] : uniformBuffer) {
                 vk::DescriptorBufferInfo info{};
                 info
-                .setBuffer(*uniformBuffer[i].data)
+                .setBuffer(*data)
                 .setOffset(0)
                 .setRange(sizeof(UniformData) * rootElement->rect->branchCount);
-                bufferInfo.push_back(std::move(info));
+                bufferInfo.push_back(info);
             }
 
             return std::move(bufferInfo);
@@ -367,7 +394,7 @@ export namespace ufox::gui {
         renderResource.descriptorPool.emplace(*gpu.device, poolInfo);
     }
 
-    void MakeDescriptorSets(const UFoxWindow& window, const uint32_t& imageCount, const Viewpanel& panel, RenderResource& renderResource, const TextureManager & textureManager, const uint32_t& samplerImageCount) {
+    void MakeDescriptorSets(const UFoxWindow& window, const uint32_t& imageCount, const std::optional<Viewpanel>& panel, RenderResource& renderResource, const TextureManager & textureManager, const uint32_t& samplerImageCount) {
         std::vector<vk::DescriptorSetLayout> layouts(imageCount, *renderResource.descriptorSetLayout);
         vk::DescriptorSetAllocateInfo allocInfo{};
         allocInfo
@@ -378,7 +405,7 @@ export namespace ufox::gui {
         renderResource.descriptorSets.clear();
 
         auto sets = window.gpuResource.device->allocateDescriptorSets(allocInfo);
-        const auto ssboInfo = panel.makeDescriptorBufferInfo();
+        const auto ssboInfo = panel->makeDescriptorBufferInfo();
         const auto imageInfo = textureManager.makeImageDescriptorImageInfos();
         const uint32_t descriptorCount = std::min<uint32_t>(samplerImageCount, static_cast<uint32_t>(imageInfo.size()));
 
@@ -390,7 +417,7 @@ export namespace ufox::gui {
                     .setDescriptorType(vk::DescriptorType::eStorageBuffer)
                     .setDescriptorCount(1)
                     .setPBufferInfo(&ssboInfo[i]);
-            write[1] = gpu::MakeBufferWriteDescriptorSet(sets[i], window.MakeScreenViewProjectionBufferInfo(), 1, SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
+            write[1] = gpu::MakeBufferWriteDescriptorSet(sets[i], window.makeScreenViewProjectionBufferInfo(), 1, SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
             write[2].setDstSet(*sets[i])
             .setDstBinding(2)
             .setDstArrayElement(0)
@@ -408,27 +435,28 @@ export namespace ufox::gui {
     public:
         explicit Document(UFoxWindow* _window = nullptr, MeshManager* _meshManager = nullptr, TextureManager* _textureManager = nullptr) : window(_window) , meshManager(_meshManager), textureManager(_textureManager) {
             if (_window != nullptr) {
-                window->registerSystemInitEventHandlers([](void* user) { static_cast<Document*>(user)->init();}, this);
-                window->registerResourceInitEventHandlers([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->initResource(w,h);}, this);
-                window->registerResizeEventHandlers([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->updateViewportSize(w,h);}, this);
-                window->registerUpdateBufferEventHandlers([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
-                window->registerDrawCanvasEventHandlers([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
+                window->registerCallbackEvent<EventType::eSystemInit>([](void* user) { static_cast<Document*>(user)->init();}, this);
+                window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->onPostSystemInit(w,h);}, this);
+                window->registerCallbackEvent<EventType::eResize>([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->updateViewportSize(w,h);}, this);
+                window->registerCallbackEvent<EventType::ePostGainsFocus>([](void* user) { static_cast<Document*>(user)->onPostGainsFocus();}, this);
+                window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
+                window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
                     const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, depthAttachment);}, this);
             }
 
             if (_textureManager != nullptr) {
-                textureManager->registerUpdateTextureEventHandler([](void* user) { static_cast<Document*>(user)->updateTextureDescriptorSets();}, this);
                 rootPanel.emplace(*textureManager);
             }
         }
 
         ~Document() {
             if (window != nullptr) {
-                window->unregisterSystemInitEventHandlers(this);
-                window->unregisterResourceInitEventHandlers(this);
-                window->unregisterResizeEventHandlers(this);
-                window->unregisterUpdateBufferEventHandlers(this);
-                window->unregisterDrawCanvasEventHandlers(this);
+                window->unregisterCallbackEvent(EventType::eSystemInit,this);
+                window->unregisterCallbackEvent(EventType::ePostSystemInit,this);
+                window->unregisterCallbackEvent(EventType::eResize,this);
+                window->unregisterCallbackEvent(EventType::ePostGainsFocus,this);
+                window->unregisterCallbackEvent(EventType::eUpdateBuffer,this);
+                window->unregisterCallbackEvent(EventType::eRenderPass,this);
                 window = nullptr;
             }
 
@@ -437,7 +465,6 @@ export namespace ufox::gui {
             }
 
             if (textureManager != nullptr) {
-                textureManager->unregisterUpdateTextureEventHandler(this);
                 textureManager = nullptr;
             }
         }
@@ -484,7 +511,7 @@ export namespace ufox::gui {
             debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
         }
 
-        void initResource(const float& width, const float& height) {
+        void onPostSystemInit(const float& width, const float& height) {
             if (meshManager != nullptr){
                 ResourceContextCreateInfo info{};
                 info.setName(RECT_MESH_NAME)
@@ -503,26 +530,30 @@ export namespace ufox::gui {
             MakePipelineLayout(gpu, renderResource);
             MakePipeline(gpu, window->depthResource->format, *window->windowResource->swapchainResource, shaderCode, renderResource);
             MakeDescriptorPool(gpu, *window->windowResource->swapchainResource, renderResource);
-            MakeDescriptorSets(*window, window->getImageCount(), *rootPanel, renderResource, *textureManager, samplerImageCount);
+            MakeDescriptorSets(*window, window->getImageCount(), rootPanel, renderResource, *textureManager, samplerImageCount);
             updateViewportSize(width, height);
 
             debug::log(debug::LogLevel::eInfo, "GUI Document InitResource : Susses");
         }
 
-        std::optional<Viewpanel>        rootPanel{};
-        VisualElementHandler            v1 {nullptr, DestroyVisualElement};
-        VisualElementHandler            v2 {nullptr, DestroyVisualElement};
-        VisualElementHandler            v3 {nullptr, DestroyVisualElement};
+        void onPostGainsFocus() {
+            updateTextureDescriptorSets();
+        }
+
+        std::optional<Viewpanel>                        rootPanel{};
+        VisualElementHandler                            v1 {nullptr, DestroyVisualElement};
+        VisualElementHandler                            v2 {nullptr, DestroyVisualElement};
+        VisualElementHandler                            v3 {nullptr, DestroyVisualElement};
 
     private:
-        UFoxWindow*                     window = nullptr;
-        MeshManager*                    meshManager = nullptr;
-        TextureManager*                 textureManager = nullptr;
-        const ResourceID*               meshID{nullptr};
-        const Mesh*                     mesh{nullptr};
-        const Texture*                  texture{nullptr};
-        RenderResource                  renderResource{};
-        uint32_t                        samplerImageCount = MAX_GUI_TEXTURES;
+        UFoxWindow*                                     window = nullptr;
+        MeshManager*                                    meshManager = nullptr;
+        TextureManager*                                 textureManager = nullptr;
+        const ResourceID*                               meshID{nullptr};
+        const Mesh*                                     mesh{nullptr};
+        const Texture*                                  texture{nullptr};
+        RenderResource                                  renderResource{};
+        uint32_t                                        samplerImageCount = MAX_GUI_TEXTURES;
 
         void updateViewportSize(const float& width, const float& height) {
             rootPanel->onResize(width,height);
@@ -549,7 +580,7 @@ export namespace ufox::gui {
                 window->gpuResource.device->updateDescriptorSets({write}, {});
             }
 
-            rootPanel->makeUniformData();
+            rootPanel->rebuildUniformData();
         }
 
         void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource,

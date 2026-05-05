@@ -43,11 +43,17 @@ export namespace ufox::gui {
     std::vector<vk::raii::DescriptorSet>            descriptorSets{};
   };
 
+  enum class ImageScaleMode : uint8_t {
+    eStretchToFill,
+    eScaleToFit,
+    eScaleAndCrop
+  };
+
   struct Style {
     std::string                                     backgroundImage{"default"};
     glm::vec4                                       imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4                                       backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
-
+    ImageScaleMode                                  imageScaleMode = ImageScaleMode::eStretchToFill;
     // glm::vec4                                       borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
     // glm::vec4                                       borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
     // glm::vec4                                       borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -61,5 +67,6 @@ export namespace ufox::gui {
     alignas(16)glm::mat4                            model{};
     glm::vec4                                       imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4                                       backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec4                                       uvRect = {0.0f, 0.0f, 1.0f, 1.0f};
   };
 }

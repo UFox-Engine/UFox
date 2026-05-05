@@ -160,23 +160,44 @@ export namespace ufox::render {
     public:
         explicit TextureManager(UFoxWindow& _window,const gpu::GPUResources& gpu)
             : ResourceManagerBase(_window,gpu, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {
-            window->registerGainsFocusEventHandlers([](void* user){static_cast<TextureManager*>(user)->refreshResource(); }, this);
+            window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<TextureManager*>(user)->onSystemInit();}, this);
+            window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user){static_cast<TextureManager*>(user)->onPostSystemInit(w,h);}, this);
+            window->registerCallbackEvent<EventType::ePostGainsFocus>([](void* user){static_cast<TextureManager*>(user)->onGainsFocus(); }, this);
+            window->registerCallbackEvent<EventType::ePostGainsFocus>([](void* user) {static_cast<TextureManager*>(user)->onPostGainsFocus();}, this);
         }
 
         ~TextureManager() override {
-            window->unregisterGainsFocusEventHandlers(this);
+            window->unregisterCallbackEvent(EventType::eSystemInit,this);
+            window->unregisterCallbackEvent(EventType::ePostSystemInit,this);
+            window->unregisterCallbackEvent(EventType::eGainsFocus,this);
+            window->unregisterCallbackEvent(EventType::ePostGainsFocus,this);
             clearAllGpuResources(*this);
-            updateTextureEventHandlers.clear();
         }
 
-        void makeResource(ResourceContextCreateInfo &info) override {
+        void onMakeResource(ResourceContextCreateInfo &info) override {
             TextureDataBindInfo bindInfo{};
             if (LoadPixelsFromFile(info.sourcePath, bindInfo)) {
                 MakeTextureContent(*this, bindInfo, info);
             }
         }
 
-        void updateResource() override {
+        void onSystemInit() override {
+            ReadResourceContextMetaData(directory, sourceExtensions, this);
+            const auto limit = gpuResources->physicalDevice->getProperties().limits;
+            maxDescriptorSetSamplerImages = limit.maxDescriptorSetSampledImages;
+            builtInResources = MakeTextureBuiltInResources(*this);
+            debug::log(debug::LogLevel::eInfo, "TextureManager: init: success");
+        }
+
+        void onPostSystemInit(const float &width, const float &height) override{
+            makeTextureMap(textureMap, defaultMapIndex);
+        }
+
+        void onGainsFocus() override {
+            refreshResource();
+        }
+
+        void onPostGainsFocus() override {
             for (auto &ctx : container | std::views::values) {
                 auto& file = ctx.sourcePath;
                 std::string lastWriteTimeStr;
@@ -185,38 +206,21 @@ export namespace ufox::render {
                 if (lastWriteTimeStr != ctx.lastWriteTime) {
                     ResourceContextCreateInfo info{};
                     MakeResourceContextCreateInfo(ctx, info, lastWriteTimeStr);
-                    makeResource(info);
+                    onMakeResource(info);
                 }
             }
 
-            gpuResources->device->waitIdle();
-            for (auto& [handler, userData] : updateTextureEventHandlers) {
-                handler(userData);
-            }
-
-            debug::log(debug::LogLevel::eInfo, "TextureManager: updateResource: success");
-        }
-
-        void init() override {
-            ReadResourceContextMetaData(directory, sourceExtensions, this);
-            builtInResources = MakeTextureBuiltInResources(*this);
-            const auto limit = gpuResources->physicalDevice->getProperties().limits;
-            maxDescriptorSetSamplerImages = limit.maxDescriptorSetSampledImages;
-
-            debug::log(debug::LogLevel::eInfo, "TextureManager: init: success");
+            makeTextureMap(textureMap, defaultMapIndex);
         }
 
         [[nodiscard]] uint32_t getMaxDescriptorSetSamplerImages(const uint32_t& request) const noexcept {
-            return std::min( maxDescriptorSetSamplerImages, request );
+            return std::max( maxDescriptorSetSamplerImages, request );
         }
 
         const ResourceID* makeTexture(TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {
             auto& [pixels, extent] = bindInfo;
             ResourceID id = ResolveResourceID(info);
-            if(!makeResourceContext(id, info.overwrite)) {
-                debug::log(debug::LogLevel::eWarning, "TextureManager: makeTexture: skip");
-                return nullptr;
-            }
+            if(!makeResourceContext(id, info.overwrite)) return nullptr;
 
             std::unique_ptr<ResourceBase> res = std::make_unique<Texture>(info.name, pixels, extent, id);
             const auto texture = dynamic_cast<Texture*>(res.get());
@@ -227,17 +231,16 @@ export namespace ufox::render {
             return bindResourceToContext(res, info);
         }
 
-        void makeTextureMap(std::map<const ResourceID,const uint32_t>* textureMap) const noexcept {
-            textureMap->clear();
+        void makeTextureMap(std::map<const ResourceID,const uint32_t>& textureMap, uint32_t& defaultMapIndex) noexcept {
+            textureMap.clear();
 
             uint32_t index = 0;
             for (const auto &id : container | std::views::keys) {
-                if (textureMap) {
-                    textureMap->emplace(id, index);
-                }
-
+                textureMap.emplace(id, index);
                 index++;
             }
+
+            defaultMapIndex = textureMap.find(ResourceID{"default"})->second;
         }
 
         [[nodiscard]] std::vector<vk::DescriptorImageInfo> makeImageDescriptorImageInfos() const noexcept {
@@ -260,17 +263,18 @@ export namespace ufox::render {
             return texture;
         }
 
-        void registerUpdateTextureEventHandler(UpdateTextureEventHandler handler, void* userData) {
-            updateTextureEventHandlers.emplace_back(handler, userData);
-        }
-
-        void unregisterUpdateTextureEventHandler(void* userData) {
-            std::erase_if(updateTextureEventHandlers, [userData](auto& p){ return p.second == userData; });
+        [[nodiscard]] uint32_t getTextureIndex(const ResourceID& id) const noexcept {
+            const auto it = textureMap.find(id);
+            if (it == textureMap.end()) {
+                return defaultMapIndex;
+            }
+            return it->second;
         }
 
     private:
-        uint32_t maxDescriptorSetSamplerImages{1};
-        std::vector<std::pair<UpdateTextureEventHandler,void*>> updateTextureEventHandlers{};
+        uint32_t                                                    maxDescriptorSetSamplerImages{1};
+        std::map<const ResourceID, const uint32_t>                  textureMap{};
+        uint32_t                                                    defaultMapIndex{0};
     };
 
     const ResourceID* MakeTextureContent(TextureManager& manager, TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {
@@ -311,9 +315,6 @@ export namespace ufox::render {
             .setID(ResourceID{"default"});
             return MakeTextureContent(manager, bindInfo, info);
         }
-
-
-
 }
 
 

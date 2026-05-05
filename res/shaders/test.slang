@@ -9,6 +9,7 @@ struct UniformBuffer {
     float4x4 model;
     float4   imageColor;
     float4   bgColor;
+    float4   uvRect;
 };
 
 struct ScreenBuffer {

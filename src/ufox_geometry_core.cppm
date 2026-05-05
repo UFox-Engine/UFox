@@ -393,15 +393,17 @@ export namespace ufox::geometry {
     public:
         explicit MeshManager(UFoxWindow& _window,const gpu::GPUResources& gpu) :
         ResourceManagerBase(_window,gpu, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {
-            window->registerGainsFocusEventHandlers([](void* user){static_cast<MeshManager*>(user)->refreshResource(); }, this);
+            window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<MeshManager*>(user)->onSystemInit(); }, this);
+            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<MeshManager*>(user)->onGainsFocus(); }, this);
         }
 
         ~MeshManager() override {
-            window->unregisterGainsFocusEventHandlers(this);
+            window->unregisterCallbackEvent(EventType::eSystemInit,this);
+            window->unregisterCallbackEvent(EventType::eGainsFocus,this);
             clearAllGpuResources(*this);
         }
 
-        void makeResource(ResourceContextCreateInfo &info) override {
+        void onMakeResource(ResourceContextCreateInfo &info) override {
             std::vector<Vertex> vertices;
             std::vector<uint16_t> indices;
 
@@ -410,15 +412,19 @@ export namespace ufox::geometry {
             }
         }
 
-        void updateResource() override {
-
-        }
-
-        void init() override {
+        void onSystemInit() override {
             ReadResourceContextMetaData(directory, sourceExtensions, this);
             builtInResources = MakeBuiltInMeshResources(*this);
             debug::log(debug::LogLevel::eInfo, "MeshManager: init: success");
         }
+
+        void onPostSystemInit(const float &width, const float &height) override{}
+
+        void onGainsFocus() override {
+            refreshResource();
+        }
+
+        void onPostGainsFocus() override{}
 
         const ResourceID* makeMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
             ResourceID id = ResolveResourceID(info);

@@ -77,17 +77,14 @@ int main() {
   try {
     auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
      ufox::geometry::MeshManager meshManager{*window,window->gpuResource};
-     meshManager.init();
      ufox::render::TextureManager textureManager{*window,window->gpuResource};
-     textureManager.init();
      ufox::font::GlyphManager glyph_manager{*window,textureManager};
-     glyph_manager.init();
 
      ufox::gui::Document doc(window.get(), &meshManager, &textureManager);
      ufox::engine::Camera mainCamera{};
 
-     window->registerStartEventHandlers([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
-     window->registerResizeEventHandlers([](const float& w, const float& h, void* user) {
+     window->registerCallbackEvent<ufox::engine::EventType::eStart>([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
+     window->registerCallbackEvent<ufox::engine::EventType::eResize>([](const float& w, const float& h, void* user) {
        auto* camera = static_cast<ufox::engine::Camera*>(user);
        ufox::engine::CalculateAspectRatio(w,h, camera->aspectRatio);
      }, &mainCamera);

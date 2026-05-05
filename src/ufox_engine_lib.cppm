@@ -25,13 +25,68 @@ import ufox_gpu_lib;
 
 export namespace ufox::engine {
 
+  enum class EventType {
+    eResize,
+    eSystemInit,
+    ePostSystemInit,
+    eStart,
+    eGainsFocus,
+    ePostGainsFocus,
+    eUpdateBuffer,
+    eRenderPass,
+  };
+
   using ResizeEventHandler = void(*)(const float& w, const float& h, void* user);
   using SystemInitEventHandler = void(*)(void* user);
-  using ResourceInitEventHandler = void(*)(const float& w, const float& h, void* user);
+  using PostSystemInitEventHandler = void(*)(const float& w, const float& h, void* user);
   using StartEventHandler = void(*)(void* user);
   using GainsFocusEventHandler = void(*)(void* user);
+  using PostGainsFocusEventHandler = void(*)(void* user);
   using UpdateBufferEventHandler = void(*)(const uint32_t& currentImage, void* user);
   using DrawCanvasEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user );
+
+  template<EventType Type>
+  struct EventTraits;
+
+  template<>
+  struct EventTraits<EventType::eResize> {
+    using Handler = ResizeEventHandler;
+  };
+
+  template<>
+  struct EventTraits<EventType::eSystemInit> {
+    using Handler = SystemInitEventHandler;
+  };
+
+  template<>
+  struct EventTraits<EventType::ePostSystemInit> {
+    using Handler = PostSystemInitEventHandler;
+  };
+
+  template<>
+  struct EventTraits<EventType::eStart> {
+    using Handler = StartEventHandler;
+  };
+
+  template<>
+  struct EventTraits<EventType::eGainsFocus> {
+    using Handler = GainsFocusEventHandler;
+  };
+
+  template<>
+  struct EventTraits<EventType::ePostGainsFocus> {
+    using Handler = PostGainsFocusEventHandler;
+  };
+
+  template<>
+  struct EventTraits<EventType::eUpdateBuffer> {
+    using Handler = UpdateBufferEventHandler;
+  };
+
+  template<>
+  struct EventTraits<EventType::eRenderPass> {
+    using Handler = DrawCanvasEventHandler;
+  };
 
   constexpr auto META_TAG_RESOURCE_CONTEXT = "resource-context";
 
