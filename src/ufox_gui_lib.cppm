@@ -39,8 +39,41 @@ export namespace ufox::gui {
     std::optional<vk::raii::DescriptorSetLayout>    descriptorSetLayout{};
     std::optional<vk::raii::PipelineLayout>         pipelineLayout{};
     std::optional<vk::raii::DescriptorPool>         descriptorPool{};
-
     std::vector<vk::raii::DescriptorSet>            descriptorSets{};
+    std::vector<vk::raii::Sampler>                  repeatSamplers{};
+  };
+
+  using SamplerConfig = std::tuple<
+      vk::SamplerAddressMode,
+      vk::SamplerAddressMode,
+      vk::SamplerAddressMode,
+      vk::BorderColor>;
+
+  constexpr std::array REPEAT_SAMPLER_CONFIGS{
+    SamplerConfig{
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::BorderColor::eFloatTransparentBlack
+    },
+    SamplerConfig{
+      vk::SamplerAddressMode::eRepeat,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::BorderColor::eFloatTransparentBlack
+    },
+    SamplerConfig{
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::SamplerAddressMode::eRepeat,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::BorderColor::eFloatTransparentBlack
+    },
+    SamplerConfig{
+      vk::SamplerAddressMode::eRepeat,
+      vk::SamplerAddressMode::eRepeat,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::BorderColor::eFloatOpaqueBlack
+    }
   };
 
   enum class ImageScaleMode : uint8_t {
@@ -49,11 +82,19 @@ export namespace ufox::gui {
     eScaleAndCrop
   };
 
+  enum class ImageRepeatMode : uint8_t {
+    eNone,
+    eRepeatX,
+    eRepeatY,
+    eRepeatXY
+  };
+
   struct Style {
     std::string                                     backgroundImage{"default"};
     glm::vec4                                       imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4                                       backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
     ImageScaleMode                                  imageScaleMode = ImageScaleMode::eStretchToFill;
+    ImageRepeatMode                                 imageRepeatMode = ImageRepeatMode::eNone;
     // glm::vec4                                       borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
     // glm::vec4                                       borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
     // glm::vec4                                       borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -64,6 +105,7 @@ export namespace ufox::gui {
 
   struct UniformData {
     uint32_t                                        imageIndex = 0;
+    uint32_t                                        imageRepeatMode = 0;
     alignas(16)glm::mat4                            model{};
     glm::vec4                                       imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4                                       backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};

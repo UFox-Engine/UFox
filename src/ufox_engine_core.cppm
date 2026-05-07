@@ -867,6 +867,12 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       return id ? getResourceContext(std::string_view{id}) : nullptr;
     }
 
+    [[nodiscard]] const ResourceContext* getResourceContext(const ResourceID& id) const noexcept {
+      const auto it = container.find(id);
+      return it != container.end() ? &it->second : nullptr;
+    }
+
+
     bool removeResourceContext(const ResourceID& id) {
       const auto it = container.find(id);
       if (it == container.end()) {

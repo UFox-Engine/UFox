@@ -150,9 +150,26 @@ export namespace ufox::render {
 
     vk::DescriptorImageInfo MakeDescriptorImageInfo(const Texture& texture) noexcept {
         vk::DescriptorImageInfo descriptor{};
-        descriptor.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        descriptor.imageView = *texture.image.view;
-        descriptor.sampler = *texture.sampler;
+        descriptor
+            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+            .setImageView(*texture.image.view)
+            .setSampler(*texture.sampler);
+        return descriptor;
+    }
+
+    vk::DescriptorImageInfo MakeDescriptorSampledImageInfo(const Texture& texture) noexcept {
+        vk::DescriptorImageInfo descriptor{};
+        descriptor
+            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+            .setImageView(*texture.image.view);
+        return descriptor;
+    }
+
+    vk::DescriptorImageInfo MakeDescriptorSamplerOnlyInfo(const vk::raii::Sampler& sampler) noexcept {
+        vk::DescriptorImageInfo descriptor{};
+        descriptor
+            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+            .setSampler(sampler);
         return descriptor;
     }
 
@@ -243,7 +260,7 @@ export namespace ufox::render {
             defaultMapIndex = textureMap.find(ResourceID{"default"})->second;
         }
 
-        [[nodiscard]] std::vector<vk::DescriptorImageInfo> makeImageDescriptorImageInfos() const noexcept {
+        [[nodiscard]] std::vector<vk::DescriptorImageInfo> makeCombinedImageSamplerDescriptorImageInfos() const noexcept {
             std::vector<vk::DescriptorImageInfo> descriptorImageInfos{};
             descriptorImageInfos.reserve(container.size());
 
@@ -255,12 +272,54 @@ export namespace ufox::render {
             return std::move(descriptorImageInfos);
         }
 
+        [[nodiscard]] std::vector<vk::DescriptorImageInfo> makeSampledImageDescriptorImageInfos() const noexcept {
+            std::vector<vk::DescriptorImageInfo> descriptorImageInfos{};
+            descriptorImageInfos.reserve(container.size());
+
+            for (const auto &ctx : container | std::views::values) {
+                const auto * texture = dynamic_cast<Texture*>(ctx.dataPtr.get());
+                descriptorImageInfos.emplace_back(MakeDescriptorSampledImageInfo(*texture));
+            }
+
+            return std::move(descriptorImageInfos);
+        }
+
         [[nodiscard]] Texture* getTexture(const ResourceID& id) {
             const auto* ctx = getResourceContext(id);
             if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
 
             auto* texture = dynamic_cast<Texture*>(ctx->dataPtr.get());
             return texture;
+        }
+
+        [[nodiscard]] const Texture* getTexture(const ResourceID& id) const{
+            const auto* ctx = getResourceContext(id);
+            if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
+
+            const auto * texture = dynamic_cast<Texture*>(ctx->dataPtr.get());
+            return texture;
+        }
+
+        template<Arithmetic T>
+        void getTextureSize(const ResourceID& id, T& width, T& height) const noexcept {
+            const auto* tex = getTexture(id);
+            if (tex == nullptr) {
+                width = 1;
+                height = 1;
+            }
+            width = static_cast<T>(tex->width());
+            height = static_cast<T>(tex->height());
+        }
+
+        template<Arithmetic T>
+        std::pair<T,T> getTextureSize(const ResourceID& id) const noexcept {
+            const auto* tex = getTexture(id);
+            if (tex == nullptr) {
+                return std::make_pair(1,1);
+            }
+            auto width = static_cast<T>(tex->width());
+            auto height = static_cast<T>(tex->height());
+            return std::make_pair(width, height);
         }
 
         [[nodiscard]] uint32_t getTextureIndex(const ResourceID& id) const noexcept {

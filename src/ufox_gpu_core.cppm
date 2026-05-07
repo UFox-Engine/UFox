@@ -491,17 +491,21 @@ export namespace ufox::gpu {
         image.view.emplace(gpu.device.value(), viewInfo);
     }
 
-    void MakeSampler(const GPUResources & gpu, std::optional<vk::raii::Sampler>& sampler){
+    void MakeSampler(const GPUResources & gpu, std::optional<vk::raii::Sampler>& sampler,
+        const vk::SamplerAddressMode addressModeU = vk::SamplerAddressMode::eRepeat,
+        const vk::SamplerAddressMode addressModeV = vk::SamplerAddressMode::eRepeat,
+        const vk::SamplerAddressMode addressModeW = vk::SamplerAddressMode::eRepeat,
+        const vk::BorderColor borderColor = vk::BorderColor::eFloatOpaqueBlack){
         const auto deviceProperties = gpu.physicalDevice->getProperties();
 
         vk::SamplerCreateInfo samplerInfo{};
         samplerInfo.setMagFilter(vk::Filter::eLinear)
                     .setMinFilter(vk::Filter::eLinear)
-                    .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-                    .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+                    .setAddressModeU(addressModeU)
+                    .setAddressModeV(addressModeV)
+                    .setAddressModeW(addressModeW)
                     .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-                    .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+                    .setBorderColor(borderColor)
                     .setAnisotropyEnable(false)
                     .setMaxAnisotropy(deviceProperties.limits.maxSamplerAnisotropy)
                     .setUnnormalizedCoordinates(false)
@@ -512,6 +516,33 @@ export namespace ufox::gpu {
                     .setMipLodBias(0.0f);
 
         sampler.emplace(gpu.device.value(), samplerInfo);
+    }
+
+    void MakeSampler(const GPUResources & gpu, std::vector<vk::raii::Sampler>& samplers,
+    const vk::SamplerAddressMode addressModeU = vk::SamplerAddressMode::eRepeat,
+    const vk::SamplerAddressMode addressModeV = vk::SamplerAddressMode::eRepeat,
+    const vk::SamplerAddressMode addressModeW = vk::SamplerAddressMode::eRepeat,
+    const vk::BorderColor borderColor = vk::BorderColor::eFloatOpaqueBlack){
+        const auto deviceProperties = gpu.physicalDevice->getProperties();
+
+        vk::SamplerCreateInfo samplerInfo{};
+        samplerInfo.setMagFilter(vk::Filter::eLinear)
+                    .setMinFilter(vk::Filter::eLinear)
+                    .setAddressModeU(addressModeU)
+                    .setAddressModeV(addressModeV)
+                    .setAddressModeW(addressModeW)
+                    .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+                    .setBorderColor(borderColor)
+                    .setAnisotropyEnable(false)
+                    .setMaxAnisotropy(deviceProperties.limits.maxSamplerAnisotropy)
+                    .setUnnormalizedCoordinates(false)
+                    .setCompareEnable(false)
+                    .setCompareOp(vk::CompareOp::eAlways)
+                    .setMinLod(0.0f)
+                    .setMaxLod(0.0f)
+                    .setMipLodBias(0.0f);
+
+        samplers.emplace_back(gpu.device.value(), samplerInfo);
     }
 
     vk::Format FindDepthFormat(const GPUResources& gpu) {
@@ -538,6 +569,14 @@ export namespace ufox::gpu {
 
     [[nodiscard]] DescriptorSetLayoutBinding MakeStorageBufferLayoutBinding(const uint32_t& maxSize = 1, const vk::ShaderStageFlags& flags = vk::ShaderStageFlagBits::eVertex) noexcept {
         return {vk::DescriptorType::eStorageBuffer,maxSize,flags,nullptr};
+    }
+
+    [[nodiscard]] DescriptorSetLayoutBinding MakeSampledImageLayoutBinding(const uint32_t& maxSize = 1, const vk::ShaderStageFlags& flags = vk::ShaderStageFlagBits::eFragment) noexcept {
+        return {vk::DescriptorType::eSampledImage,maxSize,flags,nullptr};
+    }
+
+    [[nodiscard]] DescriptorSetLayoutBinding MakeSamplerLayoutBinding(const uint32_t& maxSize = 1, const vk::ShaderStageFlags& flags = vk::ShaderStageFlagBits::eFragment) noexcept {
+        return {vk::DescriptorType::eSampler,maxSize,flags,nullptr};
     }
 
     [[nodiscard]] DescriptorSetLayoutBinding MakeCombinedImageSamplerLayoutBinding(const uint32_t& maxSize = 1, const vk::ShaderStageFlags& flags = vk::ShaderStageFlagBits::eFragment) noexcept {
