@@ -22,6 +22,8 @@ export namespace ufox::geometry {
         ".glb", ".obj"
     };
 
+    constexpr glm::quat IDENTITY_QUAT{1.0f, 0.0f, 0.0f, 0.0f};
+
     struct Vertex
     {
         glm::vec3 pos{0.0f};
@@ -131,6 +133,43 @@ export namespace ufox::geometry {
         }
 
     };
+
+    enum class PositionMode {
+        eRelative,
+        eAbsolute
+    };
+
+    enum class LengthMode {
+        eFlat,
+        eAuto,
+        ePercentage
+    };
+
+    struct Length {
+        LengthMode  mode;
+        float       value;
+    };
+
+    struct DiscadeltaLengthContext {
+        float       validatedValue;
+        float       accumulatedValue;
+        float       greaterValue;
+    };
+
+    struct RectLayout {
+        float x{0.0f};
+        float y{0.0f};
+        float width{0.0f};
+        float height{0.0f};
+
+        DiscadeltaLengthContext widthContext{};
+        DiscadeltaLengthContext heightContext{};
+
+        RectLayout* parent = nullptr;
+        std::vector<RectLayout*> children{};
+
+        [[nodiscard]] bool isRoot() const noexcept { return parent == nullptr; }
+    };
 }
 
 export namespace ufox::geometry::gltf {
@@ -174,9 +213,7 @@ namespace std {
     template <>
     struct hash<ufox::geometry::Vertex>{
         size_t operator()(ufox::geometry::Vertex const &vertex) const noexcept{
-            return (hash<glm::vec3>()(vertex.pos) ^
-                  hash<glm::vec3>()(vertex.color) << 1) >>
-                     1 ^ hash<glm::vec2>()(vertex.texCoord) << 1;
+            return (hash<glm::vec3>()(vertex.pos) ^ hash<glm::vec3>()(vertex.color) << 1) >> 1 ^ hash<glm::vec2>()(vertex.texCoord) << 1;
         }
     };
 }

@@ -244,7 +244,6 @@ export namespace ufox::render {
             MakeTexture2D(*gpuResources, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,vk::MemoryPropertyFlagBits::eDeviceLocal);
             MakeTexture2DImageView(*gpuResources, *texture);
             gpu::MakeSampler(*gpuResources, texture->sampler);
-            debug::log(debug::LogLevel::eInfo, "TextureManager: makeTexture: created texture: {}", res->name);
             return bindResourceToContext(res, info);
         }
 

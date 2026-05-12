@@ -434,7 +434,6 @@ export namespace ufox::geometry {
             auto* mesh = dynamic_cast<Mesh*>(res.get());
             MakeVertexBuffer(*gpuResources, *mesh);
             MakeIndexBuffer(*gpuResources, *mesh);
-            debug::log(debug::LogLevel::eInfo, "MeshManager: makeMesh: created mesh: {}", res->name);
             return bindResourceToContext(res, info);
         }
 

@@ -358,6 +358,8 @@ export namespace ufox::gpu {
         vk::DeviceQueueCreateInfo deviceQueueCreateInfo( vk::DeviceQueueCreateFlags(), gpu.queueFamilyIndices->graphicsFamily, 1, &queuePriority );
         vk::DeviceCreateInfo      deviceCreateInfo( vk::DeviceCreateFlags(), deviceQueueCreateInfo, {}, enabledExtensions, nullptr, features2 );
         gpu.device.emplace(*gpu.physicalDevice, deviceCreateInfo);
+        const auto properties = gpu.physicalDevice->getProperties();
+        gpu.maxStorageBufferRange = properties.limits.maxStorageBufferRange;
     }
 
     void MakeCommandPool(GPUResources& gpu, const vk::CommandPoolCreateFlags& flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer | vk::CommandPoolCreateFlagBits::eTransient) {

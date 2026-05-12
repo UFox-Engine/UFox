@@ -449,7 +449,6 @@ export namespace ufox::font {
             }
 
             std::unique_ptr<ResourceBase> res = std::make_unique<Glyph>(info.name, id, block, style, glyphs);
-            debug::log(debug::LogLevel::eInfo, "GlyphManager: makeGlyph: created glyph: {}", res->name);
             return bindResourceToContext(res,info);
         }
 

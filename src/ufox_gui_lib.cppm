@@ -9,6 +9,7 @@ import ufox_lib;
 import ufox_discadelta_lib;
 import ufox_discadelta_core;
 import ufox_geometry_lib;
+import ufox_gpu_lib;
 
 using namespace ufox::geometry;
 
@@ -31,16 +32,6 @@ export namespace ufox::gui {
   struct StorageBufferIndices {
     uint32_t bgImageIndex{0};
     uint32_t parentElementIndex{0};
-  };
-
-  struct RenderResource {
-    std::optional<vk::raii::PipelineCache>          pipelineCache{};
-    std::optional<vk::raii::Pipeline>               pipeline{};
-    std::optional<vk::raii::DescriptorSetLayout>    descriptorSetLayout{};
-    std::optional<vk::raii::PipelineLayout>         pipelineLayout{};
-    std::optional<vk::raii::DescriptorPool>         descriptorPool{};
-    std::vector<vk::raii::DescriptorSet>            descriptorSets{};
-    std::vector<vk::raii::Sampler>                  repeatSamplers{};
   };
 
   using SamplerConfig = std::tuple<
@@ -76,6 +67,11 @@ export namespace ufox::gui {
     }
   };
 
+  enum class DisplayOverflowMode : uint8_t {
+    eHidden,
+    eVisible
+  };
+
   enum class ImageScaleMode : uint8_t {
     eStretchToFill,
     eScaleToFit,
@@ -89,26 +85,68 @@ export namespace ufox::gui {
     eRepeatXY
   };
 
+  enum class ImageAlignment : uint8_t {
+    eTopLeft,
+    eTopCenter,
+    eTopRight,
+    eCenterLeft,
+    eCenter,
+    eCenterRight,
+    eBottomLeft,
+    eBottomCenter,
+    eBottomRight
+  };
+
   struct Style {
-    std::string                                     backgroundImage{"default"};
-    glm::vec4                                       imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
-    glm::vec4                                       backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
-    ImageScaleMode                                  imageScaleMode = ImageScaleMode::eStretchToFill;
-    ImageRepeatMode                                 imageRepeatMode = ImageRepeatMode::eNone;
-    // glm::vec4                                       borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
-    // glm::vec4                                       borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
-    // glm::vec4                                       borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
-    // glm::vec4                                       borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
-    // glm::vec4                                       borderThickness = {1.0f, 1.0f, 1.0f, 1.0f}; // Top, right, bottom, left
-    // glm::vec4                                       cornerRadius = {10.0f, 10.0f, 10.0f, 10.0f}; // Top-left, top-right, bottom-left, bottom-right
+    std::string                    backgroundImage{"default"};
+    DisplayOverflowMode            displayOverflowMode = DisplayOverflowMode::eHidden;
+    PositionMode                   positionMode = PositionMode::eRelative;
+    ImageScaleMode                 imageScaleMode = ImageScaleMode::eStretchToFill;
+    ImageRepeatMode                imageRepeatMode = ImageRepeatMode::eNone;
+    ImageAlignment                 imageAlignment = ImageAlignment::eCenter;
+    Length                         width{};
+    Length                         height{};
+    Length                         minWidth{};
+    Length                         minHeight{};
+    Length                         maxWidth{};
+    Length                         maxHeight{};
+    float                          borderTopWidth = 0.0f;
+    float                          borderBottomWidth = 0.0f;
+    float                          borderRightWidth = 0.0f;
+    float                          borderLeftWidth = 0.0f;
+    float                          borderTopLeftRadius = 0.0f;
+    float                          borderTopRightRadius = 0.0f;
+    float                          borderBottomLeftRadius = 0.0f;
+    float                          borderBottomRightRadius = 0.0f;
+    float                          marginTop = 0.0f;
+    float                          marginBottom = 0.0f;
+    float                          marginLeft = 0.0f;
+    float                          marginRight = 0.0f;
+    glm::vec4                      imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4                      backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec4                      borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
   };
 
   struct UniformData {
-    uint32_t                                        imageIndex = 0;
-    uint32_t                                        imageRepeatMode = 0;
-    alignas(16)glm::mat4                            model{};
-    glm::vec4                                       imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
-    glm::vec4                                       backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
-    glm::vec4                                       uvRect = {0.0f, 0.0f, 1.0f, 1.0f};
+    int32_t                        parentIndex = 0;
+    uint32_t                       displayOverflowMode = 0;
+    uint32_t                       imageIndex = 0;
+    uint32_t                       imageRepeatMode = 0;
+    glm::mat4                      model{};
+    glm::vec4                      imageOffsetAndTiling = {0.0f, 0.0f, 1.0f, 1.0f};
+    glm::vec4                      imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4                      backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec4                      borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      cornerRadius{0.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec4                      borderThickness{0.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec4                      margin{0.0f, 0.0f, 0.0f, 0.0f};
   };
+
+
 }

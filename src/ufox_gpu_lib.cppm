@@ -90,6 +90,7 @@ export namespace ufox::gpu {
     std::optional<vk::raii::CommandPool>        commandPool{};
     std::optional<vk::raii::Queue>              graphicsQueue{};
     std::optional<vk::raii::Queue>              presentQueue{};
+    uint32_t                                    maxStorageBufferRange{};
   };
 
   struct SwapchainResource {

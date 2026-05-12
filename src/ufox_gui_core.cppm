@@ -48,18 +48,94 @@ export namespace ufox::gui {
         }
     }
 
+    [[nodiscard]] glm::vec2 ComputeImageUVPositionX(const float uvWidth, const ImageAlignment alignment) noexcept {
+        constexpr float posY = 0.0f;
+        switch (alignment) {
+        case ImageAlignment::eTopLeft:
+        case ImageAlignment::eCenterLeft:
+            return {posY, posY};
+
+        case ImageAlignment::eTopCenter:
+        case ImageAlignment::eCenter:
+            return {(1.0f - uvWidth) * 0.5f, posY};
+
+        case ImageAlignment::eTopRight:
+        case ImageAlignment::eCenterRight:
+            return {1.0f - uvWidth, posY};
+
+        default:
+            return {posY, posY};
+        }
+    }
+
+    [[nodiscard]] glm::vec2 ComputeImageUVPositionY(const float uvHeight, const ImageAlignment alignment) noexcept {
+        constexpr float posX = 0.0f;
+        switch (alignment) {
+        case ImageAlignment::eBottomLeft:
+        case ImageAlignment::eBottomRight:
+        case ImageAlignment::eBottomCenter:
+            return {posX, 1.0f - uvHeight};
+        case ImageAlignment::eCenterLeft:
+        case ImageAlignment::eCenterRight:
+        case ImageAlignment::eCenter:
+            return {posX, (1.0f - uvHeight) * 0.5f};
+        case ImageAlignment::eTopLeft:
+        case ImageAlignment::eTopRight:
+        case ImageAlignment::eTopCenter:
+            return {posX, posX};
+        default:
+            return {posX, posX};
+        }
+    }
+
+    [[nodiscard]] glm::vec4 ComputeImageUVRect(const float elementWidth, const float elementHeight,const float textureWidth, const float textureHeight, const ImageAlignment& alignment ,const ImageScaleMode& mode) noexcept{
+        if (textureWidth <= 0.0f || textureHeight <= 0.0f || elementWidth <= 0.0f || elementHeight <= 0.0f)
+            return {0.0f, 0.0f, 1.0f, 1.0f};
+
+        const float elemAspect = elementWidth / elementHeight;
+        const float texAspect  = textureWidth / textureHeight;
+
+        switch (mode) {
+        case ImageScaleMode::eStretchToFill:
+            return {0.0f, 0.0f, 1.0f, 1.0f};
+
+        case ImageScaleMode::eScaleToFit: {
+            if (elemAspect > texAspect) {
+                const float uvWidth = elemAspect / texAspect;
+                glm::vec2 pos = ComputeImageUVPositionX(uvWidth, alignment);
+                return {pos, uvWidth, 1.0f};
+            }
+            const float uvHeight = texAspect / elemAspect;
+            glm::vec2 pos = ComputeImageUVPositionY(uvHeight, alignment);
+            return {pos, 1.0f, uvHeight};
+        }
+
+        case ImageScaleMode::eScaleAndCrop: {
+            if (elemAspect > texAspect) {
+                const float uvHeight = texAspect / elemAspect;
+                return {0.0f, (1.0f - uvHeight) * 0.5f, 1.0f, uvHeight};
+            }
+            const float uvWidth =elemAspect / texAspect ;
+            return {(1.0f - uvWidth) * 0.5f, 0.0f, uvWidth, 1.0f};
+        }
+        }
+        return {0.0f, 0.0f, 1.0f, 1.0f};
+    }
+
     class Viewpanel;
     class VisualElement;
     constexpr void DestroyVisualElement(VisualElement* element) noexcept;
     using VisualElementHandler = std::unique_ptr<VisualElement, decltype(&DestroyVisualElement)>;
 
-    class  VisualElement {
+    class VisualElement: public RectLayout {
         public:
         Viewpanel*                                              panel{nullptr};
         VisualElement*                                          parent{nullptr};
         discadelta::RectSegmentContextHandler                   rect{nullptr, discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
         std::vector<VisualElement*>                             hierarchy{};
         Style                                                   style{};
+        float z{0.0f};
+
 
         explicit VisualElement(const std::string_view& name = "VisualElement") {
             rect = discadelta::CreateSegmentContext<discadelta::RectSegmentContext, discadelta::RectSegmentCreateInfo>({
@@ -77,6 +153,32 @@ export namespace ufox::gui {
             });
         }
 
+        [[nodiscard]] glm::mat4 getTransformMat4() const {
+            return MakeTransformModel(glm::vec3{x, y, z}, IDENTITY_QUAT, glm::vec3{width, height, 1.0f});
+        }
+
+        [[nodiscard]] UniformData makeUniformData(const TextureManager& textureManager) const {
+            const ResourceID imageID{style.backgroundImage};
+            auto [texWidth, texHeight] = textureManager.getTextureSize<float>(imageID);
+
+            UniformData data{};
+            data.model = getTransformMat4();
+            debug::log(debug::LogLevel::eInfo, "makeUniformData: {} - {}x{}", rect->config.name, data.model[0][0], data.model[1][1] );
+            data.imageIndex = textureManager.getTextureIndex(imageID);
+            data.imageColor = style.imageColor;
+            data.backgroundColor = style.backgroundColor;
+            data.imageOffsetAndTiling = ComputeImageUVRect(width, height, texWidth, texHeight, style.imageAlignment, style.imageScaleMode);
+            data.imageRepeatMode = static_cast<uint32_t>(style.imageRepeatMode);
+            data.cornerRadius = glm::vec4{style.borderBottomRightRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderTopLeftRadius};
+            data.margin = glm::vec4{style.marginTop, style.marginRight, style.marginBottom , style.marginLeft};
+            data.borderThickness = glm::vec4{style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth};
+            data.borderTopColor = style.borderTopColor;
+            data.borderLeftColor = style.borderLeftColor;
+            data.borderRightColor = style.borderRightColor;
+            data.borderBottomColor = style.borderBottomColor;
+            return data;
+        }
+
         void link(VisualElement& element) {
             if (&element == this) return;
             if (element.parent != nullptr) {
@@ -87,6 +189,7 @@ export namespace ufox::gui {
             discadelta::Link(*rect.get(), *element.rect.get());
             element.panel = panel;
             hierarchy.push_back(&element);
+            debug::log(debug::LogLevel::eInfo,"link: {} - {}", rect->config.name, element.rect->config.name);
         }
 
         void add(VisualElementHandler& element) {
@@ -136,65 +239,12 @@ export namespace ufox::gui {
         return VisualElementHandler{new VisualElement(name), DestroyVisualElement};
     }
 
-    [[nodiscard]] glm::vec4 ComputeImageUVRect(const float elementWidth, const float elementHeight,const float textureWidth, const float textureHeight,const ImageScaleMode mode) noexcept{
-        if (textureWidth <= 0.0f || textureHeight <= 0.0f || elementWidth <= 0.0f || elementHeight <= 0.0f)
-            return {0.0f, 0.0f, 1.0f, 1.0f};
-
-        const float elemAspect = elementWidth / elementHeight;
-        const float texAspect  = textureWidth / textureHeight;
-
-        switch (mode) {
-            case ImageScaleMode::eStretchToFill:
-                return {0.0f, 0.0f, 1.0f, 1.0f};
-
-            case ImageScaleMode::eScaleToFit: {
-                if (elemAspect > texAspect) {
-                    const float uvWidth = elemAspect / texAspect;
-                    return {(1.0f - uvWidth) * 0.5f, 0.0f, uvWidth, 1.0f};
-                }
-                const float uvHeight = texAspect / elemAspect;
-                return {0.0f, (1.0f - uvHeight) * 0.5f, 1.0f, uvHeight};
-            }
-
-            case ImageScaleMode::eScaleAndCrop: {
-                if (elemAspect > texAspect) {
-                    const float uvHeight = texAspect / elemAspect;
-                    return {0.0f, (1.0f - uvHeight) * 0.5f, 1.0f, uvHeight};
-                }
-                const float uvWidth =elemAspect / texAspect ;
-                return {(1.0f - uvWidth) * 0.5f, 0.0f, uvWidth, 1.0f};
-            }
-        }
-        return {0.0f, 0.0f, 1.0f, 1.0f};
-    }
-
     void AccumulateVisualElementUniformData(std::vector<UniformData>& uniformDatas, std::vector<std::pair<const VisualElement*,UniformData*>>& bindings, const VisualElement& element, const TextureManager& textureManager) {
         if (!element.rect || !element.rect.get()) {
             return;  // safety - invalid rect context
         }
 
-        const auto& seg = element.rect.get()->content;
-
-        // Build model matrix – position + non-uniform scale
-        // Note: we're using scale for width/height — very common for 2D UI
-        const glm::mat4 model = MakeTransformModel(
-            glm::vec3{seg.x, seg.y, 0.0f},
-            glm::quat{1.0f, 0.0f, 0.0f, 0.0f},     // identity quaternion (no rotation for now)
-            glm::vec3{seg.width, seg.height, 1.0f}
-        );
-
-        const ResourceID imageID{element.style.backgroundImage};
-        auto [texWidth, texHeight] = textureManager.getTextureSize<float>(imageID);
-
-        UniformData data{};
-        data.imageIndex = textureManager.getTextureIndex(imageID);
-        data.model = model;
-        data.imageColor = element.style.imageColor;
-        data.backgroundColor = element.style.backgroundColor;
-        data.uvRect = ComputeImageUVRect(seg.width, seg.height,texWidth, texHeight,element.style.imageScaleMode);
-        data.imageRepeatMode = static_cast<uint32_t>(element.style.imageRepeatMode);
-
-        uniformDatas.push_back(data);
+        uniformDatas.push_back(element.makeUniformData(textureManager));
 
         const std::pair<const VisualElement*, UniformData*> bind = std::make_pair(&element, &uniformDatas.back());
         bindings.push_back(bind);
@@ -210,12 +260,6 @@ export namespace ufox::gui {
     void UpdateVisualElementUniformData(std::vector<std::pair<const VisualElement*,UniformData*>>& bindings, const TextureManager& textureManager) {
         if (bindings.empty()) return;
         for (auto& [element, data] : bindings) {
-            const auto& seg = element->rect.get()->content;
-
-            const glm::mat4 model = MakeTransformModel(
-            glm::vec3{seg.x, seg.y, 0.0f},
-            glm::quat{1.0f, 0.0f, 0.0f, 0.0f},
-            glm::vec3{seg.width, seg.height, 1.0f});
 
             const ResourceID imageID{element->style.backgroundImage};
             auto [texWidth, texHeight] = textureManager.getTextureSize<float>(imageID);
@@ -223,253 +267,9 @@ export namespace ufox::gui {
             data->imageIndex = textureManager.getTextureIndex(imageID);
             data->imageColor = element->style.imageColor;
             data->backgroundColor = element->style.backgroundColor;
-            data->uvRect = ComputeImageUVRect(element->rect->content.width, element->rect->content.height,texWidth, texHeight,element->style.imageScaleMode);
-            data->model = model;
+            data->imageOffsetAndTiling = ComputeImageUVRect(element->rect->content.width, element->rect->content.height,texWidth, texHeight, element->style.imageAlignment, element->style.imageScaleMode);
+            data->model = element->getTransformMat4();
             data->imageRepeatMode = static_cast<uint32_t>(element->style.imageRepeatMode);
-        }
-    }
-
-    class Viewpanel {
-        public:
-        Viewpanel() = default;
-        explicit Viewpanel(const TextureManager& _textureManager) : textureManager(&_textureManager) {}
-
-        discadelta::RectSegmentContextHandler   rect{nullptr, discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
-        VisualElementHandler                    rootElement{nullptr, DestroyVisualElement};
-
-        void makeUniformData() {
-            std::map<const ResourceID, const uint32_t> textureMap{};
-            uniformData.clear();
-            uniformData.reserve(rootElement->rect->branchCount);
-            bindings.clear();
-            bindings.reserve(rootElement->rect->branchCount);
-            AccumulateVisualElementUniformData(uniformData, bindings, *rootElement.get(), *textureManager);
-        }
-
-        void onResize(const float& width, const float& height) {
-            discadelta::UpdateSegments(*rootElement->rect, width, height, true);
-            UpdateVisualElementUniformData(bindings, *textureManager);
-        }
-
-        void updateUniformBuffer(const uint32_t& imageIndex) const {
-            memcpy(uniformMemory[imageIndex], uniformData.data(), sizeof(UniformData) * uniformData.size());
-        }
-
-        void makeSSBO(const gpu::GPUResources& gpu, uint32_t imageCount) {
-            const size_t branchCount = rootElement->rect->branchCount;
-
-            uniformBuffer.clear();
-            uniformMemory.clear();
-            uniformBuffer.reserve(imageCount);
-            uniformMemory.reserve(imageCount);
-            const vk::DeviceSize size = sizeof(UniformData) * branchCount;
-            for (size_t i = 0; i < imageCount; i++) {
-                gpu::Buffer buffer;
-                gpu::MakeBuffer(buffer, gpu, size, vk::BufferUsageFlagBits::eStorageBuffer,vk::MemoryPropertyFlagBits::eHostVisible |vk::MemoryPropertyFlagBits::eHostCoherent);
-                uniformBuffer.push_back(std::move(buffer));
-                uniformMemory.push_back(uniformBuffer.back().memory->mapMemory(0, size));
-            }
-        }
-
-        [[nodiscard]] std::vector<vk::DescriptorBufferInfo>  makeDescriptorBufferInfo() const {
-            if (uniformBuffer.empty()) return {};
-
-            std::vector<vk::DescriptorBufferInfo> bufferInfo{};
-            bufferInfo.reserve(uniformBuffer.size());
-
-            for (const auto &[memory, data] : uniformBuffer) {
-                vk::DescriptorBufferInfo info{};
-                info
-                .setBuffer(*data)
-                .setOffset(0)
-                .setRange(sizeof(UniformData) * rootElement->rect->branchCount);
-                bufferInfo.push_back(info);
-            }
-
-            return std::move(bufferInfo);
-        }
-
-        const TextureManager*                                       textureManager{nullptr};
-        std::vector<gpu::Buffer>                                    uniformBuffer{};
-        std::vector<void*>                                          uniformMemory{};
-        std::vector<UniformData>                                    uniformData{};
-        std::vector<std::pair<const VisualElement*, UniformData*>>  bindings{};
-    };
-
-    void MakeDescriptorSetLayout(const gpu::GPUResources& gpu, RenderResource& renderResource, const uint32_t maxCombinedImageSampler = 1) {
-        auto descriptorLayout = gpu::MakeDescriptorSetLayout(gpu,{
-            gpu::MakeStorageBufferLayoutBinding(1),
-            gpu::MakeUniformBufferLayoutBinding(1),
-            gpu::MakeSampledImageLayoutBinding(maxCombinedImageSampler),
-            gpu::MakeSamplerLayoutBinding(REPEAT_SAMPLER_CONFIGS.size())
-        });
-
-        renderResource.descriptorSetLayout.emplace(std::move(descriptorLayout));
-    }
-
-    void MakePipelineLayout(const gpu::GPUResources& gpu, RenderResource& renderResource) {
-        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-        pipelineLayoutInfo
-            .setSetLayoutCount(1)
-            .setPSetLayouts(&*renderResource.descriptorSetLayout.value())
-            .setPushConstantRangeCount(0);
-
-        renderResource.pipelineLayout.emplace(*gpu.device, pipelineLayoutInfo);
-    }
-
-    void MakePipeline(const gpu::GPUResources& gpu, const vk::Format& depthFormat, const gpu::SwapchainResource& swapchain, const std::vector<char>& shaderCode, RenderResource& renderResource) {
-        vk::raii::ShaderModule shaderModule = gpu::CreateShaderModule(gpu ,shaderCode);
-        std::array stages = {
-            vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eVertex, *shaderModule, "vertMain" },
-            vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eFragment, *shaderModule, "fragMain" }
-        };
-
-        std::array bindingDescription{Vertex::getBindingDescription()};
-        auto attributeDescriptions = Vertex::getAttributeDescriptions();
-
-        vk::PipelineVertexInputStateCreateInfo vertexInput = gpu::MakePipeVertexInputState(bindingDescription, attributeDescriptions);
-
-        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly
-            .setTopology(vk::PrimitiveTopology::eTriangleList)
-            .setPrimitiveRestartEnable(false);
-
-        vk::PipelineViewportStateCreateInfo viewportState{};
-        viewportState
-            .setViewportCount(1)
-            .setScissorCount(1);
-
-        vk::PipelineRasterizationStateCreateInfo rasterizer{};
-        rasterizer
-            .setPolygonMode(vk::PolygonMode::eFill)
-            .setDepthBiasEnable(false)
-            .setDepthClampEnable(false)
-            .setRasterizerDiscardEnable(false)
-            .setLineWidth(1.0f);
-
-        vk::PipelineMultisampleStateCreateInfo multisample{};
-        multisample
-            .setRasterizationSamples(vk::SampleCountFlagBits::e1);
-
-        vk::PipelineColorBlendAttachmentState blendAttachment{};
-        blendAttachment
-            .setBlendEnable(true)
-            .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha) // Use alpha for color
-            .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha) // 1 - alpha for a background
-            .setColorBlendOp(vk::BlendOp::eAdd) // Add blended colors
-            .setSrcAlphaBlendFactor(vk::BlendFactor::eOne) // Preserve alpha
-            .setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-            .setAlphaBlendOp(vk::BlendOp::eAdd)
-            .setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
-
-        vk::PipelineColorBlendStateCreateInfo blendState{};
-        blendState
-            .setAttachmentCount(1)
-            .setPAttachments(&blendAttachment);
-
-        std::array dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor, vk::DynamicState::eCullMode,
-                                     vk::DynamicState::eFrontFace, vk::DynamicState::ePrimitiveTopology };
-        vk::PipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState
-            .setDynamicStateCount(dynamicStates.size())
-            .setPDynamicStates(dynamicStates.data());
-
-        vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil
-            .setDepthTestEnable(true)
-            .setDepthWriteEnable(true)
-            .setDepthCompareOp(vk::CompareOp::eLessOrEqual)
-            .setDepthBoundsTestEnable(false)
-            .setStencilTestEnable(false);
-
-        vk::PipelineRenderingCreateInfo renderingInfo{};
-        renderingInfo
-        .setColorAttachmentCount(1)
-        .setPColorAttachmentFormats(&swapchain.colorFormat)
-        .setDepthAttachmentFormat(depthFormat);
-
-        vk::GraphicsPipelineCreateInfo pipelineInfo{};
-        pipelineInfo
-            .setStageCount(stages.size())
-            .setPStages(stages.data())
-            .setPVertexInputState(&vertexInput)
-            .setPInputAssemblyState(&inputAssembly)
-            .setPViewportState(&viewportState)
-            .setPRasterizationState(&rasterizer)
-            .setPMultisampleState(&multisample)
-            .setPColorBlendState(&blendState)
-            .setPDynamicState(&dynamicState)
-            .setPDepthStencilState(&depthStencil)
-            .setLayout(*renderResource.pipelineLayout.value())
-            .setRenderPass(nullptr)
-            .setSubpass(0)
-            .setPNext(&renderingInfo);
-
-        renderResource.pipelineCache.emplace(*gpu.device, vk::PipelineCacheCreateInfo());
-        renderResource.pipeline.emplace(*gpu.device, *renderResource.pipelineCache, pipelineInfo);
-    }
-
-    void MakeDescriptorPool(const gpu::GPUResources& gpu, const gpu::SwapchainResource& swapchain, RenderResource& renderResource) {
-        uint32_t imageCount = swapchain.getImageCount();
-        std::array poolSizes {
-            vk::DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, imageCount),
-            vk::DescriptorPoolSize(SCREEN_VIEW_PROJECTION_BUFFER_TYPE, imageCount),
-            vk::DescriptorPoolSize(vk::DescriptorType::eSampledImage, imageCount),
-            vk::DescriptorPoolSize(vk::DescriptorType::eSampler, imageCount)
-            };
-        vk::DescriptorPoolCreateInfo poolInfo{};
-        poolInfo
-            .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-            .setMaxSets(imageCount)
-            .setPoolSizes(poolSizes);
-        renderResource.descriptorPool.emplace(*gpu.device, poolInfo);
-    }
-
-    void MakeDescriptorSets(const UFoxWindow& window, const uint32_t& imageCount, const std::optional<Viewpanel>& panel, RenderResource& renderResource, const TextureManager & textureManager, const uint32_t& samplerImageCount) {
-        std::vector<vk::DescriptorSetLayout> layouts(imageCount, *renderResource.descriptorSetLayout);
-        vk::DescriptorSetAllocateInfo allocInfo{};
-        allocInfo
-            .setDescriptorPool( *renderResource.descriptorPool )
-            .setDescriptorSetCount( static_cast<uint32_t>( layouts.size() ) )
-            .setPSetLayouts( layouts.data() );
-
-        renderResource.descriptorSets.clear();
-
-        auto sets = window.gpuResource.device->allocateDescriptorSets(allocInfo);
-        const auto ssboInfo = panel->makeDescriptorBufferInfo();
-        const auto imageInfo = textureManager.makeSampledImageDescriptorImageInfos();
-        const uint32_t descriptorCount = std::min<uint32_t>(samplerImageCount, static_cast<uint32_t>(imageInfo.size()));
-
-        std::vector<vk::DescriptorImageInfo> samplerInfo;
-        samplerInfo.reserve(renderResource.repeatSamplers.size());
-
-        for (const auto& sampler : renderResource.repeatSamplers) {
-            samplerInfo.emplace_back(MakeDescriptorSamplerOnlyInfo(sampler));
-        }
-
-        for (size_t i =0; i < imageCount; i++) {
-            std::array<vk::WriteDescriptorSet, 4> write{};
-            write[0].setDstSet(*sets[i])
-                    .setDstBinding(0)
-                    .setDstArrayElement(0)
-                    .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-                    .setDescriptorCount(1)
-                    .setPBufferInfo(&ssboInfo[i]);
-            write[1] = gpu::MakeBufferWriteDescriptorSet(sets[i], window.makeScreenViewProjectionBufferInfo(), 1, SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
-            write[2].setDstSet(*sets[i])
-                    .setDstBinding(2)
-                    .setDstArrayElement(0)
-                    .setDescriptorType(vk::DescriptorType::eSampledImage)
-                    .setDescriptorCount(descriptorCount)
-                    .setPImageInfo(imageInfo.data());
-            write[3].setDstSet(*sets[i])
-                    .setDstBinding(3)
-                    .setDstArrayElement(0)
-                    .setDescriptorType(vk::DescriptorType::eSampler)
-                    .setDescriptorCount(REPEAT_SAMPLER_CONFIGS.size())
-                    .setPImageInfo(samplerInfo.data());
-            renderResource.descriptorSets.push_back(std::move(sets[i]));
-            window.gpuResource.device->updateDescriptorSets(write, {});
         }
     }
 
@@ -486,10 +286,6 @@ export namespace ufox::gui {
                 window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
                 window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
                     const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, depthAttachment);}, this);
-            }
-
-            if (_textureManager != nullptr) {
-                rootPanel.emplace(*textureManager);
             }
         }
 
@@ -515,12 +311,12 @@ export namespace ufox::gui {
 
         void init() {
             const auto& gpuResources = window->gpuResource;
-            renderResource.repeatSamplers.reserve(REPEAT_SAMPLER_CONFIGS.size());
+            repeatSamplers.reserve(REPEAT_SAMPLER_CONFIGS.size());
 
             for (auto [addressModeU, addressModeV, addressModeW, borderColor] : REPEAT_SAMPLER_CONFIGS) {
                 gpu::MakeSampler(
                     gpuResources,
-                    renderResource.repeatSamplers,
+                    repeatSamplers,
                     addressModeU,
                     addressModeV,
                     addressModeW,
@@ -528,44 +324,63 @@ export namespace ufox::gui {
                 );
             }
 
-            rootPanel->rect = discadelta::CreateSegmentContext<discadelta::RectSegmentContext, discadelta::RectSegmentCreateInfo>({
-                            .name          = "gui-root-rect",
-                            .width         = 0.0f,
-                            .widthMin      = 0.0f,
-                            .widthMax      = 0.0f,
-                            .height        = 0.0f,
-                            .heightMin     = 0.0f,
-                            .heightMax     = std::numeric_limits<float>::max(),
-                            .direction     = discadelta::FlexDirection::Row,
-                            .flexCompress  = 1.0f,
-                            .flexExpand    = 1.0f,
-                            .order         = 0
-                            });
-
-            rootPanel->rootElement.reset();
-            rootPanel->rootElement = CreateVisualElement("root-panel-element");
-
-            discadelta::Link(*rootPanel->rect.get(), *rootPanel->rootElement->rect.get());
+            rootElement.reset();
+            rootElement = CreateVisualElement("root-panel-element");
 
             v1 = CreateVisualElement("v1");
             v2 = CreateVisualElement("v2");
             v3 = CreateVisualElement("v3");
 
-            v1->style.backgroundColor = glm::vec4{1.0f, 1.0f, 0.0f, 1.0f};
+
+
+
             v1->style.backgroundImage = TESTER_TEXTURE_ID.data;
-            //v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 0.0f, 0.0f};
-            //v2->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
+            v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 0.0f, 1.0f};
+            v2->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
             v2->style.backgroundImage = "shaderIcon.png";
-            v2->style.imageScaleMode = ImageScaleMode::eScaleToFit;
-            v2->style.imageRepeatMode = ImageRepeatMode::eNone;
+            //v2->style.imageScaleMode = ImageScaleMode::eScaleToFit;
+            //v2->style.imageRepeatMode = ImageRepeatMode::eNone;
+            //v2->style.imageAlignment = ImageAlignment::eCenter;
             v3->style.backgroundImage = "NotoSans-Regular_latin_mtsdf";
 
-            rootPanel->rootElement->link(*v1.get());
-            rootPanel->rootElement->link(*v2.get());
-            rootPanel->rootElement->link(*v3.get());
+            rootElement->width = 400.0f;
+            rootElement->height = 800.0f;
+            rootElement->style.backgroundColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
+            //rootPanel->rootElement->style.backgroundColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
 
-            rootPanel->rootElement->style.backgroundImage = "default";
 
+            // v1->z =-0.5f;
+            // rootPanel->rootElement->z = 0.0f;
+
+
+            rootElement->link(*v1.get());
+            rootElement->style.backgroundImage = "shaderIcon.png";
+
+            discadelta::UpdateContextMetrics(*v2->rect.get());
+            v1->width = 400.0f;
+            v1->height = 400.0f;
+            v1->style.backgroundColor = glm::vec4{1.0f, 0.0f, 1.0f, 1.0f};
+            v1->style.borderTopRightRadius = 50.0f;
+            v1->style.borderTopLeftRadius = 20.0f;
+            v1->style.borderBottomRightRadius = 00.0f;
+            v1->style.borderBottomLeftRadius = 40.0f;
+            v1->style.marginTop = 0.0f;
+            v1->style.marginBottom = 0.0f;
+            v1->style.marginLeft = 0.0f;
+            v1->style.marginRight = 0.0f;
+            v1->style.borderTopWidth = 5.0f;
+            v1->style.borderTopColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
+            v1->style.borderLeftWidth = 5.0f;
+            v1->style.borderLeftColor = glm::vec4{0.0f, 1.0f, 0.0f, 1.0f};
+            v1->style.borderRightWidth = 5.0f;
+            v1->style.borderRightColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
+            v1->style.borderBottomWidth = 30.0f;
+            v1->style.borderBottomColor = glm::vec4{1.0f, 1.0f, 0.0f, 1.0f};
+
+            v1->link(*v2.get());
+
+
+            makeUniformData();
 
             debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
         }
@@ -584,12 +399,12 @@ export namespace ufox::gui {
 
             const gpu::GPUResources& gpu = window->gpuResource;
             const std::vector<char> shaderCode = UFoxWindow::ReadFileChar("res/shaders/test.slang.spv");
-            rootPanel->makeSSBO(window->gpuResource, window->getImageCount());
-            MakeDescriptorSetLayout(gpu, renderResource, samplerImageCount);
-            MakePipelineLayout(gpu, renderResource);
-            MakePipeline(gpu, window->depthResource->format, *window->windowResource->swapchainResource, shaderCode, renderResource);
-            MakeDescriptorPool(gpu, *window->windowResource->swapchainResource, renderResource);
-            MakeDescriptorSets(*window, window->getImageCount(), rootPanel, renderResource, *textureManager, samplerImageCount);
+            makeSSBO(window->gpuResource, window->getImageCount());
+            makeDescriptorSetLayout(gpu);
+            makePipelineLayout(gpu);
+            makePipeline(gpu, window->depthResource->format, *window->windowResource->swapchainResource, shaderCode);
+            makeDescriptorPool(gpu, *window->windowResource->swapchainResource);
+            makeDescriptorSets(*window, window->getImageCount());
             updateViewportSize(width, height);
 
             debug::log(debug::LogLevel::eInfo, "GUI Document InitResource : Susses");
@@ -599,38 +414,270 @@ export namespace ufox::gui {
             updateTextureDescriptorSets();
         }
 
-        std::optional<Viewpanel>                        rootPanel{};
-        VisualElementHandler                            v1 {nullptr, DestroyVisualElement};
-        VisualElementHandler                            v2 {nullptr, DestroyVisualElement};
-        VisualElementHandler                            v3 {nullptr, DestroyVisualElement};
+
+        VisualElementHandler                                        rootElement{nullptr, DestroyVisualElement};
+        VisualElementHandler                                        v1 {nullptr, DestroyVisualElement};
+        VisualElementHandler                                        v2 {nullptr, DestroyVisualElement};
+        VisualElementHandler                                        v3 {nullptr, DestroyVisualElement};
 
     private:
-        UFoxWindow*                                     window = nullptr;
-        MeshManager*                                    meshManager = nullptr;
-        TextureManager*                                 textureManager = nullptr;
-        const ResourceID*                               meshID{nullptr};
-        const Mesh*                                     mesh{nullptr};
-        const Texture*                                  texture{nullptr};
-        RenderResource                                  renderResource{};
-        uint32_t                                        samplerImageCount = MAX_GUI_TEXTURES;
+        UFoxWindow*                                                 window = nullptr;
+        MeshManager*                                                meshManager = nullptr;
+        TextureManager*                                             textureManager = nullptr;
+        const ResourceID*                                           meshID{nullptr};
+        const Mesh*                                                 mesh{nullptr};
+        const Texture*                                              texture{nullptr};
+        uint32_t                                                    samplerImageCount = MAX_GUI_TEXTURES;
+
+        std::optional<vk::raii::PipelineCache>                      pipelineCache{};
+        std::optional<vk::raii::Pipeline>                           pipeline{};
+        std::optional<vk::raii::DescriptorSetLayout>                descriptorSetLayout{};
+        std::optional<vk::raii::PipelineLayout>                     pipelineLayout{};
+        std::optional<vk::raii::DescriptorPool>                     descriptorPool{};
+        std::vector<vk::raii::DescriptorSet>                        descriptorSets{};
+        std::vector<vk::raii::Sampler>                              repeatSamplers{};
+
+        std::vector<gpu::Buffer>                                    uniformBuffer{};
+        std::vector<void*>                                          uniformMemory{};
+        std::vector<UniformData>                                    uniformData{};
+        std::vector<std::pair<const VisualElement*, UniformData*>>  bindings{};
+
+        void makeDescriptorSetLayout(const gpu::GPUResources& gpu) {
+            auto descriptorLayout = gpu::MakeDescriptorSetLayout(gpu,{
+                gpu::MakeStorageBufferLayoutBinding(1),
+                gpu::MakeUniformBufferLayoutBinding(1),
+                gpu::MakeSampledImageLayoutBinding(samplerImageCount),
+                gpu::MakeSamplerLayoutBinding(REPEAT_SAMPLER_CONFIGS.size())
+            });
+
+            descriptorSetLayout.emplace(std::move(descriptorLayout));
+        }
+
+        void makePipelineLayout(const gpu::GPUResources& gpu) {
+            vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+            pipelineLayoutInfo
+                .setSetLayoutCount(1)
+                .setPSetLayouts(&*descriptorSetLayout.value())
+                .setPushConstantRangeCount(0);
+
+            pipelineLayout.emplace(*gpu.device, pipelineLayoutInfo);
+        }
+
+        void makePipeline(const gpu::GPUResources& gpu, const vk::Format& depthFormat, const gpu::SwapchainResource& swapchain, const std::vector<char>& shaderCode) {
+            vk::raii::ShaderModule shaderModule = gpu::CreateShaderModule(gpu ,shaderCode);
+            std::array stages = {
+                vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eVertex, *shaderModule, "vertMain" },
+                vk::PipelineShaderStageCreateInfo{ {}, vk::ShaderStageFlagBits::eFragment, *shaderModule, "fragMain" }
+            };
+
+            std::array bindingDescription{Vertex::getBindingDescription()};
+            auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
+            vk::PipelineVertexInputStateCreateInfo vertexInput = gpu::MakePipeVertexInputState(bindingDescription, attributeDescriptions);
+
+            vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
+            inputAssembly
+                .setTopology(vk::PrimitiveTopology::eTriangleList)
+                .setPrimitiveRestartEnable(false);
+
+            vk::PipelineViewportStateCreateInfo viewportState{};
+            viewportState
+                .setViewportCount(1)
+                .setScissorCount(1);
+
+            vk::PipelineRasterizationStateCreateInfo rasterizer{};
+            rasterizer
+                .setPolygonMode(vk::PolygonMode::eFill)
+                .setDepthBiasEnable(false)
+                .setDepthClampEnable(false)
+                .setRasterizerDiscardEnable(false)
+                .setLineWidth(1.0f);
+
+            vk::PipelineMultisampleStateCreateInfo multisample{};
+            multisample
+                .setRasterizationSamples(vk::SampleCountFlagBits::e1);
+
+            vk::PipelineColorBlendAttachmentState blendAttachment{};
+            blendAttachment
+                .setBlendEnable(true)
+                .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha) // Use alpha for color
+                .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha) // 1 - alpha for a background
+                .setColorBlendOp(vk::BlendOp::eAdd) // Add blended colors
+                .setSrcAlphaBlendFactor(vk::BlendFactor::eOne) // Preserve alpha
+                .setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+                .setAlphaBlendOp(vk::BlendOp::eAdd)
+                .setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA);
+
+            vk::PipelineColorBlendStateCreateInfo blendState{};
+            blendState
+                .setAttachmentCount(1)
+                .setPAttachments(&blendAttachment);
+
+            std::array dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor, vk::DynamicState::eCullMode,
+                                         vk::DynamicState::eFrontFace, vk::DynamicState::ePrimitiveTopology };
+            vk::PipelineDynamicStateCreateInfo dynamicState{};
+            dynamicState
+                .setDynamicStateCount(dynamicStates.size())
+                .setPDynamicStates(dynamicStates.data());
+
+            vk::PipelineDepthStencilStateCreateInfo depthStencil{};
+            depthStencil
+                .setDepthTestEnable(false)
+                .setDepthWriteEnable(false)
+                .setDepthCompareOp(vk::CompareOp::eLessOrEqual)
+                .setDepthBoundsTestEnable(false)
+                .setStencilTestEnable(false);
+
+            vk::PipelineRenderingCreateInfo renderingInfo{};
+            renderingInfo
+            .setColorAttachmentCount(1)
+            .setPColorAttachmentFormats(&swapchain.colorFormat)
+            .setDepthAttachmentFormat(depthFormat);
+
+            vk::GraphicsPipelineCreateInfo pipelineInfo{};
+            pipelineInfo
+                .setStageCount(stages.size())
+                .setPStages(stages.data())
+                .setPVertexInputState(&vertexInput)
+                .setPInputAssemblyState(&inputAssembly)
+                .setPViewportState(&viewportState)
+                .setPRasterizationState(&rasterizer)
+                .setPMultisampleState(&multisample)
+                .setPColorBlendState(&blendState)
+                .setPDynamicState(&dynamicState)
+                .setPDepthStencilState(&depthStencil)
+                .setLayout(*pipelineLayout.value())
+                .setRenderPass(nullptr)
+                .setSubpass(0)
+                .setPNext(&renderingInfo);
+
+            pipelineCache.emplace(*gpu.device, vk::PipelineCacheCreateInfo());
+            pipeline.emplace(*gpu.device, *pipelineCache, pipelineInfo);
+        }
+
+        void makeDescriptorPool(const gpu::GPUResources& gpu, const gpu::SwapchainResource& swapchain) {
+            uint32_t imageCount = swapchain.getImageCount();
+            std::array poolSizes {
+                vk::DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, imageCount),
+                vk::DescriptorPoolSize(SCREEN_VIEW_PROJECTION_BUFFER_TYPE, imageCount),
+                vk::DescriptorPoolSize(vk::DescriptorType::eSampledImage, imageCount),
+                vk::DescriptorPoolSize(vk::DescriptorType::eSampler, imageCount)
+                };
+            vk::DescriptorPoolCreateInfo poolInfo{};
+            poolInfo
+                .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
+                .setMaxSets(imageCount)
+                .setPoolSizes(poolSizes);
+            descriptorPool.emplace(*gpu.device, poolInfo);
+        }
+
+        void makeDescriptorSets(const UFoxWindow& window, const uint32_t& imageCount) {
+            std::vector<vk::DescriptorSetLayout> layouts(imageCount, *descriptorSetLayout);
+            vk::DescriptorSetAllocateInfo allocInfo{};
+            allocInfo
+                .setDescriptorPool( *descriptorPool )
+                .setDescriptorSetCount( static_cast<uint32_t>( layouts.size() ) )
+                .setPSetLayouts( layouts.data() );
+
+            descriptorSets.clear();
+
+            auto sets = window.gpuResource.device->allocateDescriptorSets(allocInfo);
+            const auto ssboInfo = makeDescriptorBufferInfo();
+            const auto imageInfo = textureManager->makeSampledImageDescriptorImageInfos();
+            const uint32_t descriptorCount = std::min<uint32_t>(samplerImageCount, static_cast<uint32_t>(imageInfo.size()));
+
+            std::vector<vk::DescriptorImageInfo> samplerInfo;
+            samplerInfo.reserve(repeatSamplers.size());
+
+            for (const auto& sampler : repeatSamplers) {
+                samplerInfo.emplace_back(MakeDescriptorSamplerOnlyInfo(sampler));
+            }
+
+            for (size_t i =0; i < imageCount; i++) {
+                std::array<vk::WriteDescriptorSet, 4> write{};
+                write[0].setDstSet(*sets[i])
+                        .setDstBinding(0)
+                        .setDstArrayElement(0)
+                        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+                        .setDescriptorCount(1)
+                        .setPBufferInfo(&ssboInfo[i]);
+                write[1] = gpu::MakeBufferWriteDescriptorSet(sets[i], window.makeScreenViewProjectionBufferInfo(), 1, SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
+                write[2].setDstSet(*sets[i])
+                        .setDstBinding(2)
+                        .setDstArrayElement(0)
+                        .setDescriptorType(vk::DescriptorType::eSampledImage)
+                        .setDescriptorCount(descriptorCount)
+                        .setPImageInfo(imageInfo.data());
+                write[3].setDstSet(*sets[i])
+                        .setDstBinding(3)
+                        .setDstArrayElement(0)
+                        .setDescriptorType(vk::DescriptorType::eSampler)
+                        .setDescriptorCount(REPEAT_SAMPLER_CONFIGS.size())
+                        .setPImageInfo(samplerInfo.data());
+                descriptorSets.push_back(std::move(sets[i]));
+                window.gpuResource.device->updateDescriptorSets(write, {});
+            }
+        }
+
+        void makeUniformData() {
+            std::map<const ResourceID, const uint32_t> textureMap{};
+            uniformData.clear();
+            bindings.clear();
+            AccumulateVisualElementUniformData(uniformData, bindings, *rootElement.get(), *textureManager);
+            debug::log(debug::LogLevel::eInfo, "Viewpanel::makeUniformData: data {}", bindings.size() );
+        }
+
+        void makeSSBO(const gpu::GPUResources& gpu, const uint32_t imageCount) {
+            uniformBuffer.clear();
+            uniformMemory.clear();
+            uniformBuffer.reserve(imageCount);
+            uniformMemory.reserve(imageCount);
+            const auto limited = gpu.maxStorageBufferRange / sizeof(UniformData);
+            const auto max = std::min(1048576u, static_cast<uint32_t>(limited));
+            const vk::DeviceSize size = sizeof(UniformData) * max;
+            for (size_t i = 0; i < imageCount; i++) {
+                gpu::Buffer buffer;
+                gpu::MakeBuffer(buffer, gpu, size, vk::BufferUsageFlagBits::eStorageBuffer,vk::MemoryPropertyFlagBits::eHostVisible |vk::MemoryPropertyFlagBits::eHostCoherent);
+                uniformBuffer.push_back(std::move(buffer));
+                uniformMemory.push_back(uniformBuffer.back().memory->mapMemory(0, size));
+            }
+        }
+
+        [[nodiscard]] std::vector<vk::DescriptorBufferInfo>  makeDescriptorBufferInfo() const {
+            if (uniformBuffer.empty()) return {};
+
+            std::vector<vk::DescriptorBufferInfo> bufferInfo{};
+            bufferInfo.reserve(uniformBuffer.size());
+
+            for (const auto &[memory, data] : uniformBuffer) {
+                vk::DescriptorBufferInfo info{};
+                info
+                .setBuffer(*data)
+                .setOffset(0)
+                .setRange(sizeof(UniformData) * uniformData.size() );
+                bufferInfo.push_back(info);
+            }
+
+            return std::move(bufferInfo);
+        }
 
         void updateViewportSize(const float& width, const float& height) {
-            rootPanel->onResize(width,height);
+            UpdateVisualElementUniformData(bindings, *textureManager);
         }
 
         void updateUniformBuffer(const uint32_t& currentImage) const {
-            rootPanel->updateUniformBuffer(currentImage);
+            memcpy(uniformMemory[currentImage], uniformData.data(), sizeof(UniformData) * uniformData.size());
         }
 
         void updateTextureDescriptorSets() {
-            if (renderResource.descriptorSets.empty()) return;
+            if (descriptorSets.empty()) return;
 
             const std::vector<vk::DescriptorImageInfo> imageInfo = textureManager->makeSampledImageDescriptorImageInfos();
             const uint32_t descriptorCount = std::min<uint32_t>(samplerImageCount, static_cast<uint32_t>(imageInfo.size()));
 
             for (size_t i = 0; i < window->getImageCount(); i++) {
                 vk::WriteDescriptorSet write{};
-                write.setDstSet(*renderResource.descriptorSets[i])
+                write.setDstSet(*descriptorSets[i])
                     .setDstBinding(2)
                     .setDstArrayElement(0)
                     .setDescriptorType(vk::DescriptorType::eSampledImage)
@@ -639,11 +686,12 @@ export namespace ufox::gui {
                 window->gpuResource.device->updateDescriptorSets({write}, {});
             }
 
-            rootPanel->makeUniformData();
+            makeUniformData();
         }
 
         void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource,
             const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment) const {
+
             int height, width;
 
             if (winResource.getExtent(width, height)) return;
@@ -654,11 +702,11 @@ export namespace ufox::gui {
             renderingInfo.setRenderArea(rect)
                          .setLayerCount(1)
                          .setColorAttachmentCount(1)
-                         .setPColorAttachments(&colorAttachment)
-                         .setPDepthAttachment(&depthAttachment);
+                         .setPColorAttachments(&colorAttachment);
+                         //.setPDepthAttachment(&depthAttachment);
             cmb.beginRendering(renderingInfo);
 
-            cmb.bindPipeline(vk::PipelineBindPoint::eGraphics, *renderResource.pipeline);
+            cmb.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
 
             cmb.setViewport(0, vk::Viewport{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
             cmb.setScissor(0, rect);
@@ -671,8 +719,8 @@ export namespace ufox::gui {
             cmb.bindVertexBuffers(0, vertexBuffers, offsets);
             cmb.bindIndexBuffer(*mesh->indexBuffer->data, 0, vk::IndexType::eUint16);
 
-            cmb.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *renderResource.pipelineLayout, 0, *renderResource.descriptorSets[imageIndex], nullptr);
-            cmb.drawIndexed(std::size(RectIndices), rootPanel->uniformData.size(), 0, 0, 0);
+            cmb.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, *descriptorSets[imageIndex], nullptr);
+            cmb.drawIndexed(std::size(RectIndices), uniformData.size(), 0, 0, 0);
 
             cmb.endRendering();
         }

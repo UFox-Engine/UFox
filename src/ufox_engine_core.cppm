@@ -124,7 +124,7 @@ export namespace ufox::engine {
   }
 
   [[nodiscard]] constexpr auto CalculateScreenProjectionMatrix(const float& width, const float& height) noexcept {
-    return glm::ortho(0.0f, width, 0.0f, height, -1.0f, 0.0f);
+    return glm::ortho(0.0f, width, 0.0f, height, -1.0f, 1.0f);
   }
 
   template<typename Callback>
@@ -445,7 +445,7 @@ export namespace ufox::engine {
       gpu::TransitionImageLayout(cmb, depthResource->image.data.value(), depthResource->format, rangeDepth, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthAttachmentOptimal );
 
       vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 0.0f);
-      vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
+      vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f,0);
 
       vk::RenderingAttachmentInfo colorAttachment{};
       colorAttachment.setImageView(windowResource->swapchainResource->getCurrentImageView())
