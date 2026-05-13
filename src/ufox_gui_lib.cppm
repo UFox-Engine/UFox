@@ -17,10 +17,10 @@ export namespace ufox::gui {
   constexpr uint32_t MAX_GUI_TEXTURES = 256;
 
   Vertex RectVertices[]{
-    {{0.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.001f, 0.001f}, {1.0f, 0.0f, 0.0f}},
-    {{1.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.999f, 0.001f}, {0.0f, 1.0f, 0.0f}},
-    {{1.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.999f, 0.999f}, {0.0f, 0.0f, 1.0f}},
-    {{0.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.001f, 0.999f}, {1.0f, 1.0f, 1.0f}},
+    {{0.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+    {{1.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+    {{1.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+    {{0.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},
   };
 
   uint16_t RectIndices[]{
@@ -128,6 +128,50 @@ export namespace ufox::gui {
     glm::vec4                      borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
     glm::vec4                      borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
     glm::vec4                      borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    [[nodiscard]] glm::vec4 getBorderThicknessSet() const noexcept {
+      return {borderTopWidth, borderRightWidth, borderBottomWidth, borderLeftWidth};
+    }
+
+    [[nodiscard]] glm::vec4 getCornerRadiusSet() const noexcept {
+      return {borderBottomRightRadius, borderTopRightRadius, borderBottomLeftRadius, borderTopLeftRadius};
+    }
+
+    [[nodiscard]] glm::vec4 getMarginSet() const noexcept {
+      return {marginTop, marginRight, marginBottom, marginLeft};
+    }
+
+    [[nodiscard]] constexpr glm::vec2 getMarginSpace() const noexcept {
+      const float x = marginLeft + marginRight;
+      const float y = marginTop + marginBottom;
+      return {x, y};
+    }
+
+    [[nodiscard]] constexpr glm::vec2 getBorderThicknessSpace() const noexcept {
+      const float x = borderLeftWidth + borderRightWidth;
+      const float y = borderTopWidth + borderBottomWidth;
+      return {x, y};
+    }
+
+    [[nodiscard]] glm::vec2 getImageSpace() const noexcept {
+      const float x = marginLeft + marginRight + borderLeftWidth + borderRightWidth;
+      const float y = marginTop + marginBottom + borderTopWidth + borderBottomWidth;
+      return {x, y};
+    }
+
+    [[nodiscard]]  glm::vec2 getImageBRSpaceOffset() const noexcept {
+      const float x = marginRight + borderRightWidth;
+      const float y = marginBottom + borderBottomWidth;
+      return {x, y};
+    }
+
+    [[nodiscard]] glm::vec2 getImageTLSpaceOffset() const noexcept {
+      const float x = marginLeft + borderLeftWidth;
+      const float y = marginTop + borderTopWidth;
+      return {x, y};
+    }
+
+
   };
 
   struct UniformData {
@@ -146,7 +190,23 @@ export namespace ufox::gui {
     glm::vec4                      cornerRadius{0.0f, 0.0f, 0.0f, 0.0f};
     glm::vec4                      borderThickness{0.0f, 0.0f, 0.0f, 0.0f};
     glm::vec4                      margin{0.0f, 0.0f, 0.0f, 0.0f};
+
+    void setData(const UniformData& uniformData) noexcept {
+      parentIndex = uniformData.parentIndex;
+      displayOverflowMode = uniformData.displayOverflowMode;
+      imageIndex = uniformData.imageIndex;
+      imageRepeatMode = uniformData.imageRepeatMode;
+      model = uniformData.model;
+      imageOffsetAndTiling = uniformData.imageOffsetAndTiling;
+      imageColor = uniformData.imageColor;
+      backgroundColor = uniformData.backgroundColor;
+      borderBottomColor = uniformData.borderBottomColor;
+      borderTopColor = uniformData.borderTopColor;
+      borderLeftColor = uniformData.borderLeftColor;
+      borderRightColor = uniformData.borderRightColor;
+      cornerRadius = uniformData.cornerRadius;
+      borderThickness = uniformData.borderThickness;
+      margin = uniformData.margin;
+    }
   };
-
-
 }

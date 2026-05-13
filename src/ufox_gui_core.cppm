@@ -2,15 +2,16 @@ module;
 
 
 #define GLM_FORCE_RADIANS
+#include "glm/vec2.hpp"
+
+#include <SDL3/SDL_surface.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
-#include <iostream>
-#include <SDL3/SDL_surface.h>
-#include <map>
-
 
 export module ufox_gui_core;
 
@@ -48,66 +49,92 @@ export namespace ufox::gui {
         }
     }
 
-    [[nodiscard]] glm::vec2 ComputeImageUVPositionX(const float uvWidth, const ImageAlignment alignment) noexcept {
-        constexpr float posY = 0.0f;
+    [[nodiscard]] glm::vec2 ComputeImageUVPositionX(const glm::vec2& tiling, const glm::vec2& borderTLOffset, const glm::vec2& imageRect, const ImageAlignment alignment) noexcept {
+        float posY = -borderTLOffset.y;
+        float posX = -borderTLOffset.x;
+
         switch (alignment) {
         case ImageAlignment::eTopLeft:
+        case ImageAlignment::eBottomLeft:
         case ImageAlignment::eCenterLeft:
-            return {posY, posY};
+            return {posX, posY};
 
         case ImageAlignment::eTopCenter:
+        case ImageAlignment::eBottomCenter:
         case ImageAlignment::eCenter:
-            return {(1.0f - uvWidth) * 0.5f, posY};
+            posX = -0.5f * (imageRect.x - 1 / tiling.x + borderTLOffset.x * 2);
+            return {posX, posY};
 
         case ImageAlignment::eTopRight:
+        case ImageAlignment::eBottomRight:
         case ImageAlignment::eCenterRight:
-            return {1.0f - uvWidth, posY};
+            posX = imageRect.x - 1 / tiling.x + borderTLOffset.x;
+            return {-posX, posY};
 
         default:
-            return {posY, posY};
+            return {posX, posY};
         }
     }
 
-    [[nodiscard]] glm::vec2 ComputeImageUVPositionY(const float uvHeight, const ImageAlignment alignment) noexcept {
-        constexpr float posX = 0.0f;
+    [[nodiscard]] glm::vec2 ComputeImageUVPositionY(const glm::vec2& tiling, const glm::vec2& borderTLOffset, const glm::vec2& imageRect, const ImageAlignment alignment) noexcept {
+        float posY = -borderTLOffset.y;
+        float posX = -borderTLOffset.x;
         switch (alignment) {
         case ImageAlignment::eBottomLeft:
         case ImageAlignment::eBottomRight:
         case ImageAlignment::eBottomCenter:
-            return {posX, 1.0f - uvHeight};
+            posY = imageRect.y - 1 / tiling.y + borderTLOffset.y;
+            return {posX, -posY};
+
         case ImageAlignment::eCenterLeft:
         case ImageAlignment::eCenterRight:
         case ImageAlignment::eCenter:
-            return {posX, (1.0f - uvHeight) * 0.5f};
-        case ImageAlignment::eTopLeft:
+            posY = -0.5f * (imageRect.y - 1 / tiling.y + borderTLOffset.y * 2);
+            return {posX, posY};
+
         case ImageAlignment::eTopRight:
         case ImageAlignment::eTopCenter:
-            return {posX, posX};
+            return {posX, posY};
         default:
-            return {posX, posX};
+            return {posX, posY};
         }
     }
 
-    [[nodiscard]] glm::vec4 ComputeImageUVRect(const float elementWidth, const float elementHeight,const float textureWidth, const float textureHeight, const ImageAlignment& alignment ,const ImageScaleMode& mode) noexcept{
+    [[nodiscard]] glm::vec4 ComputeImageUVRect(const float elementWidth, const float elementHeight,const float textureWidth, const float textureHeight, const Style& style) noexcept{
         if (textureWidth <= 0.0f || textureHeight <= 0.0f || elementWidth <= 0.0f || elementHeight <= 0.0f)
             return {0.0f, 0.0f, 1.0f, 1.0f};
 
+        const glm::vec2 imageSpace = style.getImageSpace();
+        const ImageScaleMode& mode = style.imageScaleMode;
+        const ImageAlignment& alignment = style.imageAlignment;
+
+        const glm::vec2 rectSize{elementWidth, elementHeight};
+        const glm::vec2 imageSize = rectSize - imageSpace;
+        const glm::vec2 imageRect = imageSize / rectSize;
+        const glm::vec2 texTiling = rectSize / imageSize;
+        const glm::vec2 borderTLOffset = style.getImageTLSpaceOffset() / rectSize ;
+
+
         const float elemAspect = elementWidth / elementHeight;
-        const float texAspect  = textureWidth / textureHeight;
+        const float texAspect  = textureWidth / textureHeight ;
+        const float imageAspect = imageSize.x / imageSize.y ;
+
 
         switch (mode) {
         case ImageScaleMode::eStretchToFill:
-            return {0.0f, 0.0f, 1.0f, 1.0f};
+            return {-borderTLOffset, texTiling};
 
         case ImageScaleMode::eScaleToFit: {
-            if (elemAspect > texAspect) {
-                const float uvWidth = elemAspect / texAspect;
-                glm::vec2 pos = ComputeImageUVPositionX(uvWidth, alignment);
-                return {pos, uvWidth, 1.0f};
+            if (imageAspect > texAspect) {
+                const float uvWidth =  imageAspect / texAspect;
+                const glm::vec2 tiling = glm::vec2{uvWidth, 1.0f} * texTiling;
+                const glm::vec2 offset = ComputeImageUVPositionX(tiling, borderTLOffset, imageRect, alignment);
+                return {offset, tiling } ;
             }
-            const float uvHeight = texAspect / elemAspect;
-            glm::vec2 pos = ComputeImageUVPositionY(uvHeight, alignment);
-            return {pos, 1.0f, uvHeight};
+            const float uvHeight = texAspect / imageAspect;
+            const glm::vec2 tiling = glm::vec2{1.0f, uvHeight} * texTiling;
+            const glm::vec2 offset = ComputeImageUVPositionY(tiling, borderTLOffset, imageRect, alignment) ;
+            return {offset, tiling};
         }
 
         case ImageScaleMode::eScaleAndCrop: {
@@ -119,7 +146,7 @@ export namespace ufox::gui {
             return {(1.0f - uvWidth) * 0.5f, 0.0f, uvWidth, 1.0f};
         }
         }
-        return {0.0f, 0.0f, 1.0f, 1.0f};
+        return {-borderTLOffset, texTiling};
     }
 
     class Viewpanel;
@@ -129,29 +156,17 @@ export namespace ufox::gui {
 
     class VisualElement: public RectLayout {
         public:
+        std::string_view                                        name;
         Viewpanel*                                              panel{nullptr};
         VisualElement*                                          parent{nullptr};
-        discadelta::RectSegmentContextHandler                   rect{nullptr, discadelta::DestroySegmentContext<discadelta::RectSegmentContext>};
+
         std::vector<VisualElement*>                             hierarchy{};
         Style                                                   style{};
         float z{0.0f};
 
 
-        explicit VisualElement(const std::string_view& name = "VisualElement") {
-            rect = discadelta::CreateSegmentContext<discadelta::RectSegmentContext, discadelta::RectSegmentCreateInfo>({
-            .name          = name.data(),
-            .width         = 0.0f,
-            .widthMin      = 0.0f,
-            .widthMax      = std::numeric_limits<float>::max(),
-            .height        = std::numeric_limits<float>::max(),
-            .heightMin     = 0.0f,
-            .heightMax     = std::numeric_limits<float>::max(),
-            .direction     = discadelta::FlexDirection::Row,
-            .flexCompress  = 1.0f,
-            .flexExpand    = 1.0f,
-            .order         = 0
-            });
-        }
+        explicit VisualElement(const std::string_view& _name = "VisualElement") : name {_name} {}
+
 
         [[nodiscard]] glm::mat4 getTransformMat4() const {
             return MakeTransformModel(glm::vec3{x, y, z}, IDENTITY_QUAT, glm::vec3{width, height, 1.0f});
@@ -163,20 +178,38 @@ export namespace ufox::gui {
 
             UniformData data{};
             data.model = getTransformMat4();
-            debug::log(debug::LogLevel::eInfo, "makeUniformData: {} - {}x{}", rect->config.name, data.model[0][0], data.model[1][1] );
             data.imageIndex = textureManager.getTextureIndex(imageID);
             data.imageColor = style.imageColor;
             data.backgroundColor = style.backgroundColor;
-            data.imageOffsetAndTiling = ComputeImageUVRect(width, height, texWidth, texHeight, style.imageAlignment, style.imageScaleMode);
+            data.imageOffsetAndTiling = ComputeImageUVRect(width, height, texWidth, texHeight, style);
             data.imageRepeatMode = static_cast<uint32_t>(style.imageRepeatMode);
-            data.cornerRadius = glm::vec4{style.borderBottomRightRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderTopLeftRadius};
-            data.margin = glm::vec4{style.marginTop, style.marginRight, style.marginBottom , style.marginLeft};
-            data.borderThickness = glm::vec4{style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth};
+            data.cornerRadius = style.getCornerRadiusSet();
+            data.margin = style.getMarginSet();
+            data.borderThickness = style.getBorderThicknessSet();
             data.borderTopColor = style.borderTopColor;
             data.borderLeftColor = style.borderLeftColor;
             data.borderRightColor = style.borderRightColor;
             data.borderBottomColor = style.borderBottomColor;
             return data;
+        }
+
+        void updateUniformData(UniformData& data, const TextureManager& textureManager) const {
+            const ResourceID imageID{style.backgroundImage};
+            auto [texWidth, texHeight] = textureManager.getTextureSize<float>(imageID);
+
+            data.model = getTransformMat4();
+            data.imageIndex = textureManager.getTextureIndex(imageID);
+            data.imageColor = style.imageColor;
+            data.backgroundColor = style.backgroundColor;
+            data.imageOffsetAndTiling = ComputeImageUVRect(width, height, texWidth, texHeight, style);
+            data.imageRepeatMode = static_cast<uint32_t>(style.imageRepeatMode);
+            data.cornerRadius = style.getCornerRadiusSet();
+            data.margin = style.getMarginSet();
+            data.borderThickness = style.getBorderThicknessSet();
+            data.borderTopColor = style.borderTopColor;
+            data.borderLeftColor = style.borderLeftColor;
+            data.borderRightColor = style.borderRightColor;
+            data.borderBottomColor = style.borderBottomColor;
         }
 
         void link(VisualElement& element) {
@@ -186,10 +219,8 @@ export namespace ufox::gui {
             }
             element.parent = this;
 
-            discadelta::Link(*rect.get(), *element.rect.get());
             element.panel = panel;
             hierarchy.push_back(&element);
-            debug::log(debug::LogLevel::eInfo,"link: {} - {}", rect->config.name, element.rect->config.name);
         }
 
         void add(VisualElementHandler& element) {
@@ -203,7 +234,7 @@ export namespace ufox::gui {
             const auto it = std::ranges::find(hierarchy, &element);
             if (it == hierarchy.end()) return;
             hierarchy.erase(it);
-            discadelta::Unlink(*element.rect.get());
+
             element.parent = nullptr;
             element.panel = nullptr;
 
@@ -214,7 +245,7 @@ export namespace ufox::gui {
         }
 
         VisualElement* getChild(const std::string_view& name) {
-            auto it = std::ranges::find_if(hierarchy, [&](const auto& child) { return child->rect->config.name == name; });
+            auto it = std::ranges::find_if(hierarchy, [&](const auto& child) { return child->name == name; });
             if (it == hierarchy.end()) return nullptr;
             return *it;
         }
@@ -240,9 +271,6 @@ export namespace ufox::gui {
     }
 
     void AccumulateVisualElementUniformData(std::vector<UniformData>& uniformDatas, std::vector<std::pair<const VisualElement*,UniformData*>>& bindings, const VisualElement& element, const TextureManager& textureManager) {
-        if (!element.rect || !element.rect.get()) {
-            return;  // safety - invalid rect context
-        }
 
         uniformDatas.push_back(element.makeUniformData(textureManager));
 
@@ -260,16 +288,7 @@ export namespace ufox::gui {
     void UpdateVisualElementUniformData(std::vector<std::pair<const VisualElement*,UniformData*>>& bindings, const TextureManager& textureManager) {
         if (bindings.empty()) return;
         for (auto& [element, data] : bindings) {
-
-            const ResourceID imageID{element->style.backgroundImage};
-            auto [texWidth, texHeight] = textureManager.getTextureSize<float>(imageID);
-
-            data->imageIndex = textureManager.getTextureIndex(imageID);
-            data->imageColor = element->style.imageColor;
-            data->backgroundColor = element->style.backgroundColor;
-            data->imageOffsetAndTiling = ComputeImageUVRect(element->rect->content.width, element->rect->content.height,texWidth, texHeight, element->style.imageAlignment, element->style.imageScaleMode);
-            data->model = element->getTransformMat4();
-            data->imageRepeatMode = static_cast<uint32_t>(element->style.imageRepeatMode);
+            element->updateUniformData(*data, textureManager);
         }
     }
 
@@ -331,10 +350,6 @@ export namespace ufox::gui {
             v2 = CreateVisualElement("v2");
             v3 = CreateVisualElement("v3");
 
-
-
-
-            v1->style.backgroundImage = TESTER_TEXTURE_ID.data;
             v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 0.0f, 1.0f};
             v2->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
             v2->style.backgroundImage = "shaderIcon.png";
@@ -345,37 +360,35 @@ export namespace ufox::gui {
 
             rootElement->width = 400.0f;
             rootElement->height = 800.0f;
-            rootElement->style.backgroundColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            //rootPanel->rootElement->style.backgroundColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
-
-
-            // v1->z =-0.5f;
-            // rootPanel->rootElement->z = 0.0f;
-
+            rootElement->style.backgroundColor = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
 
             rootElement->link(*v1.get());
-            rootElement->style.backgroundImage = "shaderIcon.png";
+            //rootElement->style.backgroundImage = TESTER_TEXTURE_ID.data;
 
-            discadelta::UpdateContextMetrics(*v2->rect.get());
+
+            v1->style.backgroundImage = "shaderIcon.png";
+            v1->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
             v1->width = 400.0f;
             v1->height = 400.0f;
-            v1->style.backgroundColor = glm::vec4{1.0f, 0.0f, 1.0f, 1.0f};
-            v1->style.borderTopRightRadius = 50.0f;
-            v1->style.borderTopLeftRadius = 20.0f;
-            v1->style.borderBottomRightRadius = 00.0f;
+            v1->style.backgroundColor = glm::vec4{1.0f, 1.0f, 1.0f, 0.0f};
+            v1->style.borderTopRightRadius = 40.0f;
+            v1->style.borderTopLeftRadius = 40.0f;
+            v1->style.borderBottomRightRadius = 40.0f;
             v1->style.borderBottomLeftRadius = 40.0f;
-            v1->style.marginTop = 0.0f;
-            v1->style.marginBottom = 0.0f;
-            v1->style.marginLeft = 0.0f;
-            v1->style.marginRight = 0.0f;
-            v1->style.borderTopWidth = 5.0f;
-            v1->style.borderTopColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
+            v1->style.marginTop = 10.0f;
+            v1->style.marginBottom = 10.0f;
+            v1->style.marginLeft = 10.0f;
+            v1->style.marginRight = 10.0f;
+            v1->style.borderTopWidth = 10.0f;
+            v1->style.borderTopColor = glm::vec4{1.0f, 1.0f, 1.0f, 0.20f};
             v1->style.borderLeftWidth = 5.0f;
-            v1->style.borderLeftColor = glm::vec4{0.0f, 1.0f, 0.0f, 1.0f};
-            v1->style.borderRightWidth = 5.0f;
-            v1->style.borderRightColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
-            v1->style.borderBottomWidth = 30.0f;
-            v1->style.borderBottomColor = glm::vec4{1.0f, 1.0f, 0.0f, 1.0f};
+            v1->style.borderLeftColor = glm::vec4{1.0f, 1.0f, 1.0f, 0.20f};
+            v1->style.borderRightWidth = 30.0f;
+            v1->style.borderRightColor = glm::vec4{1.0f, 1.0f, 1.0f, 0.20f};
+            v1->style.borderBottomWidth = 50.0f;
+            v1->style.borderBottomColor = glm::vec4{1.0f, 1.0f, 1.0f, 0.20f};
+            v1->style.imageScaleMode = ImageScaleMode::eScaleToFit;
+            v1->style.imageAlignment = ImageAlignment::eCenter;
 
             v1->link(*v2.get());
 
@@ -662,6 +675,10 @@ export namespace ufox::gui {
         }
 
         void updateViewportSize(const float& width, const float& height) {
+            rootElement->width = width;
+            rootElement->height = height;
+            v1->width = width;
+            v1->height = height;
             UpdateVisualElementUniformData(bindings, *textureManager);
         }
 
@@ -710,8 +727,8 @@ export namespace ufox::gui {
 
             cmb.setViewport(0, vk::Viewport{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f });
             cmb.setScissor(0, rect);
-            cmb.setCullMode(vk::CullModeFlagBits::eFront);
-            cmb.setFrontFace(vk::FrontFace::eCounterClockwise);
+            cmb.setCullMode(vk::CullModeFlagBits::eNone);
+            cmb.setFrontFace(vk::FrontFace::eClockwise);
             cmb.setPrimitiveTopology(vk::PrimitiveTopology::eTriangleList);
 
             vk::Buffer vertexBuffers[] = {*mesh->vertexBuffer->data};
