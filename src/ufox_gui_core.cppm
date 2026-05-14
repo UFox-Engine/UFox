@@ -9,6 +9,7 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 #include <map>
+#include <ranges>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
@@ -149,27 +150,21 @@ export namespace ufox::gui {
         return {-borderTLOffset, texTiling};
     }
 
-    class Viewpanel;
-    class VisualElement;
-    constexpr void DestroyVisualElement(VisualElement* element) noexcept;
-    using VisualElementHandler = std::unique_ptr<VisualElement, decltype(&DestroyVisualElement)>;
+    class VisualElement: public DiscadeltaRectLayoutBase {
+    public:
+        ~VisualElement() override {
+            debug::log(debug::LogLevel::eInfo, "VisualElement Destructor");
+        }
 
-    class VisualElement: public RectLayout {
-        public:
+
         std::string_view                                        name;
-        Viewpanel*                                              panel{nullptr};
-        VisualElement*                                          parent{nullptr};
-
-        std::vector<VisualElement*>                             hierarchy{};
         Style                                                   style{};
-        float z{0.0f};
 
-
-        explicit VisualElement(const std::string_view& _name = "VisualElement") : name {_name} {}
+        VisualElement(const ResourceID &_id,const std::string_view &name): DiscadeltaRectLayoutBase(_id), name(name) {}
 
 
         [[nodiscard]] glm::mat4 getTransformMat4() const {
-            return MakeTransformModel(glm::vec3{x, y, z}, IDENTITY_QUAT, glm::vec3{width, height, 1.0f});
+            return MakeTransformModel(glm::vec3{x, y, 0.0}, IDENTITY_QUAT, glm::vec3{width, height, 1.0f});
         }
 
         [[nodiscard]] UniformData makeUniformData(const TextureManager& textureManager) const {
@@ -212,63 +207,14 @@ export namespace ufox::gui {
             data.borderBottomColor = style.borderBottomColor;
         }
 
-        void link(VisualElement& element) {
-            if (&element == this) return;
-            if (element.parent != nullptr) {
-                element.parent->remove(element);
-            }
-            element.parent = this;
-
-            element.panel = panel;
-            hierarchy.push_back(&element);
+        bool onAdd(DiscadeltaRectLayoutBase *target) override {
+            return true;
         }
-
-        void add(VisualElementHandler& element) {
-            children.push_back(std::move(element));
-            const auto & child = children.back();
-            link(*child.get());
+        bool onRemove(DiscadeltaRectLayoutBase *target) override {
+            return true;
         }
-
-        void remove(VisualElement& element) {
-            if (&element == this) return;
-            const auto it = std::ranges::find(hierarchy, &element);
-            if (it == hierarchy.end()) return;
-            hierarchy.erase(it);
-
-            element.parent = nullptr;
-            element.panel = nullptr;
-
-            auto cIt = std::ranges::find_if(children, [&](const auto& child) { return child.get() == &element; });
-            if (cIt != children.end()) {
-                children.erase(cIt);
-            }
-        }
-
-        VisualElement* getChild(const std::string_view& name) {
-            auto it = std::ranges::find_if(hierarchy, [&](const auto& child) { return child->name == name; });
-            if (it == hierarchy.end()) return nullptr;
-            return *it;
-        }
-
-    private:
-        std::vector<VisualElementHandler> children{};
-
     };
 
-    constexpr void DestroyVisualElement(VisualElement* element) noexcept {
-        if (element == nullptr) return;
-        if (element->parent != nullptr) {
-            element->parent->remove(*element);
-        }
-
-        element->hierarchy.clear();
-        element->panel = nullptr;
-        element->parent = nullptr;
-    }
-
-    constexpr auto CreateVisualElement(const std::string_view& name) -> VisualElementHandler {
-        return VisualElementHandler{new VisualElement(name), DestroyVisualElement};
-    }
 
     void AccumulateVisualElementUniformData(std::vector<UniformData>& uniformDatas, std::vector<std::pair<const VisualElement*,UniformData*>>& bindings, const VisualElement& element, const TextureManager& textureManager) {
 
@@ -277,11 +223,11 @@ export namespace ufox::gui {
         const std::pair<const VisualElement*, UniformData*> bind = std::make_pair(&element, &uniformDatas.back());
         bindings.push_back(bind);
 
-        // Recurse into THIS element's children — not root!
-        for (const VisualElement* child : element.hierarchy) {
-            if (child) {
-                AccumulateVisualElementUniformData(uniformDatas, bindings, *child, textureManager);
-            }
+        for (const auto child : *element.getContents() | std::views::values) {
+
+            const auto* e = dynamic_cast<VisualElement*>(child);
+
+            AccumulateVisualElementUniformData(uniformDatas, bindings, *e, textureManager);
         }
     }
 
@@ -344,27 +290,16 @@ export namespace ufox::gui {
             }
 
             rootElement.reset();
-            rootElement = CreateVisualElement("root-panel-element");
-
-            v1 = CreateVisualElement("v1");
-            v2 = CreateVisualElement("v2");
-            v3 = CreateVisualElement("v3");
-
-            v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 0.0f, 1.0f};
-            v2->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
-            v2->style.backgroundImage = "shaderIcon.png";
-            //v2->style.imageScaleMode = ImageScaleMode::eScaleToFit;
-            //v2->style.imageRepeatMode = ImageRepeatMode::eNone;
-            //v2->style.imageAlignment = ImageAlignment::eCenter;
-            v3->style.backgroundImage = "NotoSans-Regular_latin_mtsdf";
+            rootElement.emplace(ResourceID{"root"},"root");
+            v1.reset();
+            v1.emplace(ResourceID{"v1"},"v1");
 
             rootElement->width = 400.0f;
             rootElement->height = 800.0f;
             rootElement->style.backgroundColor = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
+            rootElement->add(&*v1);
 
-            rootElement->link(*v1.get());
             //rootElement->style.backgroundImage = TESTER_TEXTURE_ID.data;
-
 
             v1->style.backgroundImage = "shaderIcon.png";
             v1->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
@@ -389,9 +324,6 @@ export namespace ufox::gui {
             v1->style.borderBottomColor = glm::vec4{1.0f, 1.0f, 1.0f, 0.20f};
             v1->style.imageScaleMode = ImageScaleMode::eScaleToFit;
             v1->style.imageAlignment = ImageAlignment::eCenter;
-
-            v1->link(*v2.get());
-
 
             makeUniformData();
 
@@ -428,10 +360,9 @@ export namespace ufox::gui {
         }
 
 
-        VisualElementHandler                                        rootElement{nullptr, DestroyVisualElement};
-        VisualElementHandler                                        v1 {nullptr, DestroyVisualElement};
-        VisualElementHandler                                        v2 {nullptr, DestroyVisualElement};
-        VisualElementHandler                                        v3 {nullptr, DestroyVisualElement};
+        std::optional<VisualElement>                                rootElement{};
+        std::optional<VisualElement>                                v1 {};
+
 
     private:
         UFoxWindow*                                                 window = nullptr;
@@ -636,7 +567,7 @@ export namespace ufox::gui {
             std::map<const ResourceID, const uint32_t> textureMap{};
             uniformData.clear();
             bindings.clear();
-            AccumulateVisualElementUniformData(uniformData, bindings, *rootElement.get(), *textureManager);
+            AccumulateVisualElementUniformData(uniformData, bindings, *rootElement, *textureManager);
             debug::log(debug::LogLevel::eInfo, "Viewpanel::makeUniformData: data {}", bindings.size() );
         }
 

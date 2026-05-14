@@ -97,6 +97,7 @@ export namespace ufox::gui {
     eBottomRight
   };
 
+
   struct Style {
     std::string                    backgroundImage{"default"};
     DisplayOverflowMode            displayOverflowMode = DisplayOverflowMode::eHidden;
@@ -104,12 +105,19 @@ export namespace ufox::gui {
     ImageScaleMode                 imageScaleMode = ImageScaleMode::eStretchToFill;
     ImageRepeatMode                imageRepeatMode = ImageRepeatMode::eNone;
     ImageAlignment                 imageAlignment = ImageAlignment::eCenter;
+
     Length                         width{};
     Length                         height{};
     Length                         minWidth{};
     Length                         minHeight{};
     Length                         maxWidth{};
     Length                         maxHeight{};
+
+    size_t                         order = 0;
+    FlexDirection                  direction = FlexDirection::eColumn;
+    float                          flexCompress = 1.0f;
+    float                          flexExpand = 1.0f;
+
     float                          borderTopWidth = 0.0f;
     float                          borderBottomWidth = 0.0f;
     float                          borderRightWidth = 0.0f;
@@ -122,6 +130,7 @@ export namespace ufox::gui {
     float                          marginBottom = 0.0f;
     float                          marginLeft = 0.0f;
     float                          marginRight = 0.0f;
+
     glm::vec4                      imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4                      backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
     glm::vec4                      borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -170,8 +179,6 @@ export namespace ufox::gui {
       const float y = marginTop + borderTopWidth;
       return {x, y};
     }
-
-
   };
 
   struct UniformData {
