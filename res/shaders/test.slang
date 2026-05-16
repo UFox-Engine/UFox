@@ -5,6 +5,38 @@ struct VSInput {
     float3 inColor;
 };
 
+struct SDRectInputData {
+    float4 offsetAndTiling;
+    float2 size;
+    float2 pOffset;
+    float2 iSize;
+    float2 iPOffset;
+};
+
+struct ElementData {
+    float4x4        model;
+    SDRectInputData sdInput;
+    float2          scrollingOffset;
+    uint32_t        styleIndex;
+    uint32_t        padding;
+};
+
+struct StyleStaticData {
+    float4 radius;
+    float4 iRadius;
+    float4 imageOffsetAndTiling;
+    float4 imageColor;
+    float4 backgroundColor;
+    float4 borderBottomColor;
+    float4 borderTopColor;
+    float4 borderLeftColor;
+    float4 borderRightColor;
+
+    uint32_t  imageID;
+    uint32_t  imageRepeatMode;
+    uint32_t  tailPadding[2];
+};
+
 struct UniformData {
     uint32_t imageID;
     uint32_t imageRepeatMode;
@@ -103,7 +135,9 @@ float4 selectBorderColor( float2 outerP, float2 outerSize, float2 innerP, float2
 
 
 [shader("vertex")]
-VSOutput vertMain(VSInput input, uint instanceIndex : SV_StartInstanceLocation){
+VSOutput vertMain(VSInput input, uint instanceID : SV_InstanceID, uint baseInstanceOffset : SV_StartInstanceLocation){
+
+    uint instanceIndex = instanceID + baseInstanceOffset;
     UniformData gui = uniformBuffer[instanceIndex];
 
     VSOutput output;

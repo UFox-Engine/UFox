@@ -613,3 +613,4 @@ export namespace ufox::geometry {
         DiscadeltaChildMap children;     // Owns the memory
     };
 }
+

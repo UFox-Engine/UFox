@@ -1,7 +1,10 @@
 module;
-#include <glm/glm.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <vector>
+#define GLM_ENABLE_EXPERIMENTAL // Mandatory to unlock std::hash<glm::vec4> support
+#include <glm/glm.hpp>
+#include <glm/gtx/hash.hpp>     // Directly exposes the hashes to the std namespace
+#include <functional>
 
 export module ufox_gui_lib;
 
@@ -170,6 +173,45 @@ export namespace ufox::gui {
     }
   };
 
+  // Size: 48 Bytes (Perfect 16-byte internal block alignment)
+  struct SDRectInputData {
+      glm::vec4 offsetAndTiling;          // 16 bytes - Offset 0
+      glm::vec2 size;                     //  8 bytes - Offset 16
+      glm::vec2 pOffset;                  //  8 bytes - Offset 24
+      glm::vec2 iSize;                    //  8 bytes - Offset 32
+      glm::vec2 iPOffset;                 //  8 bytes - Offset 40
+  };
+
+  // Size: 128 Bytes (Perfect multiple of 16, Zero Hidden Gaps, Zero PCIe Overhead!)
+  struct alignas(16) ElementData {
+      glm::mat4       model{};            // 64 bytes - Offset 0
+      SDRectInputData sdInput;            // 48 bytes - Offset 64
+      glm::vec2       scrollingOffset{0.0f};// 8 bytes- Offset 112
+      uint32_t        styleIndex{0};      //  4 bytes - Offset 120
+      uint32_t        padding{0};         //  4 bytes - Offset 124 (Pads struct to 128 total)
+  };
+
+  // Size: 160 Bytes (Perfect multiple of 16)
+  struct alignas(16) StyleStaticData {
+      glm::vec4 radius;                   // 16 bytes - Offset 0
+      glm::vec4 iRadius;                  // 16 bytes - Offset 16
+      glm::vec4 imageOffsetAndTiling;     // 16 bytes - Offset 32
+      glm::vec4 imageColor;               // 16 bytes - Offset 48
+      glm::vec4 backgroundColor;          // 16 bytes - Offset 64
+      glm::vec4 borderBottomColor;        // 16 bytes - Offset 80
+      glm::vec4 borderTopColor;           // 16 bytes - Offset 96
+      glm::vec4 borderLeftColor;          // 16 bytes - Offset 112
+      glm::vec4 borderRightColor;         // 16 bytes - Offset 128
+
+      uint32_t  imageID;                  //  4 bytes - Offset 144
+      uint32_t  imageRepeatMode;          //  4 bytes - Offset 148
+      uint32_t  tailPadding[2];           //  8 bytes - Offset 152 (Guarantees Slang 160-byte stride matching!)
+  };
+
+  // --- MULTI-INSTANCE STRIDE VALIDATION ASSERTIONS ---
+  static_assert(sizeof(ElementData) == 128,       "ElementData byte stride corrupted!");
+  static_assert(sizeof(StyleStaticData) == 160,   "StyleStaticData byte stride corrupted!");
+
   struct ShapeUniformData {
     uint32_t                       imageIndex = 0;
     uint32_t                       imageRepeatMode = 0;
@@ -185,6 +227,27 @@ export namespace ufox::gui {
     glm::vec4                      borderThickness{0.0f, 0.0f, 0.0f, 0.0f};
     glm::vec4                      margin{0.0f, 0.0f, 0.0f, 0.0f};
   };
+}
 
+namespace std {
+
+    template <>
+    struct hash<ufox::gui::StyleStaticData> {
+        size_t operator()(const ufox::gui::StyleStaticData& s) const noexcept {
+            size_t h = std::hash<uint32_t>{}(s.imageID);
+            h ^= std::hash<uint32_t>{}(s.imageRepeatMode) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.imageOffsetAndTiling) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.imageColor)           + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.backgroundColor)      + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.borderBottomColor)    + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.borderTopColor)       + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.borderLeftColor)      + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.borderRightColor)     + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.radius)               + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<glm::vec4>{}(s.iRadius)              + 0x9e3779b9 + (h << 6) + (h >> 2);
+
+            return h;
+        }
+    };
 
 }

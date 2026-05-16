@@ -35,19 +35,31 @@ using namespace ufox::render;
 using namespace ufox::engine;
 
 export namespace ufox::gui {
+    glm::vec4 CalculateInnerRadius(const glm::vec4& borderThickness, const glm::vec4& cornerRadius) {
+        return glm::max(glm::vec4(0.0f), cornerRadius - glm::vec4(
+            glm::max(borderThickness.z, borderThickness.y), // BR
+            glm::max(borderThickness.x, borderThickness.y), // TR
+            glm::max(borderThickness.z, borderThickness.w), // BL
+            glm::max(borderThickness.x, borderThickness.w)  // TL
+        ));
+    }
 
-    void PrintTreeDebugWithOffset(const discadelta::RectSegmentContext& ctx, int indent = 0) noexcept {
-        std::string pad(indent * 4, ' ');
-        std::cout << pad << ctx.config.name
-                  << " | w: " << ctx.content.width
-                  << " | h: " << ctx.content.height
-                  << " | x: " << ctx.content.x
-                  << " | y: " << ctx.content.y
-                  << "\n";
+    SDRectInputData MakeSDRectInputData(glm::vec2 size, glm::vec4 margin, glm::vec4 borderThickness) {
+        SDRectInputData sdInput{};
 
-        for (const auto* child : ctx.children) {
-            PrintTreeDebugWithOffset(*child, indent + 1);
-        }
+        glm::vec2 bgOffset = size * 0.5f;
+
+        auto marginSpace = glm::vec2(margin.y + margin.w, margin.z + margin.x);
+        auto borderSpace = glm::vec2(borderThickness.y + borderThickness.w, borderThickness.z + borderThickness.x);
+
+        sdInput.size = bgOffset - marginSpace * 0.5f;
+        sdInput.offsetAndTiling = glm::vec4(bgOffset, size);
+        sdInput.pOffset = glm::vec2(margin.y - margin.w, margin.z - margin.x) * 0.5f;
+
+        sdInput.iSize = sdInput.size - borderSpace * 0.5f;
+        sdInput.iPOffset = glm::vec2(borderThickness.y - borderThickness.w, borderThickness.z - borderThickness.x) * 0.5f;
+
+        return sdInput;
     }
 
     [[nodiscard]] glm::vec2 ComputeImageUVPositionX(const glm::vec2& tiling, const glm::vec2& borderTLOffset, const glm::vec2& imageRect, const ImageAlignment alignment) noexcept {
@@ -150,6 +162,62 @@ export namespace ufox::gui {
         return {-borderTLOffset, texTiling};
     }
 
+    class PaletteManager {
+    public:
+        PaletteManager() = default;
+
+        // Reset unique caches at the start of a frame or layout update pass
+        void clear() noexcept {
+            m_styleMap.clear();
+            m_styles.clear();
+        }
+
+        // Deduplicate and insert a StyleStaticData configuration into the unique palette array
+        [[nodiscard]] uint32_t getOrCreateStyle(const StyleStaticData& style) {
+            if (auto it = m_styleMap.find(style); it != m_styleMap.end()) {
+                return it->second;
+            }
+
+            const uint32_t newIndex = static_cast<uint32_t>(m_styles.size());
+            m_styles.push_back(style);
+            m_styleMap.emplace(style, newIndex);
+            return newIndex;
+        }
+
+        // Direct accessors to pass contiguous memory straight to your Vulkan buffer update loops
+        [[nodiscard]] const std::vector<StyleStaticData>& getStyleBufferData() const noexcept {
+            return m_styles;
+        }
+
+        [[nodiscard]] size_t getStyleCount() const noexcept {
+            return m_styles.size();
+        }
+
+    private:
+        // Custom operator== override required by std::unordered_map to safely manage hash collisions
+        struct StyleEqual {
+            bool operator()(const StyleStaticData& a, const StyleStaticData& b) const noexcept {
+                return a.imageID         == b.imageID &&
+                       a.imageRepeatMode == b.imageRepeatMode &&
+                       a.radius          == b.radius &&
+                       a.iRadius         == b.iRadius &&
+                       a.imageOffsetAndTiling == b.imageOffsetAndTiling &&
+                       a.imageColor      == b.imageColor &&
+                       a.backgroundColor == b.backgroundColor &&
+                       a.borderBottomColor == b.borderBottomColor &&
+                       a.borderTopColor    == b.borderTopColor &&
+                       a.borderLeftColor   == b.borderLeftColor &&
+                       a.borderRightColor  == b.borderRightColor;
+            }
+        };
+
+        // Tracking Map Cache (Uses your custom std::hash specialization and StyleEqual)
+        std::unordered_map<StyleStaticData, uint32_t, std::hash<StyleStaticData>, StyleEqual> m_styleMap;
+
+        // Output Storage Vector (Uploaded straight to your dedicated SSBO binding slot)
+        std::vector<StyleStaticData> m_styles;
+    };
+
     class VisualElement: public DiscadeltaRectLayoutBase {
     public:
         ~VisualElement() override {
@@ -161,7 +229,10 @@ export namespace ufox::gui {
         Style                                                   style{};
         size_t                                                  ssboIndex = 0;
         ShapeUniformData*                                       data = nullptr;
-        std::vector<VisualElement*>                             vChildren{};
+        std::vector<VisualElement*>                             leafChildren{};
+        std::vector<VisualElement*>                             branchChildren{};
+        uint32_t                                                flatLeafStartSsboIndex = 0;
+        uint32_t                                                flatLeafCount = 0;
 
         VisualElement(const ResourceID &_id,const std::string_view &name): DiscadeltaRectLayoutBase(_id), name(name) {
             baseStyle = &style;
@@ -210,38 +281,94 @@ export namespace ufox::gui {
             data->borderBottomColor = style.borderBottomColor;
         }
 
+    private:
         bool onAdd(DiscadeltaRectLayoutBase *target) override {
-            vChildren.emplace_back(dynamic_cast<VisualElement*>(target));
+          if (auto* vTarget = dynamic_cast<VisualElement *>(target);
+              vTarget->hierarchy.empty()) {
+                addChildToLeaf(vTarget);
+            }else {
+                addChildToBranch(vTarget);
+            }
+            switchToBranch();
+            debug::log(debug::LogLevel::eInfo, "VisualElement onAdd {} l:{} b:{}", name, leafChildren.size(), branchChildren.size());
             return true;
         }
         bool onRemove(DiscadeltaRectLayoutBase *target) override {
-            auto it = std::find(vChildren.begin(), vChildren.end(), dynamic_cast<VisualElement*>(target));
+            auto* vTarget = dynamic_cast<VisualElement *>(target);
+            std::erase(leafChildren,vTarget);
+            std::erase(branchChildren,vTarget);
+
+            switchToLeaf();
             return true;
         }
 
+        void addChildToBranch(VisualElement* child) {
+            if (const auto it = std::ranges::find(branchChildren, child);
+                it != branchChildren.end()) return;
+            branchChildren.push_back(child);
+        }
 
+        void addChildToLeaf(VisualElement* child) {
+            if (const auto it = std::ranges::find(leafChildren, child);
+                it != leafChildren.end()) return;
+            leafChildren.push_back(child);
+        }
+
+        void switchToBranch() {
+            if (!parent) return;
+            auto* p = dynamic_cast<VisualElement*>(parent);
+            if (const auto it = std::ranges::find(p->branchChildren, this);
+                it != p->branchChildren.end()) return;
+            p->branchChildren.push_back(this);
+            std::erase(p->leafChildren, this);
+        }
+
+        void switchToLeaf() {
+            if (!parent || !hierarchy.empty()) return;
+            auto* p = dynamic_cast<VisualElement*>(parent);
+            if (const auto it = std::ranges::find(p->leafChildren, this);
+                it != p->leafChildren.end()) return;
+            p->leafChildren.push_back(this);
+            std::erase(p->branchChildren, this);
+        }
     };
 
-    void AccumulateVisualElementUniformData(std::vector<ShapeUniformData>& uniformDatas,
-        VisualElement& element, const TextureManager& textureManager) {
-
+    void AccumulateVisualElementUniformData(std::vector<ShapeUniformData>& uniformDatas,VisualElement& element, const TextureManager& textureManager) {
+        // 1. Assign the parent container element's index position
         element.ssboIndex = uniformDatas.size();
-
         uniformDatas.push_back(element.makeUniformData(textureManager));
         element.data = &uniformDatas.back();
 
-        for (const auto child : *element.getContents() | std::views::values) {
+        // 2. YOUR THEORY: Register and pack the Leaf Batch immediately after the parent
+        if (!element.leafChildren.empty()) {
+            // Capture where the flat array chunk begins in the vector
+            element.flatLeafStartSsboIndex = static_cast<uint32_t>(uniformDatas.size());
+            element.flatLeafCount = static_cast<uint32_t>(element.leafChildren.size());
 
-            auto* e = dynamic_cast<VisualElement*>(child);
+            for (auto* child : element.leafChildren) {
+                child->ssboIndex = uniformDatas.size();
+                uniformDatas.push_back(child->makeUniformData(textureManager));
+                child->data = &uniformDatas.back(); // Hooks pointer safely for real-time interactions
 
-            AccumulateVisualElementUniformData(uniformDatas, *e, textureManager);
+                // Because simple leaf nodes have no nested children, lock their batch sizes to zero
+                child->flatLeafCount = 0;
+                child->flatLeafStartSsboIndex = 0;
+            }
+        } else {
+            element.flatLeafCount = 0;
+            element.flatLeafStartSsboIndex = 0;
+        }
+
+        // 3. Recursively step deeper down into your Branch Containers
+        // This allows nested children to safely establish their own contiguous leaf pools!
+        for (auto* child : element.branchChildren) {
+            AccumulateVisualElementUniformData(uniformDatas, *child, textureManager);
         }
     }
 
-    void RecordElementDrawCommands(const vk::raii::CommandBuffer& cmb, const VisualElement& element, uint32_t activeStencilValue, uint32_t& nextAvailableStencil) {
-
+    void RecordElementDrawCommands(const vk::raii::CommandBuffer& cmb,const VisualElement& element,uint32_t activeStencilValue,uint32_t& nextAvailableStencil) {
         // ------------------------------------------------------------
-        // STEP 1: Render Current Shape Mesh (Respect Parent Boundaries)
+        // STEP 1: Render Current Element Background Mesh (The Container)
         // ------------------------------------------------------------
         cmb.setStencilWriteMask(vk::StencilFaceFlagBits::eFrontAndBack, 0x00); // Lock writing to protect existing masks
         cmb.setStencilCompareMask(vk::StencilFaceFlagBits::eFrontAndBack, 0xFF);
@@ -255,45 +382,83 @@ export namespace ufox::gui {
             activeStencilValue == 0 ? vk::CompareOp::eAlways : vk::CompareOp::eEqual
         );
 
-        // Draw the visible background layer
-        cmb.drawIndexed(std::size(RectIndices), 1, 0, 0, element.ssboIndex);
+        // Draw the visible background plate for this element
+        cmb.drawIndexed(
+            static_cast<uint32_t>(std::size(RectIndices)),
+            1,              // instanceCount is exactly 1 for the parent
+            0, 0,
+            static_cast<uint32_t>(element.ssboIndex) // Passes to shader as SV_StartInstanceLocation
+        );
 
-        // ------------------------------------------------------------
-        // STEP 2: Handle Downstream Nesting and Clipping
-        // ------------------------------------------------------------
+        // If this element has absolutely zero children, we stop immediately
+        if (element.leafChildren.empty() && element.branchChildren.empty()) return;
+
+        // Initialize the tracking ID that children under this element will inherit
         uint32_t stencilValueForChildren = activeStencilValue;
 
-        if (!element.isHierarchyEmpty()) {
-            if (element.style.displayOverflowMode == DisplayOverflowMode::eHidden) {
-                // FIX 1: Increment the global stencil index counter for the next unique layer mask
-                uint32_t maskWriteValue = nextAvailableStencil++;
+        // ------------------------------------------------------------
+        // STEP 2: Configure Stencil Buffer Mask If Overflow::Hidden
+        // ------------------------------------------------------------
+        if (element.style.displayOverflowMode == DisplayOverflowMode::eHidden) {
+            uint32_t maskWriteValue = nextAvailableStencil++;
 
-                cmb.setStencilWriteMask(vk::StencilFaceFlagBits::eFrontAndBack, 0xFF); // Unlock writing
-                cmb.setStencilCompareMask(vk::StencilFaceFlagBits::eFrontAndBack, 0xFF);
+            cmb.setStencilWriteMask(vk::StencilFaceFlagBits::eFrontAndBack, 0xFF); // Unlock stencil writing
+            cmb.setStencilCompareMask(vk::StencilFaceFlagBits::eFrontAndBack, 0xFF);
 
-                // Set the operations to replace the stencil value with our new mask ID
-                cmb.setStencilOp(
-                    vk::StencilFaceFlagBits::eFrontAndBack,
-                    vk::StencilOp::eKeep,
-                    vk::StencilOp::eReplace, // CRITICAL: Forces the GPU to write the mask to memory
-                    vk::StencilOp::eKeep,
-                    activeStencilValue == 0 ? vk::CompareOp::eAlways : vk::CompareOp::eEqual
-                );
+            // Dynamic compare switch: ALWAYS pass, REPLACE buffer value with our new mask layer ID
+            cmb.setStencilOp(
+                vk::StencilFaceFlagBits::eFrontAndBack,
+                vk::StencilOp::eKeep,
+                vk::StencilOp::eReplace, // Forces the GPU to physically write the mask boundary shape
+                vk::StencilOp::eKeep,
+                activeStencilValue == 0 ? vk::CompareOp::eAlways : vk::CompareOp::eEqual
+            );
 
-                cmb.setStencilReference(vk::StencilFaceFlagBits::eFrontAndBack, maskWriteValue);
+            cmb.setStencilReference(vk::StencilFaceFlagBits::eFrontAndBack, maskWriteValue);
 
-                // Re-draw the quad geometry to carve the clipping mask into the stencil buffer
-                cmb.drawIndexed(std::size(RectIndices), 1, 0, 0, element.ssboIndex);
+            // Re-draw the shared quad geometry to carve the clipping box into the stencil buffer
+            cmb.drawIndexed(static_cast<uint32_t>(std::size(RectIndices)), 1, 0, 0, static_cast<uint32_t>(element.ssboIndex));
 
-                // FIX 2: Force downstream children to test against this new mask layer
-                stencilValueForChildren = maskWriteValue;
-            }
+            // Downstream children must now evaluate against this newly updated mask value
+            stencilValueForChildren = maskWriteValue;
+        }
 
-            // STEP 3: Recursively Draw All Children
-            for (const auto &child : element.vChildren) {
-                // Pass the updated stencilValueForChildren down the layout tree
-                RecordElementDrawCommands(cmb, *child, stencilValueForChildren, nextAvailableStencil);
-            }
+        // ------------------------------------------------------------
+        // STEP 3: YOUR THEORY - Batch Render All Flat Leaf Children
+        // ------------------------------------------------------------
+        if (element.flatLeafCount > 0) {
+
+            // 1. LOCK STENCIL WRITING: Stop child items from corrupting our mask canvas
+            cmb.setStencilWriteMask(vk::StencilFaceFlagBits::eFrontAndBack, 0x00);
+            cmb.setStencilCompareMask(vk::StencilFaceFlagBits::eFrontAndBack, 0xFF);
+            cmb.setStencilReference(vk::StencilFaceFlagBits::eFrontAndBack, stencilValueForChildren);
+
+            // 2. SET TEST-ONLY MODE: Fail, DepthFail, and Pass must retain the mask value (eKeep)
+            // Only render fragment pixels if they sit perfectly inside our parent mask (eEqual)
+            cmb.setStencilOp(
+                vk::StencilFaceFlagBits::eFrontAndBack,
+                vk::StencilOp::eKeep,
+                vk::StencilOp::eKeep,
+                vk::StencilOp::eKeep,
+                stencilValueForChildren == 0 ? vk::CompareOp::eAlways : vk::CompareOp::eEqual
+            );
+
+            // 3. DISPATCH THE ENTIRE CONTIGUOUS SIBLING BATCH AT ONCE
+            cmb.drawIndexed(
+                static_cast<uint32_t>(std::size(RectIndices)), // Shared mesh quad size (6)
+                element.flatLeafCount,                         // instanceCount: Total simple children in batch
+                0, 0,
+                element.flatLeafStartSsboIndex                 // firstInstance: Contiguous starting memory offset
+            );
+        }
+
+        // ------------------------------------------------------------
+        // STEP 4: Process Complex Branch Containers Individually
+        // ------------------------------------------------------------
+        // Complex children are skipped from the batch phase above and processed safely here,
+        // allowing them to cleanly establish their own sub-nested clipping hierarchies!
+        for (auto* complexChild : element.branchChildren) {
+            RecordElementDrawCommands(cmb, *complexChild, stencilValueForChildren, nextAvailableStencil);
         }
     }
 
@@ -362,7 +527,7 @@ export namespace ufox::gui {
             rootElement->style.backgroundColor = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
             rootElement->add(&*v1);
             rootElement->style.backgroundImage = TESTER_TEXTURE_ID.data;
-            rootElement->style.displayOverflowMode = DisplayOverflowMode::eHidden;
+            rootElement->style.displayOverflowMode = DisplayOverflowMode::eVisible;
             rootElement->style.borderTopRightRadius = 20.0f;
             rootElement->style.borderTopLeftRadius = 20.0f;
             rootElement->style.borderBottomRightRadius = 20.0f;
@@ -418,6 +583,29 @@ export namespace ufox::gui {
             v2->style.backgroundColor = glm::vec4{1.0f, 0.8f, 0.5f, 1.0f};
             v1->add(&*v2);
 
+            v3.reset();
+            v3.emplace(ResourceID{"v3"},"v3");
+            v4.reset();
+            v4.emplace(ResourceID{"v4"},"v4");
+
+            rootElement->add(&*v3);
+            rootElement->add(&*v4);
+
+            v3->style.backgroundColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
+            v3->width = 50.0;
+            v3->height = 50.0;
+
+            v3->x = 150.0f;
+            v3->y = 150.0;
+
+            v4->style.backgroundColor = glm::vec4{0.3f, 0.0f, 1.0f, 1.0f};
+            v4->width = 50.0;
+            v4->height = 50.0;
+
+            v4->x = 150.0f;
+            v4->y = 200.0;
+
+
 
             makeUniformData();
 
@@ -457,6 +645,9 @@ export namespace ufox::gui {
         std::optional<VisualElement>                                        rootElement{};
         std::optional<VisualElement>                                        v1 {};
         std::optional<VisualElement>                                        v2 {};
+        std::optional<VisualElement>                                        v3 {};
+        std::optional<VisualElement>                                        v4 {};
+
 
     private:
         UFoxWindow*                                                         window = nullptr;
