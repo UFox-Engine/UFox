@@ -352,6 +352,8 @@ export namespace ufox::gui {
             rootElement.emplace(ResourceID{"root"},"root");
             v1.reset();
             v1.emplace(ResourceID{"v1"},"v1");
+            v2.reset();
+            v2.emplace(ResourceID{"v2"},"v2");
 
             rootElement->x = 100.0f;
             rootElement->y = 100.0f;
@@ -404,7 +406,18 @@ export namespace ufox::gui {
             v1->style.borderBottomColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
             v1->style.imageScaleMode = ImageScaleMode::eScaleToFit;
             v1->style.imageAlignment = ImageAlignment::eCenter;
-            v1->style.displayOverflowMode = DisplayOverflowMode::eHidden;
+            v1->style.displayOverflowMode = DisplayOverflowMode::eVisible;
+
+
+            v2->width = 500.0f;
+            v2->height = 500.0f;
+
+            v2->x = 250.0f;
+            v2->y = 150.0f;
+
+            v2->style.backgroundColor = glm::vec4{1.0f, 0.8f, 0.5f, 1.0f};
+            v1->add(&*v2);
+
 
             makeUniformData();
 
@@ -443,7 +456,7 @@ export namespace ufox::gui {
 
         std::optional<VisualElement>                                        rootElement{};
         std::optional<VisualElement>                                        v1 {};
-
+        std::optional<VisualElement>                                        v2 {};
 
     private:
         UFoxWindow*                                                         window = nullptr;
