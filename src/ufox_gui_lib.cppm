@@ -15,6 +15,8 @@ using namespace ufox::geometry;
 
 export namespace ufox::gui {
   constexpr uint32_t MAX_GUI_TEXTURES = 256;
+  constexpr uint32_t MAX_GUI_ELEMENTS = 65536u;
+  constexpr uint32_t MAX_TOTAL_CHARACTERS = 1048576u;
 
   Vertex RectVertices[]{
     {{0.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
@@ -68,8 +70,8 @@ export namespace ufox::gui {
   };
 
   enum class DisplayOverflowMode : uint8_t {
-    eHidden,
-    eVisible
+    eVisible = 0,
+    eHidden = 1
   };
 
   enum class ImageScaleMode : uint8_t {
@@ -98,25 +100,12 @@ export namespace ufox::gui {
   };
 
 
-  struct Style {
+  struct Style : DiscadeltaRectLayoutStyleBase{
     std::string                    backgroundImage{"default"};
     DisplayOverflowMode            displayOverflowMode = DisplayOverflowMode::eHidden;
-    PositionMode                   positionMode = PositionMode::eRelative;
     ImageScaleMode                 imageScaleMode = ImageScaleMode::eStretchToFill;
     ImageRepeatMode                imageRepeatMode = ImageRepeatMode::eNone;
     ImageAlignment                 imageAlignment = ImageAlignment::eCenter;
-
-    Length                         width{};
-    Length                         height{};
-    Length                         minWidth{};
-    Length                         minHeight{};
-    Length                         maxWidth{};
-    Length                         maxHeight{};
-
-    size_t                         order = 0;
-    FlexDirection                  direction = FlexDirection::eColumn;
-    float                          flexCompress = 1.0f;
-    float                          flexExpand = 1.0f;
 
     float                          borderTopWidth = 0.0f;
     float                          borderBottomWidth = 0.0f;
@@ -181,12 +170,10 @@ export namespace ufox::gui {
     }
   };
 
-  struct UniformData {
-    int32_t                        parentIndex = 0;
-    uint32_t                       displayOverflowMode = 0;
+  struct ShapeUniformData {
     uint32_t                       imageIndex = 0;
     uint32_t                       imageRepeatMode = 0;
-    glm::mat4                      model{};
+    alignas(16) glm::mat4                      model{};
     glm::vec4                      imageOffsetAndTiling = {0.0f, 0.0f, 1.0f, 1.0f};
     glm::vec4                      imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4                      backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -197,23 +184,7 @@ export namespace ufox::gui {
     glm::vec4                      cornerRadius{0.0f, 0.0f, 0.0f, 0.0f};
     glm::vec4                      borderThickness{0.0f, 0.0f, 0.0f, 0.0f};
     glm::vec4                      margin{0.0f, 0.0f, 0.0f, 0.0f};
-
-    void setData(const UniformData& uniformData) noexcept {
-      parentIndex = uniformData.parentIndex;
-      displayOverflowMode = uniformData.displayOverflowMode;
-      imageIndex = uniformData.imageIndex;
-      imageRepeatMode = uniformData.imageRepeatMode;
-      model = uniformData.model;
-      imageOffsetAndTiling = uniformData.imageOffsetAndTiling;
-      imageColor = uniformData.imageColor;
-      backgroundColor = uniformData.backgroundColor;
-      borderBottomColor = uniformData.borderBottomColor;
-      borderTopColor = uniformData.borderTopColor;
-      borderLeftColor = uniformData.borderLeftColor;
-      borderRightColor = uniformData.borderRightColor;
-      cornerRadius = uniformData.cornerRadius;
-      borderThickness = uniformData.borderThickness;
-      margin = uniformData.margin;
-    }
   };
+
+
 }

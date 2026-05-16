@@ -400,7 +400,7 @@ export namespace ufox::engine {
     }
 
     void executeRenderPassEvents(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment) {
-     renderPassEvents.execute(cmb, imageIndex, *windowResource, colorAttachment, depthAttachment);
+      renderPassEvents.execute(cmb, imageIndex, *windowResource, colorAttachment, depthAttachment);
     }
 
     vk::Extent2D recreateSwapchain() {
@@ -421,32 +421,33 @@ export namespace ufox::engine {
     }
 
     void recordCommandBuffer(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex) {
-      std::array<vk::ClearValue, 2> clearValues{};
-      clearValues[0].color        = vk::ClearColorValue{0.0f, 0.0f, 0.0f,1.0f};
-      clearValues[1].depthStencil = vk::ClearDepthStencilValue{0.0f, 0};
-
       cmb.begin({});
-      vk::ImageSubresourceRange range{};
-      range.aspectMask     = vk::ImageAspectFlagBits::eColor;
-      range.baseMipLevel   = 0;
-      range.levelCount     = 1;
-      range.baseArrayLayer = 0;
-      range.layerCount     = 1;
 
-      vk::ImageSubresourceRange rangeDepth{};
-      rangeDepth.aspectMask     = vk::ImageAspectFlagBits::eDepth;
-      rangeDepth.baseMipLevel   = 0;
-      rangeDepth.levelCount     = 1;
-      rangeDepth.baseArrayLayer = 0;
-      rangeDepth.layerCount     = 1;
+      int height, width;
+      if (windowResource->getExtent(width, height)) { cmb.end(); return; }
+      const vk::Rect2D rect{{0, 0}, {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}};
 
-      gpu::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal );
+      vk::ImageSubresourceRange colorRange{};
+      colorRange.aspectMask     = vk::ImageAspectFlagBits::eColor;
+      colorRange.baseMipLevel   = 0;
+      colorRange.levelCount     = 1;
+      colorRange.baseArrayLayer = 0;
+      colorRange.layerCount     = 1;
 
-      gpu::TransitionImageLayout(cmb, depthResource->image.data.value(), depthResource->format, rangeDepth, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthAttachmentOptimal );
+      vk::ImageSubresourceRange depthStencilRange{};
+      depthStencilRange.aspectMask     = vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil; // FIXED
+      depthStencilRange.baseMipLevel   = 0;
+      depthStencilRange.levelCount     = 1;
+      depthStencilRange.baseArrayLayer = 0;
+      depthStencilRange.layerCount     = 1;
 
+      // 1. Core Synchronization Barriers
+      gpu::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, colorRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal);
+      gpu::TransitionImageLayout(cmb, depthResource->image.data.value(), depthResource->format, depthStencilRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+      // 2. Setup Clears cleanly via standard structures to appease Clang modules compiler
       vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 0.0f);
       vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f,0);
-
       vk::RenderingAttachmentInfo colorAttachment{};
       colorAttachment.setImageView(windowResource->swapchainResource->getCurrentImageView())
                      .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
@@ -454,16 +455,19 @@ export namespace ufox::engine {
                      .setStoreOp(vk::AttachmentStoreOp::eStore)
                      .setClearValue(clearColor);
 
-      vk::RenderingAttachmentInfo depthAttachment{};
-      depthAttachment.setImageView(*depthResource->image.view)
-                     .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-                     .setLoadOp(vk::AttachmentLoadOp::eClear)
-                     .setStoreOp(vk::AttachmentStoreOp::eDontCare)
-                     .setClearValue(clearDepth);
+      vk::RenderingAttachmentInfo stencilAttachment{};
+      stencilAttachment.setImageView(*depthResource->image.view)
+                       .setImageLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
+                       .setLoadOp(vk::AttachmentLoadOp::eClear) // Wipes stencil entries to 0 globally at start of pass
+                       .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+                       .setClearValue(clearDepth);
 
-      executeRenderPassEvents(cmb, imageIndex, colorAttachment, depthAttachment);
 
-      gpu::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, range, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR );
+      // 4. Dispatch tasks into active rendering pipeline context
+      executeRenderPassEvents(cmb, imageIndex, colorAttachment, stencilAttachment);
+
+
+      gpu::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, colorRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR);
 
       cmb.end();
     }

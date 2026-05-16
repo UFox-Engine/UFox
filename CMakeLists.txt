@@ -46,7 +46,7 @@ include(${CPM_DOWNLOAD_LOCATION})
 
 CPMAddPackage(NAME SDL3 GITHUB_REPOSITORY libsdl-org/SDL GIT_TAG release-3.4.2 OPTIONS "SDL_VULKAN ON" "SDL_STATIC OFF")
 CPMAddPackage(NAME glfw GITHUB_REPOSITORY glfw/glfw GIT_TAG 3.4 OPTIONS "GLFW_BUILD_TESTS OFF" "GLFW_BUILD_EXAMPLES OFF" "GLFW_BUILD_DOCS OFF")
-CPMAddPackage(NAME Vulkan-Headers GITHUB_REPOSITORY KhronosGroup/Vulkan-Headers GIT_TAG v1.4.328)
+CPMAddPackage(NAME Vulkan-Headers GITHUB_REPOSITORY KhronosGroup/Vulkan-Headers GIT_TAG v1.4.352)
 CPMAddPackage(NAME glm GITHUB_REPOSITORY g-truc/glm GIT_TAG 1.0.3)
 CPMAddPackage(NAME ktx GITHUB_REPOSITORY KhronosGroup/KTX-Software GIT_TAG v4.4.2 OPTIONS "KTX_FEATURE_TOOLS ON" "KTX_FEATURE_TESTS OFF")
 CPMAddPackage(NAME nlohmann_json VERSION 3.12.0
@@ -217,17 +217,21 @@ function (add_slang_shader_target TARGET)
     set (SHADERS_DIR "${PROJECT_SOURCE_DIR}/bin/res/shaders")
     get_filename_component(FILE_NAME ${SHADER_SOURCES} NAME)
     set(FULL_PATH "${SHADERS_DIR}/${FILE_NAME}.spv")
+
     set (ENTRY_POINTS -entry vertMain -entry fragMain)
-    add_custom_command (
-            OUTPUT ${SHADERS_DIR}
-            COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADERS_DIR}
-    )
+
     add_custom_command (
             OUTPUT  ${FULL_PATH}
-            COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES} -target spirv -profile spirv_1_4 -emit-spirv-directly -fvk-use-entrypoint-name ${ENTRY_POINTS} -o ${FILE_NAME}.spv
+            COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES}
+            -target spirv
+            -profile spirv_1_4
+            -emit-spirv-directly
+            -fvk-use-entrypoint-name
+            ${ENTRY_POINTS}
+            -o ${FILE_NAME}.spv
             WORKING_DIRECTORY ${SHADERS_DIR}
             DEPENDS ${SHADERS_DIR} ${SHADER_SOURCES}
-            COMMENT "Compiling Slang Shaders, target: ${SHADER_SOURCES}, out: ${FULL_PATH}"
+            COMMENT "Compiling Slang Shader: ${SHADER_SOURCES}"
             VERBATIM
     )
     add_custom_target (${TARGET} DEPENDS ${FULL_PATH})

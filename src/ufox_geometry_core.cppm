@@ -468,4 +468,148 @@ export namespace ufox::geometry {
             .setID(BUILTIN_CUBE_ID);
         return MakeMeshContent(manager, CubeVertices, CubeIndices, info);
     }
+
+    struct DiscadeltaRectLayoutBase;
+
+    using DiscadeltaChildMap = std::unordered_map<
+            ResourceID,
+            DiscadeltaRectLayoutBase,
+            ResourceIDHash,
+            ResourceIDEq
+        >;
+
+    using DiscadeltaPointerMap = std::unordered_map<
+        ResourceID,
+        DiscadeltaRectLayoutBase*,
+        ResourceIDHash,
+        ResourceIDEq
+    >;
+
+    struct DiscadeltaRectLayoutBase  {
+    protected:
+
+        explicit DiscadeltaRectLayoutBase(const ResourceID &_id) {
+            if (!_id.IsValid()) {
+              id = ResourceID{ nanoid::generate(12)};
+            }
+        }
+
+        DiscadeltaRectLayoutBase() : id(nanoid::generate(12)){}
+
+
+        void clear() {
+            // 1. Notify parent that this node is dying to avoid dangling pointers in
+            // the parent's maps
+
+            if (parent) {
+                // We erase directly from parent's maps instead of parent->remove(this)
+                // because 'this' is already in the middle of destruction.
+                parent->hierarchy.erase(this->id);
+                parent->children.erase(this->id);
+                parent = nullptr;
+            }
+
+            // 2. Clear the hierarchy by calling remove()
+            // We use a while loop because remove() modifies the map we are looking at.
+            while (!hierarchy.empty()) {
+                auto it = hierarchy.begin();
+                DiscadeltaRectLayoutBase* child = it->second;
+
+                // This triggers onRemove(child), sets child->parent = nullptr,
+                // and removes it from both hierarchy and children maps.
+                if (!remove(child)) {
+                    // Safety break: if remove fails for some reason,
+                    // force erase to avoid infinite loop.
+                    hierarchy.erase(it);
+                }
+            }
+        }
+
+    public:
+        virtual ~DiscadeltaRectLayoutBase() {
+            clear();
+        }
+
+        ResourceID id{};
+        float x{0.0f};
+        float y{0.0f};
+        float width{0.0f};
+        float height{0.0f};
+
+        DiscadeltaLengthContext widthContext{};
+        DiscadeltaLengthContext heightContext{};
+
+        DiscadeltaRectLayoutBase* parent = nullptr;
+        DiscadeltaRectLayoutStyleBase* baseStyle = nullptr;
+        DiscadeltaPointerMap hierarchy;
+
+        [[nodiscard]] bool isRoot() const noexcept { return parent == nullptr; }
+
+        bool isHierarchyEmpty() const noexcept { return hierarchy.empty(); }
+
+        [[nodiscard]] glm::mat4 getTransformMat4() const {
+            return MakeTransformModel(glm::vec3{x, y, 0.0}, IDENTITY_QUAT, glm::vec3{width, height, 1.0f});
+        }
+
+        bool add(DiscadeltaRectLayoutBase* target) {
+            if (target == nullptr) return false;
+
+            if (target->parent == this) return false;
+            if (target->parent != nullptr) {
+                if(!target->parent->remove(target)) return false;
+            }
+
+            if (!onAdd(target)) return false;
+
+            target->parent = this;
+
+            auto it = hierarchy.try_emplace(target->id, target);
+            if (!it.second) { return false;}
+
+            return true;
+        }
+        bool add(DiscadeltaRectLayoutBase&&) = delete;
+
+        DiscadeltaRectLayoutBase* createDiscadeltaRectLayout(DiscadeltaRectLayoutBase&& target) {
+            if (!target.id.IsValid()) {
+                target.id = ResourceID{ nanoid::generate(12) };
+            }
+
+            ResourceID targetId = target.id;
+
+            // We move 'target' into the map immediately.
+            // Once inside the map, its address is STABLE.
+            auto [it, inserted] = children.try_emplace(targetId, std::move(target));
+
+            if (inserted) {
+                // We call the POINTER add on the version inside the map.
+                // This is safe because 'it->second' is not a temporary anymore.
+                this->add(&it->second);
+                return &it->second;
+            }
+            return nullptr;
+        }
+
+        bool remove(DiscadeltaRectLayoutBase* target) {
+            if (target == nullptr) return false;
+
+            if (target->parent == nullptr || target->parent != this) return false;
+
+            if (!onRemove(target)) return false;
+
+            target->parent = nullptr;
+            hierarchy.erase(target->id);
+            children.erase(target->id);
+            return true;
+        }
+
+        const DiscadeltaPointerMap* getContents() const {
+            return &hierarchy;
+        }
+
+        virtual bool onAdd(DiscadeltaRectLayoutBase* target) { return true; }
+        virtual bool onRemove(DiscadeltaRectLayoutBase* target) { return true; }
+    private:
+        DiscadeltaChildMap children;     // Owns the memory
+    };
 }

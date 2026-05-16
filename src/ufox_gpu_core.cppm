@@ -81,63 +81,84 @@ export namespace ufox::gpu {
         return extensions;
     }
 
-    vk::AccessFlags2 GetAccessFlags2(const vk::ImageLayout& layout)
-    {
-        switch (layout)
-        {
+    vk::AccessFlags2 GetAccessFlags2(const vk::ImageLayout& layout){
+        switch (layout){
         case vk::ImageLayout::eUndefined:
-            return {};
-        case vk::ImageLayout::ePresentSrcKHR:
-            return {};
         case vk::ImageLayout::ePreinitialized:
-            return vk::AccessFlagBits2::eHostWrite;
+            return {};
+
+        case vk::ImageLayout::ePresentSrcKHR:
+            return {}; // Presentation engine takes ownership
+
         case vk::ImageLayout::eColorAttachmentOptimal:
-            return vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite;
+            return vk::AccessFlagBits2::eColorAttachmentRead |
+                   vk::AccessFlagBits2::eColorAttachmentWrite;
+
         case vk::ImageLayout::eDepthAttachmentOptimal:
-            return vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-        case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
-            return vk::AccessFlagBits2::eFragmentShadingRateAttachmentReadKHR;
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            return vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+                   vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+
         case vk::ImageLayout::eShaderReadOnlyOptimal:
-            return vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eInputAttachmentRead;
+            return vk::AccessFlagBits2::eShaderRead |
+                   vk::AccessFlagBits2::eInputAttachmentRead;
+
         case vk::ImageLayout::eTransferSrcOptimal:
             return vk::AccessFlagBits2::eTransferRead;
+
         case vk::ImageLayout::eTransferDstOptimal:
             return vk::AccessFlagBits2::eTransferWrite;
+
+        case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
+            return vk::AccessFlagBits2::eFragmentShadingRateAttachmentReadKHR;
+
         case vk::ImageLayout::eGeneral:
-            assert(false && "Don't know how to get a meaningful VkAccessFlags for VK_IMAGE_LAYOUT_GENERAL! Don't use it!");
-            return {};
+            // You should avoid eGeneral when possible
+            assert(false && "eGeneral should be avoided in barriers");
+            return vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
+
         default:
-            assert(false);
+            assert(false && "Unhandled image layout in GetAccessFlags2");
             return {};
         }
     }
 
-    vk::PipelineStageFlags2 GetPipelineStageFlags2(const vk::ImageLayout& layout) {
-        switch (layout)
-        {
+    vk::PipelineStageFlags2 GetPipelineStageFlags2(const vk::ImageLayout& layout){
+        switch (layout){
         case vk::ImageLayout::eUndefined:
-            return vk::PipelineStageFlagBits2::eTopOfPipe;
         case vk::ImageLayout::ePreinitialized:
-            return vk::PipelineStageFlagBits2::eHost;
-        case vk::ImageLayout::eTransferDstOptimal:
-        case vk::ImageLayout::eTransferSrcOptimal:
-            return vk::PipelineStageFlagBits2::eTransfer;
+            return vk::PipelineStageFlagBits2::eNone;
+
+        case vk::ImageLayout::ePresentSrcKHR:
+            return vk::PipelineStageFlagBits2::eNone;
+
         case vk::ImageLayout::eColorAttachmentOptimal:
             return vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+
         case vk::ImageLayout::eDepthAttachmentOptimal:
-            return vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests;
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            return vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                   vk::PipelineStageFlagBits2::eLateFragmentTests;
+
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            return vk::PipelineStageFlagBits2::eVertexShader |
+                   vk::PipelineStageFlagBits2::eFragmentShader |
+                   vk::PipelineStageFlagBits2::eComputeShader;
+
+        case vk::ImageLayout::eTransferSrcOptimal:
+        case vk::ImageLayout::eTransferDstOptimal:
+            return vk::PipelineStageFlagBits2::eTransfer;
+
         case vk::ImageLayout::eFragmentShadingRateAttachmentOptimalKHR:
             return vk::PipelineStageFlagBits2::eFragmentShadingRateAttachmentKHR;
-        case vk::ImageLayout::eShaderReadOnlyOptimal:
-            return vk::PipelineStageFlagBits2::eVertexShader | vk::PipelineStageFlagBits2::eFragmentShader;
-        case vk::ImageLayout::ePresentSrcKHR:
-            return vk::PipelineStageFlagBits2::eBottomOfPipe;
+
         case vk::ImageLayout::eGeneral:
-            assert(false && "Don't know how to get a meaningful VkPipelineStageFlags for VK_IMAGE_LAYOUT_GENERAL! Don't use it!");
-            return {};
+            assert(false && "Avoid eGeneral");
+            return vk::PipelineStageFlagBits2::eAllCommands;
+
         default:
-            assert(false);
-            return {};
+            assert(false && "Unhandled image layout in GetPipelineStageFlags2");
+            return vk::PipelineStageFlagBits2::eNone;
         }
     }
 
@@ -176,7 +197,7 @@ export namespace ufox::gpu {
         return *preferredFormat;
     }
 
-    vk::Format FindSupportedFormat(const GPUResources& gpu,const std::vector<vk::Format> &candidates, const vk::ImageTiling tiling, const vk::FormatFeatureFlags features) {
+    vk::Format FindSupportedFormat(const GPUResources& gpu, const std::vector<vk::Format> &candidates, const vk::ImageTiling tiling, const vk::FormatFeatureFlags features) {
         for(const vk::Format format : candidates) {
             vk::FormatProperties props = gpu.physicalDevice->getFormatProperties(format);
             if (tiling == vk::ImageTiling::eLinear && (props.linearTilingFeatures & features) == features) {
@@ -186,7 +207,6 @@ export namespace ufox::gpu {
                 return format;
             }
         }
-
         throw std::runtime_error("failed to find supported format!");
     }
 
@@ -548,7 +568,16 @@ export namespace ufox::gpu {
     }
 
     vk::Format FindDepthFormat(const GPUResources& gpu) {
-        return FindSupportedFormat(gpu,{vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eD24UnormS8Uint},vk::ImageTiling::eOptimal,vk::FormatFeatureFlagBits::eDepthStencilAttachment);
+        return FindSupportedFormat(
+            gpu,
+            {
+                vk::Format::eD32SfloatS8Uint,  // 1st Priority: High precision depth + 8-bit stencil
+                vk::Format::eD24UnormS8Uint,  // 2nd Priority: Standard 24-bit depth + 8-bit stencil (Universal support)
+                vk::Format::eD32Sfloat        // Last Resort: Pure depth (Will break stencil UI, but acts as extreme fallback)
+            },
+            vk::ImageTiling::eOptimal,
+            vk::FormatFeatureFlagBits::eDepthStencilAttachment
+        );
     }
 
     bool HasStencilComponent(vk::Format format) {
@@ -559,7 +588,7 @@ export namespace ufox::gpu {
         DepthImageResource depthResource{};
         depthResource.format = FindDepthFormat(gpu);
         MakeImage(gpu, depthResource.image, {swapchainResource.extent.width, swapchainResource.extent.height,1}, depthResource.format, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
-        MakeImageView(gpu, depthResource.image, depthResource.format, vk::ImageViewType::e2D, vk::ImageSubresourceRange{ vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1 });
+        MakeImageView(gpu, depthResource.image, depthResource.format, vk::ImageViewType::e2D, vk::ImageSubresourceRange{ vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil, 0, 1, 0, 1 });
         depthRes.emplace(std::move(depthResource));
     }
 
@@ -783,42 +812,50 @@ export namespace ufox::gpu {
     inline auto COLOR_IMAGE_USAGE_FLAG = vk::ImageUsageFlags{ vk::ImageUsageFlagBits::eColorAttachment };
     inline auto SIGNALED_FENCE_CREATE_FLAG = vk::FenceCreateFlags{vk::FenceCreateFlagBits::eSignaled};
 
-    void TransitionImageLayout(vk::raii::CommandBuffer const & commandBuffer, const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& range, const vk::ImageLayout oldImageLayout, const vk::ImageLayout newImageLayout ) {
-        const vk::AccessFlags2 sourceAccessMask = GetAccessFlags2(oldImageLayout);
-        const vk::PipelineStageFlags2 sourceStage = GetPipelineStageFlags2(oldImageLayout);
-        const vk::AccessFlags2 destinationAccessMask = GetAccessFlags2(newImageLayout);
-        const vk::PipelineStageFlags2 destinationStage = GetPipelineStageFlags2(newImageLayout);
+    void TransitionImageLayout(vk::raii::CommandBuffer const & commandBuffer,
+                           const vk::Image& image,
+                           const vk::Format& format,
+                           const vk::ImageSubresourceRange& range,
+                           const vk::ImageLayout oldImageLayout,
+                           const vk::ImageLayout newImageLayout)
+{
+    const vk::AccessFlags2 sourceAccessMask = GetAccessFlags2(oldImageLayout);
+    const vk::PipelineStageFlags2 sourceStage = GetPipelineStageFlags2(oldImageLayout);
+    const vk::AccessFlags2 destinationAccessMask = GetAccessFlags2(newImageLayout);
+    const vk::PipelineStageFlags2 destinationStage = GetPipelineStageFlags2(newImageLayout);
 
-        vk::ImageAspectFlags aspectMask;
-        if ( newImageLayout == vk::ImageLayout::eDepthStencilAttachmentOptimal ){
-            aspectMask = vk::ImageAspectFlagBits::eDepth;
-            if ( format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint ){
-                aspectMask |= vk::ImageAspectFlagBits::eStencil;
-            }
-        }
-        else{
-            aspectMask = vk::ImageAspectFlagBits::eColor;
-        }
+    // FIX: Instead of guessing by layout, inspect the actual hardware format.
+    // This correctly handles transitions BOTH to and from depth-stencil layouts.
+    vk::ImageSubresourceRange correctedRange = range;
 
-        vk::ImageMemoryBarrier2  imageMemoryBarrier{};
-        imageMemoryBarrier
-            .setSrcStageMask( sourceStage )
-            .setDstStageMask( destinationStage )
-            .setSrcAccessMask( sourceAccessMask )
-            .setDstAccessMask( destinationAccessMask )
-            .setOldLayout( oldImageLayout )
-            .setNewLayout( newImageLayout )
-            .setSrcQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
-            .setDstQueueFamilyIndex( VK_QUEUE_FAMILY_IGNORED )
-            .setImage( image )
-            .setSubresourceRange( range );
+    if (format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint) {
+        correctedRange.aspectMask = vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil;
+    } else if (format == vk::Format::eD32Sfloat) {
+        correctedRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
+    } else {
+        correctedRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+    }
 
-        vk::DependencyInfo dependencyInfo{};
-        dependencyInfo.setImageMemoryBarrierCount(1)
+    vk::ImageMemoryBarrier2 imageMemoryBarrier{};
+    imageMemoryBarrier
+        .setSrcStageMask(sourceStage)
+        .setDstStageMask(destinationStage)
+        .setSrcAccessMask(sourceAccessMask)
+        .setDstAccessMask(destinationAccessMask)
+        .setOldLayout(oldImageLayout)
+        .setNewLayout(newImageLayout)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(image)
+        .setSubresourceRange(correctedRange); // SUCCESS: The barrier now uses the corrected aspect flags
+
+    vk::DependencyInfo dependencyInfo{};
+    dependencyInfo
+        .setImageMemoryBarrierCount(1)
         .setPImageMemoryBarriers(&imageMemoryBarrier);
 
-        return commandBuffer.pipelineBarrier2(dependencyInfo);
-    }
+    commandBuffer.pipelineBarrier2(dependencyInfo);
+}
 
     void CopyBufferToImage(const GPUResources & gpu, const Buffer& buffer, const Image& image, const vk::Format format, const vk::Extent3D& extent, const vk::ImageSubresourceRange& range = DEFAULT_COLOR_SUBRESOURCE_RANGE, const vk::ImageSubresourceLayers& layers = {vk::ImageAspectFlagBits::eColor,0,0,1}, const vk::Offset3D& offset = {0,0,0},const vk::DeviceSize& bufferOffset = 0, const uint32_t& bufferRowLength = 0, const uint32_t& bufferImageHeight = 0) {
         const auto cmb = BeginSingleTimeCommands(gpu);

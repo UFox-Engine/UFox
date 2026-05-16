@@ -15,291 +15,168 @@ import ufox_engine_lib;
 import ufox_nanoid;
 
 export namespace ufox::geometry {
-/**
- *Path: "res/meshes"
- */
-constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
-constexpr std::array<std::string_view, 2> MESH_RESOURCE_EXTENSION = {
-    ".glb", ".obj"
-};
+    /**
+     *Path: "res/meshes"
+     */
+    constexpr std::string_view MESH_RESOURCE_PATH = "res/meshes";
+    constexpr std::array<std::string_view, 2> MESH_RESOURCE_EXTENSION = {
+        ".glb", ".obj"
+    };
 
-constexpr glm::quat IDENTITY_QUAT{1.0f, 0.0f, 0.0f, 0.0f};
+    constexpr glm::quat IDENTITY_QUAT{1.0f, 0.0f, 0.0f, 0.0f};
 
-struct Vertex
-{
-    glm::vec3 pos{0.0f};
-    glm::vec3 normal{0.0f};
-    glm::vec2 texCoord{0.0f};
-    glm::vec3 color{0.0f};
+    struct Vertex
+    {
+        glm::vec3 pos{0.0f};
+        glm::vec3 normal{0.0f};
+        glm::vec2 texCoord{0.0f};
+        glm::vec3 color{0.0f};
 
-    bool operator==(const Vertex& other) const {
-        return pos == other.pos &&
-               color == other.color &&
-               texCoord == other.texCoord;
-    }
-
-    static vk::VertexInputBindingDescription getBindingDescription(){ return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};}
-
-    static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions(){
-        return {
-            vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, pos)),
-            vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, normal)),
-            vk::VertexInputAttributeDescription(2, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, texCoord)),
-            vk::VertexInputAttributeDescription(3, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color))};
-    }
-};
-
-struct Vertex2D{
-    glm::vec3 pos;
-    glm::vec2 texCoord;
-    glm::vec3 color;
-
-    static vk::VertexInputBindingDescription getBindingDescription(){ return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};}
-
-    static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions(){
-        return {
-            vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, pos)),
-            vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, texCoord)),
-            vk::VertexInputAttributeDescription(2, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color))};
-    }
-};
-
-vk::DeviceSize VERTEX_BUFFER_SIZE         = sizeof(Vertex);
-
-Vertex QuadVertices[]{
-    {{-0.5f, -0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, -0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
-    {{-0.5f, 0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},
-  };
-
-uint16_t QuadIndices[]{
-    0, 1, 2, 2, 3, 0
-  };
-
-constexpr auto DEFAULT_QUAD_MESH_NAME = "default_quad_mesh";
-
-
-Vertex CubeVertices[] = {
-    // Back face (z = -0.5)
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.2f, 0.2f}, {0.0f, 0.0f}},   // 0 – reddish
-    {{ 0.5f, -0.5f, -0.5f}, {0.2f, 1.0f, 0.2f}, {1.0f, 0.0f}},   // 1 – greenish
-    {{ 0.5f,  0.5f, -0.5f}, {0.2f, 0.2f, 1.0f}, {1.0f, 1.0f}},   // 2 – blueish
-    {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 0.2f}, {0.0f, 1.0f}},   // 3 – yellowish
-
-    // Front face (z = +0.5)
-    {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},   // 4 – magenta
-    {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},   // 5 – cyan
-    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // 6 – white
-    {{-0.5f,  0.5f,  0.5f}, {0.7f, 0.7f, 0.7f}, {0.0f, 1.0f}},   // 7 – light gray
-};
-
-uint16_t CubeIndices[] = {
-    0, 1, 2,    2, 3, 0,      // back
-    4, 5, 6,    6, 7, 4,      // front
-    0, 1, 5,    5, 4, 0,      // bottom
-    3, 2, 6,    6, 7, 3,      // top
-    0, 3, 7,    7, 4, 0,      // left
-    1, 2, 6,    6, 5, 1       // right
-};
-
-inline const auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";
-
-inline const auto QUAD = "quad";
-inline const auto CUBE = "cube";
-
-inline const engine::ResourceID BUILTIN_QUAD_ID  {QUAD};
-inline const engine::ResourceID BUILTIN_CUBE_ID  {CUBE};
-
-struct Mesh final : engine::ResourceBase {
-    std::vector<Vertex>                     vertices{};
-    std::vector<uint16_t>                   indices{};
-
-    std::optional<gpu::Buffer>      vertexBuffer{};
-    std::optional<gpu::Buffer>      indexBuffer{};
-
-    explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::ResourceID& cid_): ResourceBase(name_view, cid_) {
-        vertices.assign(std::begin(_vertices), std::end(_vertices));
-        indices.assign(std::begin(_indices), std::end(_indices));
-    }
-
-    [[nodiscard]] bool hasValidGeometry() const noexcept { return !vertices.empty(); }
-    [[nodiscard]] bool hasGpuResources() const noexcept override { return vertexBuffer.has_value() && indexBuffer.has_value(); }
-    [[nodiscard]] uint32_t vertexCount() const noexcept { return static_cast<uint32_t>(vertices.size()); }
-    [[nodiscard]] uint32_t indexCount() const noexcept { return static_cast<uint32_t>(indices.size()); }
-
-    void releaseGpuResources() noexcept override{
-        vertexBuffer.reset();
-        indexBuffer.reset();
-    }
-
-};
-
-enum class FlexDirection : uint8_t {
-    eColumn,
-    eRow
-};
-
-
-enum class PositionMode {
-    eRelative,
-    eAbsolute
-};
-
-enum class LengthMode {
-    eFlat,
-    eAuto,
-    ePercentage
-};
-
-struct Length {
-    LengthMode  mode;
-    float       value;
-};
-
-struct DiscadeltaLengthContext {
-    float       validatedValue;
-    float       accumulatedValue;
-    float       greaterValue;
-};
-
-struct DiscadeltaRectLayoutBase;
-
-using DiscadeltaChildMap = std::unordered_map<
-        engine::ResourceID,
-        DiscadeltaRectLayoutBase,
-        engine::ResourceIDHash,
-        engine::ResourceIDEq
-    >;
-
-using DiscadeltaPointerMap = std::unordered_map<
-    engine::ResourceID,
-    DiscadeltaRectLayoutBase*,
-    engine::ResourceIDHash,
-    engine::ResourceIDEq
->;
-
-struct DiscadeltaRectLayoutBase  {
-protected:
-    explicit DiscadeltaRectLayoutBase(const engine::ResourceID &_id) {
-        if (!_id.IsValid()) {
-          id = engine::ResourceID{ nanoid::generate(12)};
-        }
-    }
-
-    DiscadeltaRectLayoutBase() : id(nanoid::generate(12)){}
-
-
-    void clear() {
-        // 1. Notify parent that this node is dying to avoid dangling pointers in
-        // the parent's maps
-
-        if (parent) {
-            // We erase directly from parent's maps instead of parent->remove(this)
-            // because 'this' is already in the middle of destruction.
-            parent->hierarchy.erase(this->id);
-            parent->children.erase(this->id);
-            parent = nullptr;
+        bool operator==(const Vertex& other) const {
+            return pos == other.pos &&
+                   color == other.color &&
+                   texCoord == other.texCoord;
         }
 
-        // 2. Clear the hierarchy by calling remove()
-        // We use a while loop because remove() modifies the map we are looking at.
-        while (!hierarchy.empty()) {
-            auto it = hierarchy.begin();
-            DiscadeltaRectLayoutBase* child = it->second;
+        static vk::VertexInputBindingDescription getBindingDescription(){ return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};}
 
-            // This triggers onRemove(child), sets child->parent = nullptr,
-            // and removes it from both hierarchy and children maps.
-            if (!remove(child)) {
-                // Safety break: if remove fails for some reason,
-                // force erase to avoid infinite loop.
-                hierarchy.erase(it);
-            }
+        static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions(){
+            return {
+                vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, pos)),
+                vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, normal)),
+                vk::VertexInputAttributeDescription(2, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, texCoord)),
+                vk::VertexInputAttributeDescription(3, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color))};
         }
-    }
+    };
 
-public:
-    virtual ~DiscadeltaRectLayoutBase() {
-        clear();
-    }
+    struct Vertex2D{
+        glm::vec3 pos;
+        glm::vec2 texCoord;
+        glm::vec3 color;
 
-    engine::ResourceID id{};
-    float x{0.0f};
-    float y{0.0f};
-    float width{0.0f};
-    float height{0.0f};
+        static vk::VertexInputBindingDescription getBindingDescription(){ return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};}
 
-    DiscadeltaLengthContext widthContext{};
-    DiscadeltaLengthContext heightContext{};
+        static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions(){
+            return {
+                vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, pos)),
+                vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, texCoord)),
+                vk::VertexInputAttributeDescription(2, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color))};
+        }
+    };
 
-    DiscadeltaRectLayoutBase* parent = nullptr;
+    vk::DeviceSize VERTEX_BUFFER_SIZE         = sizeof(Vertex);
+
+    Vertex QuadVertices[]{
+        {{-0.5f, -0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, -0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+        {{0.5f, 0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f, 0.5f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},
+      };
+
+    uint16_t QuadIndices[]{
+        0, 1, 2, 2, 3, 0
+      };
+
+    constexpr auto DEFAULT_QUAD_MESH_NAME = "default_quad_mesh";
 
 
-    [[nodiscard]] bool isRoot() const noexcept { return parent == nullptr; }
+    Vertex CubeVertices[] = {
+        // Back face (z = -0.5)
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.2f, 0.2f}, {0.0f, 0.0f}},   // 0 – reddish
+        {{ 0.5f, -0.5f, -0.5f}, {0.2f, 1.0f, 0.2f}, {1.0f, 0.0f}},   // 1 – greenish
+        {{ 0.5f,  0.5f, -0.5f}, {0.2f, 0.2f, 1.0f}, {1.0f, 1.0f}},   // 2 – blueish
+        {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 0.2f}, {0.0f, 1.0f}},   // 3 – yellowish
 
-    bool add(DiscadeltaRectLayoutBase* target) {
-        if (target == nullptr) return false;
+        // Front face (z = +0.5)
+        {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},   // 4 – magenta
+        {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},   // 5 – cyan
+        {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},   // 6 – white
+        {{-0.5f,  0.5f,  0.5f}, {0.7f, 0.7f, 0.7f}, {0.0f, 1.0f}},   // 7 – light gray
+    };
 
-        if (target->parent == this) return false;
-        if (target->parent != nullptr) {
-            if(!target->parent->remove(target)) return false;
+    uint16_t CubeIndices[] = {
+        0, 1, 2,    2, 3, 0,      // back
+        4, 5, 6,    6, 7, 4,      // front
+        0, 1, 5,    5, 4, 0,      // bottom
+        3, 2, 6,    6, 7, 3,      // top
+        0, 3, 7,    7, 4, 0,      // left
+        1, 2, 6,    6, 5, 1       // right
+    };
+
+    inline const auto DEFAULT_CUBE_MESH_NAME = "default_cube_mesh";
+
+    inline const auto QUAD = "quad";
+    inline const auto CUBE = "cube";
+
+    inline const engine::ResourceID BUILTIN_QUAD_ID  {QUAD};
+    inline const engine::ResourceID BUILTIN_CUBE_ID  {CUBE};
+
+    struct Mesh final : engine::ResourceBase {
+        std::vector<Vertex>                     vertices{};
+        std::vector<uint16_t>                   indices{};
+
+        std::optional<gpu::Buffer>      vertexBuffer{};
+        std::optional<gpu::Buffer>      indexBuffer{};
+
+        explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::ResourceID& cid_): ResourceBase(name_view, cid_) {
+            vertices.assign(std::begin(_vertices), std::end(_vertices));
+            indices.assign(std::begin(_indices), std::end(_indices));
         }
 
-        if (!onAdd(target)) return false;
+        [[nodiscard]] bool hasValidGeometry() const noexcept { return !vertices.empty(); }
+        [[nodiscard]] bool hasGpuResources() const noexcept override { return vertexBuffer.has_value() && indexBuffer.has_value(); }
+        [[nodiscard]] uint32_t vertexCount() const noexcept { return static_cast<uint32_t>(vertices.size()); }
+        [[nodiscard]] uint32_t indexCount() const noexcept { return static_cast<uint32_t>(indices.size()); }
 
-        target->parent = this;
-
-        auto it = hierarchy.try_emplace(target->id, target);
-        if (!it.second) { return false;}
-
-        return true;
-    }
-    bool add(DiscadeltaRectLayoutBase&&) = delete;
-
-    DiscadeltaRectLayoutBase* createDiscadeltaRectLayout(DiscadeltaRectLayoutBase&& target) {
-        if (!target.id.IsValid()) {
-            target.id = engine::ResourceID{ nanoid::generate(12) };
+        void releaseGpuResources() noexcept override{
+            vertexBuffer.reset();
+            indexBuffer.reset();
         }
 
-        engine::ResourceID targetId = target.id;
+    };
 
-        // We move 'target' into the map immediately.
-        // Once inside the map, its address is STABLE.
-        auto [it, inserted] = children.try_emplace(targetId, std::move(target));
+    enum class FlexDirection : uint8_t {
+        eColumn,
+        eRow
+    };
 
-        if (inserted) {
-            // We call the POINTER add on the version inside the map.
-            // This is safe because 'it->second' is not a temporary anymore.
-            this->add(&it->second);
-            return &it->second;
-        }
-        return nullptr;
-    }
+    enum class PositionMode {
+        eRelative,
+        eAbsolute
+    };
 
-    bool remove(DiscadeltaRectLayoutBase* target) {
-        if (target == nullptr) return false;
+    enum class LengthMode {
+        eFlat,
+        eAuto,
+        ePercentage
+    };
 
-        if (target->parent == nullptr || target->parent != this) return false;
 
-        if (!onRemove(target)) return false;
+    struct Length {
+        LengthMode  mode;
+        float       value;
+    };
 
-        target->parent = nullptr;
-        hierarchy.erase(target->id);
-        children.erase(target->id);
-        return true;
-    }
+    struct DiscadeltaLengthContext {
+        float       validatedValue;
+        float       accumulatedValue;
+        float       greaterValue;
+    };
 
-    const DiscadeltaPointerMap* getContents() const {
-        return &hierarchy;
-    }
+    struct DiscadeltaRectLayoutStyleBase {
+        PositionMode                    positionMode = PositionMode::eRelative;
+        Length                          width{};
+        Length                          height{};
+        Length                          minWidth{};
+        Length                          minHeight{};
+        Length                          maxWidth{};
+        Length                          maxHeight{};
 
-    virtual bool onAdd(DiscadeltaRectLayoutBase* target) { return true; }
-    virtual bool onRemove(DiscadeltaRectLayoutBase* target) { return true; }
-private:
-    DiscadeltaPointerMap hierarchy;
-    DiscadeltaChildMap children;     // Owns the memory
-
-};
+        size_t                          order = 0;
+        FlexDirection                   direction = FlexDirection::eColumn;
+        float                           flexCompress = 1.0f;
+        float                           flexExpand = 1.0f;
+    };
 }
 
 export namespace ufox::geometry::gltf {
