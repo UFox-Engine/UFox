@@ -391,8 +391,8 @@ export namespace ufox::geometry {
 
     class MeshManager final : ResourceManagerBase {
     public:
-        explicit MeshManager(UFoxWindow& _window,const gpu::GPUResources& gpu) :
-        ResourceManagerBase(_window,gpu, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {
+        explicit MeshManager(UFoxWindow& _window) :
+        ResourceManagerBase(_window, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {
             window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<MeshManager*>(user)->onSystemInit(); }, this);
             window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<MeshManager*>(user)->onGainsFocus(); }, this);
         }

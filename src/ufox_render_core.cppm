@@ -175,8 +175,8 @@ export namespace ufox::render {
 
     class TextureManager final : public ResourceManagerBase {
     public:
-        explicit TextureManager(UFoxWindow& _window,const gpu::GPUResources& gpu)
-            : ResourceManagerBase(_window,gpu, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {
+        explicit TextureManager(UFoxWindow& _window)
+            : ResourceManagerBase(_window, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {
             window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<TextureManager*>(user)->onSystemInit();}, this);
             window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user){static_cast<TextureManager*>(user)->onPostSystemInit(w,h);}, this);
             window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<TextureManager*>(user)->onGainsFocus(); }, this);

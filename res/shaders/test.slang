@@ -32,7 +32,7 @@ struct StyleStaticData {
     float4 borderLeftColor;
     float4 borderRightColor;
     uint32_t  imageRepeatMode;
-    uint32_t  padding[2];
+    uint32_t  padding[3];
 };
 
 struct ScreenData {

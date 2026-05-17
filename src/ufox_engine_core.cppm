@@ -855,7 +855,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   class ResourceManagerBase {
     public:
     virtual ~ResourceManagerBase() = default;
-    explicit ResourceManagerBase(UFoxWindow& _window,const gpu::GPUResources& gpu, const std::string_view& _directory,
+    explicit ResourceManagerBase(UFoxWindow& _window, const std::string_view& _directory,
                                  const std::span<const std::string_view> &extension) : window(&_window), directory(_directory), sourceExtensions(extension), gpuResources(&gpu) {
 
 

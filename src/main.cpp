@@ -18,7 +18,7 @@ import ufox_font_lib;
 import ufox_font_core;
 import ufox_lib;
 
-
+//debugs
   void SaveGlyphTypeUnicodeRangesToFile(const std::string& filename = "glyph_unicode_ranges.txt") noexcept {
     std::ofstream file(filename);
     if (!file.is_open()) {
@@ -76,8 +76,8 @@ import ufox_lib;
 int main() {
     try {
       auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
-      ufox::geometry::MeshManager meshManager{*window,window->gpuResource};
-      ufox::render::TextureManager textureManager{*window,window->gpuResource};
+      ufox::geometry::MeshManager meshManager{*window};
+      ufox::render::TextureManager textureManager{*window};
       ufox::font::GlyphManager glyph_manager{*window,textureManager};
 
       ufox::gui::UIPaletteManager uiPaletteManager {window.get(),&textureManager};
