@@ -179,15 +179,15 @@ export namespace ufox::render {
             : ResourceManagerBase(_window,gpu, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {
             window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<TextureManager*>(user)->onSystemInit();}, this);
             window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user){static_cast<TextureManager*>(user)->onPostSystemInit(w,h);}, this);
-            window->registerCallbackEvent<EventType::ePostGainsFocus>([](void* user){static_cast<TextureManager*>(user)->onGainsFocus(); }, this);
-            window->registerCallbackEvent<EventType::ePostGainsFocus>([](void* user) {static_cast<TextureManager*>(user)->onPostGainsFocus();}, this);
+            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<TextureManager*>(user)->onGainsFocus(); }, this);
+            window->registerCallbackEvent<EventType::ePreDraw>([](void* user) {static_cast<TextureManager*>(user)->onPreDraw();}, this);
         }
 
         ~TextureManager() override {
             window->unregisterCallbackEvent(EventType::eSystemInit,this);
             window->unregisterCallbackEvent(EventType::ePostSystemInit,this);
             window->unregisterCallbackEvent(EventType::eGainsFocus,this);
-            window->unregisterCallbackEvent(EventType::ePostGainsFocus,this);
+            window->unregisterCallbackEvent(EventType::ePreDraw,this);
             clearAllGpuResources(*this);
         }
 
@@ -211,10 +211,14 @@ export namespace ufox::render {
         }
 
         void onGainsFocus() override {
-            refreshResource();
+            enablePreDrawRefresh = true;
         }
 
-        void onPostGainsFocus() override {
+        void onPreDraw() override {
+            if (!enablePreDrawRefresh) return;
+
+            refreshResource();
+
             for (auto &ctx : container | std::views::values) {
                 auto& file = ctx.sourcePath;
                 std::string lastWriteTimeStr;
@@ -228,6 +232,8 @@ export namespace ufox::render {
             }
 
             makeTextureMap(textureMap, defaultMapIndex);
+
+            enablePreDrawRefresh = false;
         }
 
         [[nodiscard]] uint32_t getMaxDescriptorSetSamplerImages(const uint32_t& request) const noexcept {
@@ -329,10 +335,16 @@ export namespace ufox::render {
             return it->second;
         }
 
+        [[nodiscard]] uint32_t getDefaultTextureIndex() const noexcept {
+            return defaultMapIndex;
+        }
+
+
     private:
         uint32_t                                                    maxDescriptorSetSamplerImages{1};
         std::map<const ResourceID, const uint32_t>                  textureMap{};
         uint32_t                                                    defaultMapIndex{0};
+        bool                                                        enablePreDrawRefresh{true};
     };
 
     const ResourceID* MakeTextureContent(TextureManager& manager, TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {

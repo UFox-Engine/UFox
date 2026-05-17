@@ -151,6 +151,10 @@ export namespace ufox::engine {
       }
     }
 
+    [[nodiscard]] bool empty() const noexcept {
+      return handlers.empty();
+    }
+
   private:
     std::vector<Entry> handlers{};
   };
@@ -205,8 +209,8 @@ export namespace ufox::engine {
       case EventType::eGainsFocus:
         gainsFocusEvents.remove(user);
         break;
-      case EventType::ePostGainsFocus:
-        postGainsFocusEvents.remove(user);
+      case EventType::ePreDraw:
+        preDrawEvents.remove(user);
         break;
       case EventType::eUpdateBuffer:
         updateBufferEvents.remove(user);
@@ -234,8 +238,8 @@ export namespace ufox::engine {
       else if constexpr (Type == EventType::eGainsFocus) {
         return gainsFocusEvents;
       }
-      else if constexpr (Type == EventType::ePostGainsFocus) {
-        return postGainsFocusEvents;
+      else if constexpr (Type == EventType::ePreDraw) {
+        return preDrawEvents;
       }
       else if constexpr (Type == EventType::eUpdateBuffer) {
         return updateBufferEvents;
@@ -284,6 +288,10 @@ export namespace ufox::engine {
       pauseRendering = true;
     }
 
+    void requestPreDraw() noexcept {
+      enabledPreDraw = true;
+    }
+
     void run() {
 #ifdef USE_SDL
       running = true;
@@ -292,20 +300,21 @@ export namespace ufox::engine {
       float width, height = 0;
       windowResource->getExtent(width, height);
 
-      executeInitEvents();
-      executeResourceInitEvents(width,height);
+      executeSystemInit();
+      executePostSystemInit(width,height);
 
       while (running) {
-        executeStartEvents();
+        executeStart();
         sdlPollEvents(event, running);
+        executePreDraw();
         drawFrame();
       }
 #else
-      executeInitEvents();
+      executeSystemInit();
       executeResourceInitEvents();
 
       while (!glfwWindowShouldClose(windowResource->getHandle())) {
-        executeStartEvents();
+        executeStart();
         glfwPollEvents();
         drawFrame();
       }
@@ -347,14 +356,15 @@ export namespace ufox::engine {
     EventList<ResizeEventHandler>                                 resizeEventHandlers{};
     EventList<StartEventHandler>                                  startEvents{};
     EventList<GainsFocusEventHandler>                             gainsFocusEvents{};
-    EventList<PostGainsFocusEventHandler>                         postGainsFocusEvents{};
+    EventList<PreDrawEventHandler>                                preDrawEvents{};
     EventList<UpdateBufferEventHandler>                           updateBufferEvents{};
-    EventList<DrawCanvasEventHandler>                             renderPassEvents{};
+    EventList<RenderPassEventHandler>                             renderPassEvents{};
 
     bool                                                          running {false};
     bool                                                          framebufferResized {false};
     bool                                                          pauseRendering {false};
     bool                                                          startFrameExecuted {false};
+    bool                                                          enabledPreDraw = false;
 
     std::optional<gpu::Buffer>                                    screenViewProjectionBuffer{};
 
@@ -372,34 +382,43 @@ export namespace ufox::engine {
       }
     }
 
-    void executeInitEvents() const {
+    void executeSystemInit() const {
+      if (systemInitEvents.empty()) return;
       systemInitEvents.execute();
     }
 
-    void executeResourceInitEvents(const float& width, const float& height) {
+    void executePostSystemInit(const float& width, const float& height) {
       initGPUBufferResource();
+      if (postSystemInitEvents.empty()) return;
       postSystemInitEvents.execute(width, height);
     }
 
-    void executeStartEvents() {
+    void executeStart() {
       if (startFrameExecuted) return;
-      startEvents.execute();
+      if (!startEvents.empty())
+        startEvents.execute();
       startFrameExecuted = true;
     }
 
-    void executeGainsFocusEvents() const {
+    void executeGainsFocus() const {
+      if (gainsFocusEvents.empty()) return;
       gainsFocusEvents.execute();
     }
 
-    void executePostGainsFocusEvents() const {
-      postGainsFocusEvents.execute();
+    void executePreDraw() {
+      if (preDrawEvents.empty() || !enabledPreDraw) return;
+      gpuResource.device->waitIdle();
+      preDrawEvents.execute();
+      enabledPreDraw = false;
     }
 
-    void executeUpdateBufferEvents(const uint32_t& imageIndex) const {
+    void executeUpdateBuffer(const uint32_t& imageIndex) const {
+      if (updateBufferEvents.empty()) return;
       updateBufferEvents.execute(imageIndex);
     }
 
-    void executeRenderPassEvents(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment) {
+    void executeRenderPass(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& depthAttachment) {
+      if (renderPassEvents.empty()) return;
       renderPassEvents.execute(cmb, imageIndex, *windowResource, colorAttachment, depthAttachment);
     }
 
@@ -441,11 +460,9 @@ export namespace ufox::engine {
       depthStencilRange.baseArrayLayer = 0;
       depthStencilRange.layerCount     = 1;
 
-      // 1. Core Synchronization Barriers
       gpu::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, colorRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal);
       gpu::TransitionImageLayout(cmb, depthResource->image.data.value(), depthResource->format, depthStencilRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal);
 
-      // 2. Setup Clears cleanly via standard structures to appease Clang modules compiler
       vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 0.0f);
       vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f,0);
       vk::RenderingAttachmentInfo colorAttachment{};
@@ -458,14 +475,12 @@ export namespace ufox::engine {
       vk::RenderingAttachmentInfo stencilAttachment{};
       stencilAttachment.setImageView(*depthResource->image.view)
                        .setImageLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
-                       .setLoadOp(vk::AttachmentLoadOp::eClear) // Wipes stencil entries to 0 globally at start of pass
+                       .setLoadOp(vk::AttachmentLoadOp::eClear)
                        .setStoreOp(vk::AttachmentStoreOp::eDontCare)
                        .setClearValue(clearDepth);
 
 
-      // 4. Dispatch tasks into active rendering pipeline context
-      executeRenderPassEvents(cmb, imageIndex, colorAttachment, stencilAttachment);
-
+      executeRenderPass(cmb, imageIndex, colorAttachment, stencilAttachment);
 
       gpu::TransitionImageLayout(cmb, windowResource->swapchainResource->getCurrentImage(), windowResource->swapchainResource->colorFormat, colorRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR);
 
@@ -490,7 +505,7 @@ export namespace ufox::engine {
         throw std::runtime_error("Failed to acquire swapchain image");
       }
 
-      executeUpdateBufferEvents(imageIndex);
+      executeUpdateBuffer(imageIndex);
 
       const vk::raii::CommandBuffer& cmb = frameResource->getCurrentCommandBuffer();
       cmb.reset();
@@ -560,8 +575,8 @@ export namespace ufox::engine {
         case SDL_EVENT_WINDOW_FOCUS_GAINED:{
 
           gpuResource.device->waitIdle();
-          executeGainsFocusEvents();
-          executePostGainsFocusEvents();
+          executeGainsFocus();
+          requestPreDraw();
 
           break;
         }
@@ -855,7 +870,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     virtual void onPostSystemInit(const float& width, const float& height) = 0;
     virtual void onMakeResource(ResourceContextCreateInfo& info) = 0;
     virtual void onGainsFocus() = 0;
-    virtual void onPostGainsFocus() = 0;
+    virtual void onPreDraw() = 0;
 
     [[nodiscard]] ResourceContext* getResourceContext(const ResourceID& id) noexcept {
       const auto it = container.find(id);

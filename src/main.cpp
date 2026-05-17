@@ -74,29 +74,27 @@ import ufox_lib;
   }
 
 int main() {
-  try {
-    auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
-     ufox::geometry::MeshManager meshManager{*window,window->gpuResource};
-     ufox::render::TextureManager textureManager{*window,window->gpuResource};
-     ufox::font::GlyphManager glyph_manager{*window,textureManager};
+    try {
+      auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
+      ufox::geometry::MeshManager meshManager{*window,window->gpuResource};
+      ufox::render::TextureManager textureManager{*window,window->gpuResource};
+      ufox::font::GlyphManager glyph_manager{*window,textureManager};
 
-     ufox::gui::Document doc(window.get(), &meshManager, &textureManager);
-     ufox::engine::Camera mainCamera{};
+      ufox::gui::UIPaletteManager uiPaletteManager {window.get(),&textureManager};
+      ufox::gui::Document doc(window.get(), &meshManager, &textureManager, &uiPaletteManager);
+      ufox::engine::Camera mainCamera{};
 
-     window->registerCallbackEvent<ufox::engine::EventType::eStart>([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
-     window->registerCallbackEvent<ufox::engine::EventType::eResize>([](const float& w, const float& h, void* user) {
-       auto* camera = static_cast<ufox::engine::Camera*>(user);
-       ufox::engine::CalculateAspectRatio(w,h, camera->aspectRatio);
-     }, &mainCamera);
-
-
-
-    window->run();
+      window->registerCallbackEvent<ufox::engine::EventType::eStart>([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
+      window->registerCallbackEvent<ufox::engine::EventType::eResize>([](const float& w, const float& h, void* user) {
+        auto* camera = static_cast<ufox::engine::Camera*>(user);
+        ufox::engine::CalculateAspectRatio(w,h, camera->aspectRatio);
+      }, &mainCamera);
 
 
-  } catch (const std::exception& e) {
-    std::cerr << e.what() << std::endl;
-    return EXIT_FAILURE;
+      window->run();
+    } catch (const std::exception& e) {
+      std::cerr << e.what() << std::endl;
+      return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
   }
-  return EXIT_SUCCESS;
-}

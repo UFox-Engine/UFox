@@ -424,7 +424,7 @@ export namespace ufox::geometry {
             refreshResource();
         }
 
-        void onPostGainsFocus() override{}
+        void onPreDraw() override {}
 
         const ResourceID* makeMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
             ResourceID id = ResolveResourceID(info);

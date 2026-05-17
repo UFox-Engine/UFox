@@ -31,7 +31,7 @@ export namespace ufox::engine {
     ePostSystemInit,
     eStart,
     eGainsFocus,
-    ePostGainsFocus,
+    ePreDraw,
     eUpdateBuffer,
     eRenderPass,
   };
@@ -41,9 +41,9 @@ export namespace ufox::engine {
   using PostSystemInitEventHandler = void(*)(const float& w, const float& h, void* user);
   using StartEventHandler = void(*)(void* user);
   using GainsFocusEventHandler = void(*)(void* user);
-  using PostGainsFocusEventHandler = void(*)(void* user);
+  using PreDrawEventHandler = void(*)(void* user);
   using UpdateBufferEventHandler = void(*)(const uint32_t& currentImage, void* user);
-  using DrawCanvasEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user );
+  using RenderPassEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user );
 
   template<EventType Type>
   struct EventTraits;
@@ -74,8 +74,8 @@ export namespace ufox::engine {
   };
 
   template<>
-  struct EventTraits<EventType::ePostGainsFocus> {
-    using Handler = PostGainsFocusEventHandler;
+  struct EventTraits<EventType::ePreDraw> {
+    using Handler = PreDrawEventHandler;
   };
 
   template<>
@@ -85,7 +85,7 @@ export namespace ufox::engine {
 
   template<>
   struct EventTraits<EventType::eRenderPass> {
-    using Handler = DrawCanvasEventHandler;
+    using Handler = RenderPassEventHandler;
   };
 
   constexpr auto META_TAG_RESOURCE_CONTEXT = "resource-context";

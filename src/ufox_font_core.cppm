@@ -438,7 +438,7 @@ export namespace ufox::font {
             }
         }
 
-        void onPostGainsFocus() override {}
+        void onPreDraw() override {}
 
         // Placeholder for future registration (empty for now)
         const ResourceID* makeGlyph(const ResourceID& atlasTextureID, const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block, const GlyphStyle& style, const ResourceContextCreateInfo& info) {
