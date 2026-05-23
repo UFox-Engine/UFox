@@ -10,6 +10,7 @@ module;
 #include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <thread>
 #include <unordered_set>
 
 #ifdef USE_SDL
@@ -329,9 +330,8 @@ export namespace ufox::engine {
       framebufferResized = true;
       recreateSwapchain();
       updateScreenProjectionBuffer(fw, fh);
-
-      resizeEventHandlers.execute(fw, fh);
-
+      executeResize(fw, fh);
+      executePreDraw();
       drawFrame();
     }
 
@@ -364,7 +364,7 @@ export namespace ufox::engine {
     bool                                                          framebufferResized {false};
     bool                                                          pauseRendering {false};
     bool                                                          startFrameExecuted {false};
-    bool                                                          enabledPreDraw = false;
+    bool                                                          enabledPreDraw {false};
 
     std::optional<gpu::Buffer>                                    screenViewProjectionBuffer{};
 
@@ -403,6 +403,11 @@ export namespace ufox::engine {
     void executeGainsFocus() const {
       if (gainsFocusEvents.empty()) return;
       gainsFocusEvents.execute();
+    }
+
+    void executeResize(const float& width, const float& height) {
+      if (resizeEventHandlers.empty()) return;
+      resizeEventHandlers.execute(width, height);
     }
 
     void executePreDraw() {
@@ -577,6 +582,8 @@ export namespace ufox::engine {
           gpuResource.device->waitIdle();
           executeGainsFocus();
           requestPreDraw();
+
+          debug::log(debug::LogLevel::eInfo, "Window gains focus");
 
           break;
         }
@@ -856,7 +863,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     public:
     virtual ~ResourceManagerBase() = default;
     explicit ResourceManagerBase(UFoxWindow& _window, const std::string_view& _directory,
-                                 const std::span<const std::string_view> &extension) : window(&_window), directory(_directory), sourceExtensions(extension), gpuResources(&gpu) {
+                                 const std::span<const std::string_view> &extension) : window(&_window), directory(_directory), sourceExtensions(extension) {
 
 
         EnsureDirectoryExists(directory);
@@ -910,7 +917,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       UFoxWindow* window = nullptr;
       const std::filesystem::path directory{};
       std::span<const std::string_view> sourceExtensions{};
-      const gpu::GPUResources* gpuResources{nullptr};
+
       BuiltInResources builtInResources{};
       std::unordered_map<ResourceID, ResourceContext, ResourceIDHash, ResourceIDEq> container{};
 

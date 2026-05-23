@@ -54,7 +54,7 @@ CPMAddPackage(NAME nlohmann_json VERSION 3.12.0
         URL https://github.com/nlohmann/json/releases/download/v3.12.0/include.zip
         URL_HASH SHA256=b8cb0ef2dd7f57f18933997c9934bb1fa962594f701cd5a8d3c2c80541559372
 )
-CPMAddPackage(NAME Discadelta GITHUB_REPOSITORY UFox-Engine/Discadelta GIT_TAG 1.2.6 OPTIONS "DISCADELTA_SAMPLES OFF")
+
 CPMAddPackage(NAME SDL3_image GITHUB_REPOSITORY libsdl-org/SDL_image GIT_TAG release-3.4.0)
 CPMAddPackage(NAME tinyobjloader GITHUB_REPOSITORY tinyobjloader/tinyobjloader GIT_TAG v1.0.6 DOWNLOAD_ONLY YES)
 
@@ -97,13 +97,6 @@ find_package(Freetype REQUIRED)
 # Enable USE_SDL define
 option(USE_SDL "Enable SDL3 support" ON)
 
-add_library(Discadelta-module)
-target_sources(Discadelta-module
-        PUBLIC
-        FILE_SET CXX_MODULES
-        BASE_DIRS ${Discadelta_SOURCE_DIR}
-        FILES ${Discadelta_SOURCE_DIR}/src/ufox_discadelta_lib.cppm ${Discadelta_SOURCE_DIR}/src/ufox_discadelta_core.cppm
-)
 
 add_library(glm-module)
 target_sources(glm-module
@@ -119,8 +112,7 @@ target_link_libraries(glm-module
         #glm::glm # One or the other
 )
 
-target_link_libraries(Discadelta-module PUBLIC Vulkan-Headers)
-target_compile_definitions(Discadelta-module PUBLIC HAS_VULKAN=1)
+
 
 
 
@@ -130,7 +122,6 @@ list(APPEND LIBS
         Freetype::Freetype
         ktx
         nlohmann_json
-        Discadelta-module
         glfw glm-module
         SDL3_image::SDL3_image
         SDL3::SDL3 tinyobjloader

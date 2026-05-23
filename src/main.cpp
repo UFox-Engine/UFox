@@ -5,6 +5,7 @@
 #include <string>
 #include <vulkan/vulkan_raii.hpp>
 #include <msdf-atlas-gen/msdf-atlas-gen.h>
+#include <glm/glm.hpp>
 
 import ufox_engine_lib;
 import ufox_engine_core;
@@ -81,7 +82,7 @@ int main() {
       ufox::font::GlyphManager glyph_manager{*window,textureManager};
 
       ufox::gui::UIPaletteManager uiPaletteManager {window.get(),&textureManager};
-      ufox::gui::Document doc(window.get(), &meshManager, &textureManager, &uiPaletteManager);
+      ufox::gui::Document doc(*window.get(), &meshManager, &textureManager, &uiPaletteManager);
       ufox::engine::Camera mainCamera{};
 
       window->registerCallbackEvent<ufox::engine::EventType::eStart>([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
@@ -91,7 +92,36 @@ int main() {
       }, &mainCamera);
 
 
+
+      window->registerCallbackEvent<ufox::engine::EventType::ePostSystemInit>([](const float& w, const float& h, void* user) {
+        auto* doc = static_cast<ufox::gui::Document*>(user);
+        if (doc == nullptr) return;
+        if (doc->rootElement == nullptr) return;
+        ufox::gui::VisualElement* v1 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v1"},"v1");
+        ufox::gui::VisualElement* v2 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v2"},"v2");
+
+        v1->style.backgroundColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
+        v1->style.flexCompress =1.0f;
+        v1->style.flexExpand =1.0f;
+
+        v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 1.0f, 1.0f};
+        v2->style.flexCompress =1.0f;
+        v2->style.flexExpand =1.0f;
+
+        v2->style.order = 0;
+        v1->style.order = 1;
+
+        v1->updateMetrics(false);
+        v2->updateMetrics();
+
+      }, &doc);
+
+
       window->run();
+
+      window->unregisterCallbackEvent(ufox::engine::EventType::eResize, &mainCamera);
+      window->unregisterCallbackEvent(ufox::engine::EventType::ePostSystemInit, &doc);
+
     } catch (const std::exception& e) {
       std::cerr << e.what() << std::endl;
       return EXIT_FAILURE;

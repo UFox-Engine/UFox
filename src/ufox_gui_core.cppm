@@ -3,8 +3,10 @@ module;
 
 #define GLM_FORCE_RADIANS
 #include "glm/vec2.hpp"
+#include "nanoid/nanoid.h"
 
 #include <SDL3/SDL_surface.h>
+#include <_mingw_mac.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
@@ -24,8 +26,7 @@ import ufox_gpu_core;
 import ufox_geometry_core;
 import ufox_geometry_lib;
 import ufox_gui_lib;
-import ufox_discadelta_lib;
-import ufox_discadelta_core;
+import ufox_nanoid;
 import ufox_render_lib;
 import ufox_render_core;
 
@@ -186,41 +187,41 @@ export namespace ufox::gui {
         }
 
         void uploadStyleBuffer() const {
-            if (m_styles.empty() || !m_stylePaletteMemory) return;
+            if (_styles.empty() || !_stylePaletteMemory) return;
 
-            const size_t copyCount = std::min(m_styles.size(), static_cast<size_t>(m_maxStyles));
-            std::memcpy(m_stylePaletteMemory, m_styles.data(), copyCount * sizeof(StyleStaticData));
+            const size_t copyCount = std::min(_styles.size(), static_cast<size_t>(_maxStyles));
+            std::memcpy(_stylePaletteMemory, _styles.data(), copyCount * sizeof(StyleStaticData));
         }
 
         void reset() noexcept {
-            m_styleMap.clear();
-            m_styles.clear();
+            _styleMap.clear();
+            _styles.clear();
 
-            m_styles.push_back(DEFAULT_STYLE);
-            m_styleMap.emplace(DEFAULT_STYLE, 0);
+            _styles.push_back(DEFAULT_STYLE);
+            _styleMap.emplace(DEFAULT_STYLE, 0);
         }
 
 
         [[nodiscard]] uint32_t getOrCreateStyle(const StyleStaticData& style) {
-            if (auto it = m_styleMap.find(style); it != m_styleMap.end()) {
+            if (auto it = _styleMap.find(style); it != _styleMap.end()) {
                 return it->second;
             }
 
-            const auto newIndex = static_cast<uint32_t>(m_styles.size());
-            m_styles.push_back(style);
-            m_styleMap.emplace(style, newIndex);
+            const auto newIndex = static_cast<uint32_t>(_styles.size());
+            _styles.push_back(style);
+            _styleMap.emplace(style, newIndex);
             
             return newIndex;
         }
 
-        [[nodiscard]] size_t getStyleCount() const noexcept { return m_styles.size(); }
+        [[nodiscard]] size_t getStyleCount() const noexcept { return _styles.size(); }
 
         [[nodiscard]] vk::DescriptorBufferInfo  makeDescriptorBufferInfo() const {
-            assert(m_stylePaletteMemory && "Style Palette Buffer not initialized");
+            assert(_stylePaletteMemory && "Style Palette Buffer not initialized");
 
             vk::DescriptorBufferInfo info{};
             info
-                .setBuffer(*m_stylePaletteSSBO.data)
+                .setBuffer(*_stylePaletteSSBO.data)
                 .setOffset(0)
                 .setRange(sizeof(StyleStaticData) * MAX_GUI_ELEMENTS );
 
@@ -241,26 +242,26 @@ export namespace ufox::gui {
             destroyBuffer();
 
             const auto limited = gpu.maxStorageBufferRange / sizeof(StyleStaticData);
-            m_maxStyles = std::min(MAX_GUI_ELEMENTS, static_cast<uint32_t>(limited));
-            const vk::DeviceSize size = sizeof(StyleStaticData) * m_maxStyles;
+            _maxStyles = std::min(MAX_GUI_ELEMENTS, static_cast<uint32_t>(limited));
+            const vk::DeviceSize size = sizeof(StyleStaticData) * _maxStyles;
 
-            gpu::MakeBuffer(m_stylePaletteSSBO, gpu, size,
+            gpu::MakeBuffer(_stylePaletteSSBO, gpu, size,
                             vk::BufferUsageFlagBits::eStorageBuffer,
                             vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
-            m_stylePaletteMemory = m_stylePaletteSSBO.memory->mapMemory(0, size);
+            _stylePaletteMemory = _stylePaletteSSBO.memory->mapMemory(0, size);
 
-            m_styles.push_back(DEFAULT_STYLE);
-            m_styleMap.emplace(DEFAULT_STYLE, 0);
+            _styles.push_back(DEFAULT_STYLE);
+            _styleMap.emplace(DEFAULT_STYLE, 0);
 
-            std::memcpy(m_stylePaletteMemory, &DEFAULT_STYLE, sizeof(StyleStaticData));
+            std::memcpy(_stylePaletteMemory, &DEFAULT_STYLE, sizeof(StyleStaticData));
         }
 
         void destroyBuffer() noexcept {
-            if (m_stylePaletteMemory && m_stylePaletteSSBO.memory) {
-                m_stylePaletteSSBO.memory->unmapMemory();
+            if (_stylePaletteMemory && _stylePaletteSSBO.memory) {
+                _stylePaletteSSBO.memory->unmapMemory();
             }
-            m_stylePaletteMemory = nullptr;
+            _stylePaletteMemory = nullptr;
         }
 
         struct StyleEqual {
@@ -278,18 +279,17 @@ export namespace ufox::gui {
         };
 
         // Buffer allocations matching your custom framework architecture wrapper
-        gpu::Buffer                                                                             m_stylePaletteSSBO{};
-        void*                                                                                   m_stylePaletteMemory = nullptr;
+        gpu::Buffer                                                                             _stylePaletteSSBO{};
+        void*                                                                                   _stylePaletteMemory{nullptr};
 
         // Cache Maps
-        std::unordered_map<StyleStaticData, uint32_t, std::hash<StyleStaticData>, StyleEqual>   m_styleMap;
-        std::vector<StyleStaticData>                                                            m_styles;
-        uint32_t                                                                                m_maxStyles = 0;
+        std::unordered_map<StyleStaticData, uint32_t, std::hash<StyleStaticData>, StyleEqual>   _styleMap{};
+        std::vector<StyleStaticData>                                                            _styles{};
+        uint32_t                                                                                _maxStyles{0};
     };
 
-    class VisualElement: public DiscadeltaRectLayoutBase {
+    class VisualElement: public discadelta::DiscadeltaRectLayoutBase<VisualElement> {
     public:
-        ~VisualElement() override {}
 
         UFoxWindow*                                             window = nullptr;
         std::string_view                                        name;
@@ -303,9 +303,16 @@ export namespace ufox::gui {
         uint32_t                                                flatLeafCount = 0;
         uint32_t                                                styleDataIndex = 0;
 
-        VisualElement(const ResourceID &_id,const std::string_view &name): DiscadeltaRectLayoutBase(_id), name(name) {
+        VisualElement(const ResourceID& _id, const std::string_view _name)
+            : DiscadeltaRectLayoutBase(_id)
+            , name(_name)
+        {
             baseStyle = &style;
         }
+
+        explicit VisualElement(const std::string_view _name): DiscadeltaRectLayoutBase(ResourceID{_name}), name(_name) {}
+
+        VisualElement() = default;
 
         [[nodiscard]] ElementData makeUniformData(const TextureManager& textureManager, UIPaletteManager& paletteManager)  {
             const ResourceID imageID{style.backgroundImage};
@@ -348,6 +355,13 @@ export namespace ufox::gui {
             data->imageOffsetAndTiling = ComputeImageUVRect(width, height, texWidth, texHeight, style);
             data->styleIndex = styleDataIndex;
             data->scrollingOffset = {0,0};//not yet feature
+
+            for (const auto* child : leafChildren) {
+                child->updateElementData(textureManager);
+            }
+            for (const auto* child : branchChildren) {
+                child->updateElementData(textureManager);
+            }
         }
         
         void setAsRenderRoot(UFoxWindow* window) {
@@ -355,35 +369,32 @@ export namespace ufox::gui {
         }
 
     private:
-        bool onAdd(DiscadeltaRectLayoutBase *target) override {
-            auto* vTarget = dynamic_cast<VisualElement *>(target);
-            if (vTarget->hierarchy.empty()) {
-                addChildToLeaf(vTarget);
+        void onAdd(VisualElement* target) override {
+            if (target->isContainerEmpty()) {
+                addChildToLeaf(target);
             }else {
-                addChildToBranch(vTarget);
+                addChildToBranch(target);
             }
             switchToBranch();
             
             if (!root) {
-                vTarget->root = this;
+                target->root = this;
                 if (window) {
                     window->requestPreDraw();
                 }
             }else {
-                vTarget->root = root;
+                target->root = root;
                 if (root->window) {
                     root->window->requestPreDraw();
                 }
             }
-            
-            return true;
+
         }
-        bool onRemove(DiscadeltaRectLayoutBase *target) override {
-            auto* vTarget = dynamic_cast<VisualElement *>(target);
-            std::erase(leafChildren,vTarget);
-            std::erase(branchChildren,vTarget);
+        void onRemove(VisualElement* target) override {
+            std::erase(leafChildren,target);
+            std::erase(branchChildren,target);
             switchToLeaf();
-            vTarget->root = nullptr;
+            target->root = nullptr;
 
             if (!root) {
                 if (window) {
@@ -392,8 +403,7 @@ export namespace ufox::gui {
             }else if (root->window) {
                 root->window->requestPreDraw();
             }
-            
-            return true;
+
         }
 
         void addChildToBranch(VisualElement* child) {
@@ -418,7 +428,7 @@ export namespace ufox::gui {
         }
 
         void switchToLeaf() {
-            if (!parent || !hierarchy.empty()) return;
+            if (!parent || !isContainerEmpty()) return;
             auto* p = dynamic_cast<VisualElement*>(parent);
             if (const auto it = std::ranges::find(p->leafChildren, this);
                 it != p->leafChildren.end()) return;
@@ -478,7 +488,7 @@ export namespace ufox::gui {
 
         // Draw the visible background plate for this element
         cmb.drawIndexed(
-            6,
+            std::size(RectIndices),
             1,              // instanceCount is exactly 1 for the parent
             0, 0,
             static_cast<uint32_t>(element.ssboIndex) // Passes to shader as SV_StartInstanceLocation
@@ -511,7 +521,7 @@ export namespace ufox::gui {
             cmb.setStencilReference(vk::StencilFaceFlagBits::eFrontAndBack, maskWriteValue);
 
             // Re-draw the shared quad geometry to carve the clipping box into the stencil buffer
-            cmb.drawIndexed(6, 1, 0, 0, static_cast<uint32_t>(element.ssboIndex));
+            cmb.drawIndexed(std::size(RectIndices), 1, 0, 0, static_cast<uint32_t>(element.ssboIndex));
 
             // Downstream children must now evaluate against this newly updated mask value
             stencilValueForChildren = maskWriteValue;
@@ -539,10 +549,10 @@ export namespace ufox::gui {
 
             // 3. DISPATCH THE ENTIRE CONTIGUOUS SIBLING BATCH AT ONCE
             cmb.drawIndexed(
-                6, // Shared mesh quad size (6)
-                element.flatLeafCount,                         // instanceCount: Total simple children in batch
+                std::size(RectIndices),
+                element.flatLeafCount,
                 0, 0,
-                element.flatLeafStartSsboIndex                 // firstInstance: Contiguous starting memory offset
+                element.flatLeafStartSsboIndex
             );
         }
 
@@ -560,22 +570,22 @@ export namespace ufox::gui {
 
     class  Document {
     public:
-        explicit Document(UFoxWindow* _window = nullptr, MeshManager* _meshManager = nullptr, TextureManager* _textureManager = nullptr, UIPaletteManager* _paletteManager = nullptr) : window(_window) , meshManager(_meshManager), textureManager(_textureManager), paletteManager(_paletteManager) {
-            if (_window != nullptr) {
-                window->registerCallbackEvent<EventType::eSystemInit>([](void* user) { static_cast<Document*>(user)->init();}, this);
-                window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->onPostSystemInit(w,h);}, this);
-                window->registerCallbackEvent<EventType::eResize>([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->onResize(w,h);}, this);
-                window->registerCallbackEvent<EventType::ePreDraw>([](void* user) { static_cast<Document*>(user)->onPreDraw();}, this);
-                window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
-                window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
-                const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, stencilAttachment);}, this);
-            }
+        explicit Document(UFoxWindow& _window, MeshManager* _meshManager = nullptr, TextureManager* _textureManager = nullptr, UIPaletteManager* _paletteManager = nullptr) : window(&_window) , meshManager(_meshManager), textureManager(_textureManager), paletteManager(_paletteManager) {
+            window->registerCallbackEvent<EventType::eSystemInit>([](void* user) { static_cast<Document*>(user)->init();}, this);
+            window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->onPostSystemInit(w,h);}, this);
+            window->registerCallbackEvent<EventType::eStart>([](void* user) { static_cast<Document*>(user)->onStart();}, this);
+            window->registerCallbackEvent<EventType::eResize>([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->onResize(w,h);}, this);
+            window->registerCallbackEvent<EventType::ePreDraw>([](void* user) { static_cast<Document*>(user)->onPreDraw();}, this);
+            window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->updateUniformBuffer(currentImage);}, this);
+            window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
+            const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, stencilAttachment);}, this);
         }
 
         ~Document() {
             if (window != nullptr) {
                 window->unregisterCallbackEvent(EventType::eSystemInit,this);
                 window->unregisterCallbackEvent(EventType::ePostSystemInit,this);
+                window->unregisterCallbackEvent(EventType::eStart,this);
                 window->unregisterCallbackEvent(EventType::eResize,this);
                 window->unregisterCallbackEvent(EventType::ePreDraw,this);
                 window->unregisterCallbackEvent(EventType::eUpdateBuffer,this);
@@ -607,99 +617,13 @@ export namespace ufox::gui {
                 );
             }
 
-            rootElement.reset();
-            rootElement.emplace(ResourceID{"root"},"root");
+            rootElement = std::make_unique<VisualElement>(ResourceID("root"),"Root");
             rootElement->setAsRenderRoot(window);
-            v1.reset();
-            v1.emplace(ResourceID{"v1"},"v1");
-            v2.reset();
-            v2.emplace(ResourceID{"v2"},"v2");
-
-            rootElement->x = 100.0f;
-            rootElement->y = 100.0f;
-            rootElement->width = 400.0f;
-            rootElement->height = 600.0f;
-            rootElement->style.backgroundColor = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
-            rootElement->add(&*v1);
-            rootElement->style.backgroundImage = TESTER_TEXTURE_ID.data;
-            rootElement->style.displayOverflowMode = DisplayOverflowMode::eVisible;
-            rootElement->style.borderTopRightRadius = 20.0f;
-            rootElement->style.borderTopLeftRadius = 20.0f;
-            rootElement->style.borderBottomRightRadius = 20.0f;
-            rootElement->style.borderBottomLeftRadius = 20.0f;
-            rootElement->style.marginTop = 10.0f;
-            rootElement->style.marginBottom = 10.0f;
-            rootElement->style.marginLeft = 10.0f;
-            rootElement->style.marginRight = 10.0f;
-            rootElement->style.borderTopWidth = 5.0f;
-            rootElement->style.borderTopColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            rootElement->style.borderLeftWidth = 5.0f;
-            rootElement->style.borderLeftColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            rootElement->style.borderRightWidth = 5.0f;
-            rootElement->style.borderRightColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            rootElement->style.borderBottomWidth = 5.0f;
-            rootElement->style.borderBottomColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-
-
-            v1->style.backgroundImage = "shaderIcon.png";
-            v1->style.imageColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
-            v1->width = 500.0f;
-            v1->height = 500.0f;
-            v1->x = 200.0f;
-            v1->y = 50.0f;
-            v1->style.backgroundColor = glm::vec4{1.0f, 0.2f, 0.5f, 1.0f};
-            v1->style.borderTopRightRadius = 20.0f;
-            v1->style.borderTopLeftRadius = 20.0f;
-            v1->style.borderBottomRightRadius = 20.0f;
-            v1->style.borderBottomLeftRadius = 20.0f;
-            v1->style.marginTop = 10.0f;
-            v1->style.marginBottom = 10.0f;
-            v1->style.marginLeft = 10.0f;
-            v1->style.marginRight = 10.0f;
-            v1->style.borderTopWidth = 5.0f;
-            v1->style.borderTopColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            v1->style.borderLeftWidth = 5.0f;
-            v1->style.borderLeftColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            v1->style.borderRightWidth = 5.0f;
-            v1->style.borderRightColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            v1->style.borderBottomWidth = 5.0f;
-            v1->style.borderBottomColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-            v1->style.imageScaleMode = ImageScaleMode::eScaleToFit;
-            v1->style.imageAlignment = ImageAlignment::eCenter;
-            v1->style.displayOverflowMode = DisplayOverflowMode::eVisible;
-
-
-            v2->width = 500.0f;
-            v2->height = 500.0f;
-
-            v2->x = 250.0f;
-            v2->y = 150.0f;
-
-            v2->style.backgroundColor = glm::vec4{1.0f, 0.8f, 0.5f, 1.0f};
-            v1->add(&*v2);
-
-            v3.reset();
-            v3.emplace(ResourceID{"v3"},"v3");
-            v4.reset();
-            v4.emplace(ResourceID{"v4"},"v4");
-
-            rootElement->add(&*v3);
-            rootElement->add(&*v4);
-
-            v3->style.backgroundColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
-            v3->width = 50.0;
-            v3->height = 50.0;
-
-            v3->x = 150.0f;
-            v3->y = 150.0;
-
-            v4->style.backgroundColor = glm::vec4{0.3f, 0.0f, 1.0f, 1.0f};
-            v4->width = 50.0;
-            v4->height = 50.0;
-
-            v4->x = 150.0f;
-            v4->y = 200.0;
-
+            rootElement->style.backgroundColor = glm::vec4{0.0f, 1.0f, 0.0f, 1.0f};
+            rootElement->style.direction = discadelta::FlexDirection::eRow;
+            rootElement->style.displayOverflowMode = DisplayOverflowMode::eHidden;
+            rootElement->style.flexCompress =1.0f;
+            rootElement->style.flexExpand =1.0f;
 
             debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
         }
@@ -718,24 +642,15 @@ export namespace ufox::gui {
 
             const gpu::GPUResources& gpu = window->gpuResource;
             const std::vector<char> shaderCode = UFoxWindow::ReadFileChar("res/shaders/test.slang.spv");
-            makeSSBO(window->gpuResource, window->getImageCount());
+            makeSSBO(window->gpuResource);
             makeDescriptorSetLayout(gpu);
             makePipelineLayout(gpu);
             makePipeline(gpu, window->depthResource->format, *window->windowResource->swapchainResource, shaderCode);
             makeDescriptorPool(gpu, *window->windowResource->swapchainResource);
             makeDescriptorSets(*window, window->getImageCount());
-            updateElementData = true;
-
-            debug::log(debug::LogLevel::eInfo, "GUI Document InitResource : Susses");
         }
 
-        //temporary tester
-        std::optional<VisualElement>                                        rootElement{};
-        std::optional<VisualElement>                                        v1 {};
-        std::optional<VisualElement>                                        v2 {};
-        std::optional<VisualElement>                                        v3 {};
-        std::optional<VisualElement>                                        v4 {};
-
+        std::unique_ptr<VisualElement> rootElement{};
 
     private:
         UFoxWindow*                                                         window = nullptr;
@@ -755,8 +670,8 @@ export namespace ufox::gui {
         std::vector<vk::raii::DescriptorSet>                                descriptorSets{};
         std::vector<vk::raii::Sampler>                                      repeatSamplers{};
 
-        std::vector<gpu::Buffer>                                            elementSSBO{};
-        std::vector<void*>                                                  elementMemory{};
+        gpu::Buffer                                                         elementSSBO{};
+        void*                                                               elementMemory{};
         std::vector<ElementData>                                            elementData{};
         bool                                                                updateElementData{false};
 
@@ -796,7 +711,7 @@ export namespace ufox::gui {
 
             vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
             inputAssembly
-                .setTopology(vk::PrimitiveTopology::eTriangleStrip)
+                .setTopology(vk::PrimitiveTopology::eTriangleList)
                 .setPrimitiveRestartEnable(false);
 
             vk::PipelineViewportStateCreateInfo viewportState{};
@@ -913,8 +828,6 @@ export namespace ufox::gui {
             descriptorSets.clear();
 
             auto sets = window.gpuResource.device->allocateDescriptorSets(allocInfo);
-            const auto ssboInfo = makeDescriptorBufferInfo();
-            const auto styleSSBOInfo = paletteManager->makeDescriptorBufferInfo();
             const auto imageInfo = textureManager->makeSampledImageDescriptorImageInfos();
             const uint32_t descriptorCount = std::min<uint32_t>(samplerImageCount, static_cast<uint32_t>(imageInfo.size()));
 
@@ -927,19 +840,9 @@ export namespace ufox::gui {
 
             for (size_t i =0; i < imageCount; i++) {
                 std::array<vk::WriteDescriptorSet, 5> write{};
-                write[0].setDstSet(*sets[i])
-                        .setDstBinding(0)
-                        .setDstArrayElement(0)
-                        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-                        .setDescriptorCount(1)
-                        .setPBufferInfo(&ssboInfo[i]);
-                write[1].setDstSet(*sets[i])
-                        .setDstBinding(1)
-                        .setDstArrayElement(0)
-                        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-                        .setDescriptorCount(1)
-                        .setPBufferInfo(&styleSSBOInfo);
-                write[2] = gpu::MakeBufferWriteDescriptorSet(sets[i], window.makeScreenViewProjectionBufferInfo(), 2, SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
+                write[0] = gpu::MakeBufferWriteDescriptorSet(sets[i],0, makeDescriptorBufferInfo(), vk::DescriptorType::eStorageBuffer);
+                write[1] = gpu::MakeBufferWriteDescriptorSet(sets[i],1, paletteManager->makeDescriptorBufferInfo(), vk::DescriptorType::eStorageBuffer);
+                write[2] = gpu::MakeBufferWriteDescriptorSet(sets[i],2, window.makeScreenViewProjectionBufferInfo(), SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
                 write[3].setDstSet(*sets[i])
                         .setDstBinding(3)
                         .setDstArrayElement(0)
@@ -957,44 +860,34 @@ export namespace ufox::gui {
             }
         }
 
-
-        void makeSSBO(const gpu::GPUResources& gpu, const uint32_t imageCount) {
+        void makeSSBO(const gpu::GPUResources& gpu) {
             elementSSBO.clear();
-            elementMemory.clear();
-            elementSSBO.reserve(imageCount);
-            elementMemory.reserve(imageCount);
+            elementMemory = nullptr;
+
             const auto limited = gpu.maxStorageBufferRange / sizeof(ElementData);
             const auto max = std::min(MAX_GUI_ELEMENTS, static_cast<uint32_t>(limited));
             const vk::DeviceSize size = sizeof(ElementData) * max;
-            for (size_t i = 0; i < imageCount; i++) {
-                gpu::Buffer buffer;
-                gpu::MakeBuffer(buffer, gpu, size, vk::BufferUsageFlagBits::eStorageBuffer,vk::MemoryPropertyFlagBits::eHostVisible |vk::MemoryPropertyFlagBits::eHostCoherent);
-                elementSSBO.push_back(std::move(buffer));
-                elementMemory.push_back(elementSSBO.back().memory->mapMemory(0, size));
-            }
+            gpu::MakeBuffer(elementSSBO, gpu, size, vk::BufferUsageFlagBits::eStorageBuffer,vk::MemoryPropertyFlagBits::eHostVisible |vk::MemoryPropertyFlagBits::eHostCoherent);
+            elementMemory = elementSSBO.memory->mapMemory(0, size);
         }
 
-        [[nodiscard]] std::vector<vk::DescriptorBufferInfo>  makeDescriptorBufferInfo() const {
-            if (elementSSBO.empty()) return {};
+        [[nodiscard]] vk::DescriptorBufferInfo  makeDescriptorBufferInfo() const {
+            if (elementSSBO.isDataEmpty()) return {};
 
-            std::vector<vk::DescriptorBufferInfo> bufferInfo{};
-            bufferInfo.reserve(elementSSBO.size());
+            vk::DescriptorBufferInfo info{};
+            info
+            .setBuffer(*elementSSBO.data)
+            .setOffset(0)
+            .setRange(sizeof(ElementData) * MAX_GUI_ELEMENTS);
 
-            for (const auto &[memory, data] : elementSSBO) {
-                vk::DescriptorBufferInfo info{};
-                info
-                .setBuffer(*data)
-                .setOffset(0)
-                .setRange(sizeof(ElementData) * MAX_GUI_ELEMENTS);
-                bufferInfo.push_back(info);
-            }
-
-            return std::move(bufferInfo);
+            return std::move(info);
         }
 
         void onResize(const float& width, const float& height) {
+            rootElement->updateLayout(width, height, true);
             updateElementData = true;
         }
+
 
         void remakeRenderResource() {
             updateTextureDescriptorSets();
@@ -1002,7 +895,7 @@ export namespace ufox::gui {
             elementData.clear();
             AccumulateVisualElementUniformData(elementData,*paletteManager, *rootElement, *textureManager );
             paletteManager->uploadStyleBuffer();
-            debug::log(debug::LogLevel::eInfo, "GUI Document Update : Susses");
+            debug::log(debug::LogLevel::eInfo, "GUI Document Remake Render Resource : Susses");
         }
 
         void updateUniformBuffer(const uint32_t& currentImage) {
@@ -1010,12 +903,12 @@ export namespace ufox::gui {
             if (updateElementData) {
                 rootElement->updateElementData(*textureManager);
                 updateElementData = false;
-                debug::log(debug::LogLevel::eInfo, "GUI Document UpdateUniform : Susses");
+                debug::log(debug::LogLevel::eInfo, "GUI Document Update Uniform Buffer : Susses");
             }
 
-
-            memcpy(elementMemory[currentImage], elementData.data(), sizeof(ElementData) * elementData.size());
+            memcpy(elementMemory, elementData.data(), sizeof(ElementData) * elementData.size());
         }
+
 
         void updateTextureDescriptorSets() const {
             if (descriptorSets.empty()) return;
@@ -1035,8 +928,11 @@ export namespace ufox::gui {
             }
         }
 
-        void onRebuildRequested() noexcept {
-            window->requestPreDraw();
+        void onStart() {
+            float w,h;
+            window->windowResource->getExtent(w,h);
+            rootElement->updateLayout(w,h,true);
+            remakeRenderResource();
         }
 
         void onPreDraw() {

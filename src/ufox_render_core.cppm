@@ -200,7 +200,7 @@ export namespace ufox::render {
 
         void onSystemInit() override {
             ReadResourceContextMetaData(directory, sourceExtensions, this);
-            const auto limit = gpuResources->physicalDevice->getProperties().limits;
+            const auto limit = window->gpuResource.physicalDevice->getProperties().limits;
             maxDescriptorSetSamplerImages = limit.maxDescriptorSetSampledImages;
             builtInResources = MakeTextureBuiltInResources(*this);
             debug::log(debug::LogLevel::eInfo, "TextureManager: init: success");
@@ -247,9 +247,9 @@ export namespace ufox::render {
 
             std::unique_ptr<ResourceBase> res = std::make_unique<Texture>(info.name, pixels, extent, id);
             const auto texture = dynamic_cast<Texture*>(res.get());
-            MakeTexture2D(*gpuResources, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,vk::MemoryPropertyFlagBits::eDeviceLocal);
-            MakeTexture2DImageView(*gpuResources, *texture);
-            gpu::MakeSampler(*gpuResources, texture->sampler);
+            MakeTexture2D(window->gpuResource, *texture, vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,vk::MemoryPropertyFlagBits::eDeviceLocal);
+            MakeTexture2DImageView(window->gpuResource, *texture);
+            gpu::MakeSampler(window->gpuResource, texture->sampler);
             return bindResourceToContext(res, info);
         }
 

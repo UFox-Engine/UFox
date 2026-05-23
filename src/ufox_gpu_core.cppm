@@ -796,8 +796,7 @@ export namespace ufox::gpu {
         return createInfo;
     }
 
-    [[nodiscard]] vk::WriteDescriptorSet MakeBufferWriteDescriptorSet(const vk::raii::DescriptorSet& set, const vk::DescriptorBufferInfo& info,
-    const uint32_t binding, const vk::DescriptorType type, const uint32_t descriptorCount = 1, const uint32_t arrayElement = 0) {
+    [[nodiscard]] vk::WriteDescriptorSet MakeBufferWriteDescriptorSet(const vk::raii::DescriptorSet& set,const uint32_t& binding, const vk::DescriptorBufferInfo& info, const vk::DescriptorType type, const uint32_t descriptorCount = 1, const uint32_t arrayElement = 0) {
         vk::WriteDescriptorSet writeDescriptorSet{};
         writeDescriptorSet
           .setDstSet(*set)
@@ -806,6 +805,7 @@ export namespace ufox::gpu {
           .setDescriptorType(type)
           .setDescriptorCount(descriptorCount)
           .setPBufferInfo(&info);
+
         return writeDescriptorSet;
     }
 

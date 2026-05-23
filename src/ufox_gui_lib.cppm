@@ -9,8 +9,6 @@ module;
 export module ufox_gui_lib;
 
 import ufox_lib;
-import ufox_discadelta_lib;
-import ufox_discadelta_core;
 import ufox_geometry_lib;
 import ufox_gpu_lib;
 
@@ -103,7 +101,7 @@ enum class ImageAlignment : uint8_t {
 };
 
 
-struct Style : DiscadeltaRectLayoutStyleBase{
+struct Style : discadelta::DiscadeltaRectLayoutStyleBase{
   std::string                    backgroundImage{"default"};
   DisplayOverflowMode            displayOverflowMode = DisplayOverflowMode::eVisible;
   ImageScaleMode                 imageScaleMode = ImageScaleMode::eScaleToFit;

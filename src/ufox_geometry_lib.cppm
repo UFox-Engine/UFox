@@ -134,7 +134,9 @@ export namespace ufox::geometry {
         }
 
     };
+}
 
+export namespace ufox::geometry::discadelta {
     enum class FlexDirection : uint8_t {
         eColumn,
         eRow
@@ -153,18 +155,13 @@ export namespace ufox::geometry {
 
 
     struct Length {
-        LengthMode  mode;
-        float       value;
+        LengthMode  mode{LengthMode::eAuto};
+        float       value{0.0f};
     };
 
-    struct DiscadeltaLengthContext {
-        float       validatedValue;
-        float       accumulatedValue;
-        float       greaterValue;
-    };
 
     struct DiscadeltaRectLayoutStyleBase {
-        PositionMode                    positionMode = PositionMode::eRelative;
+        PositionMode                    positionMode {PositionMode::eRelative};
         Length                          width{};
         Length                          height{};
         Length                          minWidth{};
@@ -172,10 +169,10 @@ export namespace ufox::geometry {
         Length                          maxWidth{};
         Length                          maxHeight{};
 
-        size_t                          order = 0;
-        FlexDirection                   direction = FlexDirection::eColumn;
-        float                           flexCompress = 1.0f;
-        float                           flexExpand = 1.0f;
+        size_t                          order {0};
+        FlexDirection                   direction {FlexDirection::eColumn};
+        float                           flexCompress {1.0f};
+        float                           flexExpand {1.0f};
     };
 }
 

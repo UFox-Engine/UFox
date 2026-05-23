@@ -7,7 +7,6 @@ module;
 
 export module ufox_font_lib;
 
-import ufox_discadelta_lib;
 import ufox_engine_lib;
 
 export namespace ufox::font {
