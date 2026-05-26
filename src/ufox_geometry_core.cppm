@@ -501,6 +501,12 @@ export namespace ufox::geometry::discadelta {
 
     template<typename Derived>
     class DiscadeltaRectLayoutBase {
+
+
+        virtual void onAdd(Derived* added) =0;
+        virtual void onRemove(Derived* removed) =0;
+        virtual void onTreeStructureChanged() =0;
+
     protected:
         explicit DiscadeltaRectLayoutBase(const ResourceID &_id) {
             id = _id.IsValid() ? _id : ResourceID{nanoid::generate(12)};
@@ -760,6 +766,9 @@ export namespace ufox::geometry::discadelta {
             else {
                 const auto [validatedWidthInput, validatedHeightInput, isRow, processingCompression] = makeSizeMetrics(widthInput, heightInput, round);
 
+                usedWidthSpace = 0.0f;
+                usedHeightSpace = 0.0f;
+
 
                 widthBase = validatedWidthInput;
                 heightBase = validatedHeightInput;
@@ -768,6 +777,12 @@ export namespace ufox::geometry::discadelta {
 
                 width = validatedWidthInput + widthDelta;
                 height = validatedHeightInput + heightDelta;
+
+                if (parent) {
+                    bool pIsRow = parent->baseStyle->direction == FlexDirection::eRow;
+                    parent->usedWidthSpace += pIsRow ?width : 0.0f;
+                    parent->usedHeightSpace += pIsRow ? 0.0f : height;
+                }
 
                 if (processingCompression) {
                     compressing(width, height, isRow, round, rootWidth, rootHeight);
@@ -811,8 +826,8 @@ export namespace ufox::geometry::discadelta {
                 if (child->baseStyle->positionMode == PositionMode::eAbsolute) {
                     child->placing();
                 }else {
-                    const float childX = relativeX + (isRow ? currentMainOffset : 0.0f);
-                    const float childY = relativeY + (isRow ? 0.0f : currentMainOffset);
+                    const float childX = relativeX + (isRow ? currentMainOffset + child->parent->width/2 - child->parent->usedWidthSpace/2: 0.0f) ;
+                    const float childY = relativeY + (isRow ? 0.0f : currentMainOffset + child->parent->height/2 - child->parent->usedHeightSpace/2);
 
                     child->placing(childX, childY);
 
@@ -821,45 +836,47 @@ export namespace ufox::geometry::discadelta {
             }
         }
 
-        float accumulatedWidthBase = 0.0f;
-        float accumulatedHeightBase = 0.0f;
-        float accumulatedWidthMin  = 0.0f;
-        float accumulatedHeightMin = 0.0f;
-        float accumulatedCompressSolidify = 0.0f;
-        float accumulatedExpandRatio = 0.0f;
-
-        float validatedWidthMin   = 0.0f;
-        float validatedHeightMin  = 0.0f;
-        float validatedWidthBase  = 0.0f;
-        float validatedHeightBase = 0.0f;
-        float validatedWidthMax   = 0.0f;
-        float validatedHeightMax  = 0.0f;
-
-        float compressRatio = 0.0f;
-        float widthCompressCapacity = 0.0f;
-        float widthCompressSolidify = 0.0f;
-        float heightCompressCapacity = 0.0f;
-        float heightCompressSolidify = 0.0f;
-        float expandRatio = 0.0f;
-
-        float widthBase{0.0f};
-        float heightBase{0.0f};
-        float widthExpandDelta{0.0f};
-        float heightExpandDelta{0.0f};
-
-        std::vector<size_t> compressCascadePriorities{};
-        std::vector<size_t> expandCascadePriorities{};
-
-    public:
-        virtual ~DiscadeltaRectLayoutBase() { clear(); }
-
         ResourceID id{};
         float x{0.0f}, y{0.0f}, width{0.0f}, height{0.0f};
         uint32_t order{0};
 
+        float                               accumulatedWidthBase = 0.0f;
+        float                               accumulatedHeightBase = 0.0f;
+        float                               accumulatedWidthMin  = 0.0f;
+        float                               accumulatedHeightMin = 0.0f;
+        float                               accumulatedCompressSolidify = 0.0f;
+        float                               accumulatedExpandRatio = 0.0f;
 
-        DiscadeltaRectLayoutBase* parent = nullptr;
-        DiscadeltaRectLayoutStyleBase* baseStyle = nullptr;
+        float                               validatedWidthMin   = 0.0f;
+        float                               validatedHeightMin  = 0.0f;
+        float                               validatedWidthBase  = 0.0f;
+        float                               validatedHeightBase = 0.0f;
+        float                               validatedWidthMax   = 0.0f;
+        float                               validatedHeightMax  = 0.0f;
+
+        float                               compressRatio = 0.0f;
+        float                               widthCompressCapacity = 0.0f;
+        float                               widthCompressSolidify = 0.0f;
+        float                               heightCompressCapacity = 0.0f;
+        float                               heightCompressSolidify = 0.0f;
+        float                               expandRatio = 0.0f;
+
+        float                               widthBase{0.0f};
+        float                               heightBase{0.0f};
+        float                               widthExpandDelta{0.0f};
+        float                               heightExpandDelta{0.0f};
+
+        float                               usedWidthSpace{0.0f};
+        float                               usedHeightSpace{0.0f};
+
+        std::vector<size_t>                 compressCascadePriorities{};
+        std::vector<size_t>                 expandCascadePriorities{};
+
+        DiscadeltaRectLayoutBase*           parent = nullptr;
+        DiscadeltaRectLayoutStyleBase*      baseStyle = nullptr;
+
+    public:
+        virtual ~DiscadeltaRectLayoutBase() { clear(); }
 
         using Owned   = std::unique_ptr<Derived>;
         using NonOwned = Derived*;
@@ -912,6 +929,8 @@ export namespace ufox::geometry::discadelta {
             container.emplace_back(std::move(resource));
 
             updateMetrics();
+
+            onTreeStructureChanged();
         }
 
         void add(NonOwned resource) {
@@ -929,8 +948,9 @@ export namespace ufox::geometry::discadelta {
             container.emplace_back(resource);
 
             resource->updateMetrics();
-        }
 
+            onTreeStructureChanged();
+        }
 
         template<typename T = Derived, typename... Args>
         [[nodiscard]] T* createChild(Args&&... args) {
@@ -962,6 +982,7 @@ export namespace ufox::geometry::discadelta {
             if (it == resourceIndex.end()) return false;
 
             onRemove(resource);
+
             resource->parent = nullptr;
 
             size_t idx = it->second;
@@ -975,6 +996,8 @@ export namespace ufox::geometry::discadelta {
             }
 
             updateMetrics();
+
+            onTreeStructureChanged();
             return true;
         }
 
@@ -1001,10 +1024,6 @@ export namespace ufox::geometry::discadelta {
         [[nodiscard]] T* Q(std::string_view name) const {
             return Q<T>(ResourceID{name});
         }
-
-        virtual void onAdd(Derived* added) {}
-        virtual void onRemove(Derived* removed) {}
-
     };
 }
 

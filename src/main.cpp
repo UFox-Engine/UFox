@@ -81,8 +81,7 @@ int main() {
       ufox::render::TextureManager textureManager{*window};
       ufox::font::GlyphManager glyph_manager{*window,textureManager};
 
-      ufox::gui::UIPaletteManager uiPaletteManager {window.get(),&textureManager};
-      ufox::gui::Document doc(*window.get(), &meshManager, &textureManager, &uiPaletteManager);
+      ufox::gui::Document doc(*window, &meshManager, &textureManager);
       ufox::engine::Camera mainCamera{};
 
       window->registerCallbackEvent<ufox::engine::EventType::eStart>([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
@@ -97,22 +96,29 @@ int main() {
         auto* doc = static_cast<ufox::gui::Document*>(user);
         if (doc == nullptr) return;
         if (doc->rootElement == nullptr) return;
-        ufox::gui::VisualElement* v1 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v1"},"v1");
-        ufox::gui::VisualElement* v2 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v2"},"v2");
+        auto* v1 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v1"},"v1");
+        auto* v2 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v2"},"v2");
+        auto* v3 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v3"},"v3");
 
         v1->style.backgroundColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
         v1->style.flexCompress =1.0f;
         v1->style.flexExpand =1.0f;
+        v1->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
 
         v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 1.0f, 1.0f};
         v2->style.flexCompress =1.0f;
         v2->style.flexExpand =1.0f;
+        v2->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
 
-        v2->style.order = 0;
-        v1->style.order = 1;
+        v3->style.backgroundColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
+        v3->style.flexCompress =1.0f;
+        v3->style.flexExpand =1.0f;
+        v3->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
+
 
         v1->updateMetrics(false);
-        v2->updateMetrics();
+        v2->updateMetrics(false);
+        v3->updateMetrics();
 
       }, &doc);
 
