@@ -168,8 +168,13 @@ export namespace ufox::geometry::discadelta {
         eSpaceEvenly     // Equal space including before first and after last
     };
 
-
-
+    enum class AlignMode {
+        eAuto,
+        eStart,
+        eCenter,
+        eEnd,
+        eStretch
+    };
 
     struct DiscadeltaRectLayoutStyleBase {
         PositionMode                    positionMode {PositionMode::eRelative};
@@ -185,7 +190,10 @@ export namespace ufox::geometry::discadelta {
         float                           flexCompress {1.0f};
         float                           flexExpand {1.0f};
 
-        JustifyContentMode                  justifyContent {JustifyContentMode::eStart};
+        JustifyContentMode              justifyContent {JustifyContentMode::eStart};
+        AlignMode                       alignSelf {AlignMode::eAuto};
+        AlignMode                       alignItems {AlignMode::eStretch};
+        //AlignMode                       alignContent {AlignMode::eStretch};
     };
 }
 

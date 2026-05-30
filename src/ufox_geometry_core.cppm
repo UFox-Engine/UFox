@@ -489,6 +489,18 @@ export namespace ufox::geometry {
 
 export namespace ufox::geometry::discadelta {
 
+    [[nodiscard]] constexpr float CalculateAlign(const float size, const float parentSize, const AlignMode mode) noexcept {
+        switch (mode) {
+        case AlignMode::eStart: return 0.0f;
+        case AlignMode::eEnd: return parentSize - size;
+        case AlignMode::eCenter: return (parentSize - size) / 2.0f;
+        case AlignMode::eStretch: return 0.0;
+        case AlignMode::eAuto: return parentSize - size;
+        default: return 0.0f;
+        }
+
+    }
+
     [[nodiscard]] constexpr float CalculateJustifyContent(const float currentOffset, const float parentSize, const float size, const float usedSpace, const float remainSpace, const int sectionSize
                 , const bool isFirst, const bool isLast, JustifyContentMode mode) {
 
@@ -814,26 +826,31 @@ export namespace ufox::geometry::discadelta {
                 usedWidthSpace = 0.0f;
                 usedHeightSpace = 0.0f;
 
-
                 widthBase = validatedWidthInput;
                 heightBase = validatedHeightInput;
                 widthExpandDelta = widthDelta;
                 heightExpandDelta = heightDelta;
 
-                width = validatedWidthInput + widthDelta;
-                height = validatedHeightInput + heightDelta;
+                const float flexWidth = validatedWidthInput + widthDelta;
+                const float flexHeight = validatedHeightInput + heightDelta;
+
+                width =  flexWidth;
+                height = flexHeight;
 
                 if (parent) {
                     bool pIsRow = parent->baseStyle->direction == FlexDirection::eRow;
                     parent->usedWidthSpace += pIsRow ?width : 0.0f;
                     parent->usedHeightSpace += pIsRow ? 0.0f : height;
+                    bool crossStretching = baseStyle->alignSelf == AlignMode::eStretch || parent->baseStyle->alignItems == AlignMode::eStretch;
+                    width = !pIsRow? crossStretching? width: std::clamp(validatedWidthBase, validatedWidthMin, validatedWidthMax): width;
+                    height = pIsRow? crossStretching? height: std::clamp(validatedHeightBase, validatedHeightMin, validatedHeightMax): height;
                 }
 
                 if (processingCompression) {
-                    compressing(width, height, isRow, round, rootWidth, rootHeight);
+                    compressing(flexWidth, flexHeight, isRow, round, rootWidth, rootHeight);
                 }
                 else {
-                    expanding(width, height, isRow, round, rootWidth, rootHeight);
+                    expanding(flexWidth, flexHeight, isRow, round, rootWidth, rootHeight);
                 }
             }
         }
@@ -853,8 +870,6 @@ export namespace ufox::geometry::discadelta {
 
             return indices;
         }
-
-
 
         void placing(const float relativeX = 0.0f, const float relativeY = 0.0f) noexcept {
             x = relativeX;
@@ -899,7 +914,10 @@ export namespace ufox::geometry::discadelta {
                 );
 
                 // Cross axis (simple start for now)
-                const float crossPos = 0.0f;
+                const float& childCrossSize = isRow ? child->height : child->width;
+                const float& parentCrossSize = isRow ? height : width;
+                const AlignMode& chooseMode = child->baseStyle->alignSelf == AlignMode::eAuto? baseStyle->alignItems : child->baseStyle->alignSelf;
+                const float crossPos = CalculateAlign(childCrossSize, parentCrossSize, chooseMode);
 
                 const float childX = isRow ? mainPos : crossPos;
                 const float childY = isRow ? crossPos : mainPos;

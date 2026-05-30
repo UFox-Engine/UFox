@@ -105,11 +105,14 @@ int main() {
         v1->style.flexCompress =1.0f;
         v1->style.flexExpand =1.0f;
         v1->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
+        v1->style.alignSelf = ufox::geometry::discadelta::AlignMode::eStretch;
 
         v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 1.0f, 1.0f};
         v2->style.flexCompress =1.0f;
         v2->style.flexExpand =1.0f;
         v2->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
+        v2->style.height = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,150};
+        v2->style.alignSelf = ufox::geometry::discadelta::AlignMode::eStretch;
 
         v3->style.backgroundColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
         v3->style.flexCompress =1.0f;

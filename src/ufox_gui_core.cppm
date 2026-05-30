@@ -670,6 +670,7 @@ export namespace ufox::gui {
             rootElement->style.justifyContent = discadelta::JustifyContentMode::eSpaceEvenly;
             rootElement->style.flexCompress =1.0f;
             rootElement->style.flexExpand =1.0f;
+            rootElement->style.alignItems = discadelta::AlignMode::eEnd;
 
             debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
         }
