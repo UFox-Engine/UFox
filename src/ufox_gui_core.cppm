@@ -667,6 +667,7 @@ export namespace ufox::gui {
             rootElement->style.backgroundColor = glm::vec4{0.0f, 0.0f, 0.0f, 0.0f};
             rootElement->style.direction = discadelta::FlexDirection::eRow;
             rootElement->style.displayOverflowMode = DisplayOverflowMode::eHidden;
+            rootElement->style.justifyContent = discadelta::JustifyContentMode::eSpaceEvenly;
             rootElement->style.flexCompress =1.0f;
             rootElement->style.flexExpand =1.0f;
 

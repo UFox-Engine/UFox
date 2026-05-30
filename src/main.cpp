@@ -99,6 +99,7 @@ int main() {
         auto* v1 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v1"},"v1");
         auto* v2 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v2"},"v2");
         auto* v3 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v3"},"v3");
+        auto* v4 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v4"},"v4");
 
         v1->style.backgroundColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
         v1->style.flexCompress =1.0f;
@@ -115,10 +116,16 @@ int main() {
         v3->style.flexExpand =1.0f;
         v3->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
 
+        v4->style.backgroundColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
+        v4->style.flexCompress =1.0f;
+        v4->style.flexExpand =1.0f;
+        v4->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
+
 
         v1->updateMetrics(false);
         v2->updateMetrics(false);
-        v3->updateMetrics();
+        v3->updateMetrics(false);
+        v4->updateMetrics();
 
       }, &doc);
 

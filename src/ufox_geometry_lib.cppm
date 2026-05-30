@@ -159,6 +159,17 @@ export namespace ufox::geometry::discadelta {
         float       value{0.0f};
     };
 
+    enum class JustifyContentMode : uint8_t {
+        eStart,          // Default - pack from start
+        eCenter,         // Center the whole group
+        eEnd,            // Pack from end
+        eSpaceBetween,   // Distribute with equal gaps (no gap at edges)
+        eSpaceAround,    // Equal space around each item
+        eSpaceEvenly     // Equal space including before first and after last
+    };
+
+
+
 
     struct DiscadeltaRectLayoutStyleBase {
         PositionMode                    positionMode {PositionMode::eRelative};
@@ -173,6 +184,8 @@ export namespace ufox::geometry::discadelta {
         FlexDirection                   direction {FlexDirection::eColumn};
         float                           flexCompress {1.0f};
         float                           flexExpand {1.0f};
+
+        JustifyContentMode                  justifyContent {JustifyContentMode::eStart};
     };
 }
 

@@ -489,7 +489,52 @@ export namespace ufox::geometry {
 
 export namespace ufox::geometry::discadelta {
 
+    [[nodiscard]] constexpr float CalculateJustifyContent(const float currentOffset, const float parentSize, const float size, const float usedSpace, const float remainSpace, const int sectionSize
+                , const bool isFirst, const bool isLast, JustifyContentMode mode) {
 
+        switch (mode) {
+        case JustifyContentMode::eStart:
+            return currentOffset;
+        case JustifyContentMode::eEnd: {
+            if (isFirst) {
+                return currentOffset + parentSize - usedSpace;
+            }
+            return currentOffset;
+        }
+        case JustifyContentMode::eCenter: {
+            if (isFirst) {
+                return currentOffset + (parentSize - usedSpace) / 2.0f;
+            }
+            return currentOffset;
+        }
+        case JustifyContentMode::eSpaceBetween: {
+            const float space = remainSpace / static_cast<float>(sectionSize - 1);
+            if (isLast) {
+                return parentSize - size;
+            }
+            if (isFirst) {
+                return currentOffset;
+            }
+            return currentOffset + space;
+        }
+        case JustifyContentMode::eSpaceAround: {
+            const float space = remainSpace / static_cast<float>(sectionSize);
+            if (isLast) {
+                return parentSize - size - space/2;
+            }
+            if (isFirst) {
+                return currentOffset + space/2;
+            }
+            return currentOffset + space;
+        }
+        case JustifyContentMode::eSpaceEvenly: {
+            const float space = remainSpace / static_cast<float>(sectionSize+1);
+            return currentOffset + space;
+        }
+
+        default: return 0.0f;
+        }
+    }
 
 
     [[nodiscard]] constexpr float Scaler(float distance, float accumulateFactor, float factor) noexcept {
@@ -809,7 +854,9 @@ export namespace ufox::geometry::discadelta {
             return indices;
         }
 
-        void placing(const float relativeX = 0.0f, const float relativeY = 0.0f) noexcept{
+
+
+        void placing(const float relativeX = 0.0f, const float relativeY = 0.0f) noexcept {
             x = relativeX;
             y = relativeY;
 
@@ -817,22 +864,50 @@ export namespace ufox::geometry::discadelta {
 
             const auto orderedIndices = getOrderedIndices();
             const bool isRow = baseStyle->direction == FlexDirection::eRow;
+
+            // Use the used space already accumulated during sizing()
+            const float usedMainSpace = isRow ? usedWidthSpace : usedHeightSpace;
+            const float containerMainSize = isRow ? width : height;
+            const float remainSpace = std::max(0.0f, containerMainSize - usedMainSpace);
+
             float currentMainOffset = 0.0f;
 
-            for (const size_t index : orderedIndices){
+            for (const size_t index : orderedIndices) {
                 DiscadeltaRectLayoutBase* child = getBaseChild(container[index]);
                 if (child == nullptr) continue;
 
                 if (child->baseStyle->positionMode == PositionMode::eAbsolute) {
                     child->placing();
-                }else {
-                    const float childX = relativeX + (isRow ? currentMainOffset + child->parent->width/2 - child->parent->usedWidthSpace/2: 0.0f) ;
-                    const float childY = relativeY + (isRow ? 0.0f : currentMainOffset + child->parent->height/2 - child->parent->usedHeightSpace/2);
-
-                    child->placing(childX, childY);
-
-                    currentMainOffset += isRow ? child->width : child->height;
+                    continue;
                 }
+
+                const bool isFirst = index == orderedIndices.front();
+                const bool isLast  = index == orderedIndices.back();
+
+                const float childMainSize = isRow ? child->width : child->height;
+
+                const float mainPos = CalculateJustifyContent(
+                    currentMainOffset,
+                    containerMainSize,
+                    childMainSize,
+                    usedMainSpace,
+                    remainSpace,
+                    static_cast<int>(orderedIndices.size()),
+                    isFirst,
+                    isLast,
+                    baseStyle->justifyContent
+                );
+
+                // Cross axis (simple start for now)
+                const float crossPos = 0.0f;
+
+                const float childX = isRow ? mainPos : crossPos;
+                const float childY = isRow ? crossPos : mainPos;
+
+                child->placing(relativeX + childX, relativeY + childY);
+
+                // Advance for next sibling
+                currentMainOffset = mainPos + childMainSize;
             }
         }
 
