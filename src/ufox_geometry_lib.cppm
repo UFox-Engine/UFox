@@ -176,6 +176,47 @@ export namespace ufox::geometry::discadelta {
         eStretch
     };
 
+    struct AxisSlice {
+        float main{};
+        float cross{};
+
+        // Build from a (width, height) pair given a direction flag.
+        [[nodiscard]] static constexpr AxisSlice from(
+            float w, float h, bool isRow) noexcept
+        {
+            return isRow ? AxisSlice{w, h} : AxisSlice{h, w};
+        }
+
+        // Reconstruct a (width, height) pair from axis values.
+        [[nodiscard]] constexpr std::pair<float,float> toWH(bool isRow) const noexcept {
+            return isRow ? std::pair{main, cross} : std::pair{cross, main};
+        }
+    };
+
+    struct SizeMetrics {
+        float targetWidth{};
+        float targetHeight{};
+        bool  isRow{};
+        bool  isCompression{};
+    };
+
+    struct CompressCascade {
+        float remainDistance{};   // available space after solidified minimum
+        float remainCapacity{};   // total compressible capacity
+        float ownBase{};          // this child's validated base size
+    };
+
+    struct ExpandCascade {
+        bool  active{};
+        float totalDelta{};       // total expansion budget
+        float totalRatio{};       // sum of expand ratios
+    };
+
+    struct ExpandSizeInfo {
+        float base{};             // current validated base
+        float maxDelta{};         // how much this child can grow
+    };
+
     struct DiscadeltaRectLayoutStyleBase {
         PositionMode                    positionMode {PositionMode::eRelative};
         Length                          width{};
@@ -231,6 +272,7 @@ export namespace ufox::geometry::gltf {
         eVec4   = 4,
         // matrices skipped for now
     };
+
 
 }
 

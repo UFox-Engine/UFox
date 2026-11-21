@@ -94,14 +94,22 @@ export namespace ufox::font {
     0x30F0,0x30F1,0x30F2,0x30F3,0x30F4,0x30F5,0x30F6,0x30F7,0x30F8,0x30F9,0x30FA,0x30FB,0x30FC,0x30FD,0x30FE,0x30FF//Katakana end
   };
 
-struct GlyphContext {
-  uint32_t codepoint{0};
-  double advance{0.0};
-  float uvX{0.0f};
-  float uvY{0.0f};
-  float uvW{0.0f};
-  float uvH{0.0f};
-};
+  struct GlyphContext {
+    uint32_t    codepoint{0};
+
+    // Advance width in em-units (divide by FONT_SIZE_EM, multiply by fontSize px)
+    double      advance{0.0};
+
+    float       uvX{0.0f};
+    float       uvY{0.0f};
+    float       uvW{0.0f};
+    float       uvH{0.0f};
+
+    float       planeLeft{0.0f};
+    float       planeBottom{0.0f};
+    float       planeRight{0.0f};
+    float       planeTop{0.0f};
+  };
 
   struct MSDFFontData {
     std::vector<std::byte> pixels{};
@@ -155,34 +163,50 @@ struct GlyphContext {
     {engine::ResourceID{"Thai"}, {GlyphUnicodeBlock::eThai}}
   };
 
+  struct GlyphAtlasExtent {
+    uint32_t width{0};
+    uint32_t height{0};
+  };
+
   struct Glyph final : engine::ResourceBase {
-    GlyphUnicodeBlock               block{GlyphUnicodeBlock::eUnknown};
-    GlyphStyle                      style{GlyphStyle::eRegular};
+    GlyphUnicodeBlock           block{GlyphUnicodeBlock::eUnknown};
+    GlyphStyle                  style{GlyphStyle::eRegular};
+    std::vector<GlyphContext>   glyphs{};
 
-    std::vector<GlyphContext>       glyphs{};
+    uint32_t                    atlasWidth{0};
+    GlyphAtlasExtent            atlasExtent{};
 
-    Glyph(const std::string_view &name_view, const engine::ResourceID &cid_, const GlyphUnicodeBlock block_,
-         const GlyphStyle style_, const std::vector<GlyphContext>& glyphs_)
-    : ResourceBase(name_view, cid_), block(block_), style(style_), glyphs(glyphs_) {}
+    engine::ResourceID          atlasTextureID{};
+
+    Glyph(std::string_view name_view, const engine::ResourceID& cid_,
+          GlyphUnicodeBlock block_, GlyphStyle style_,
+          const std::vector<GlyphContext>& glyphs_,
+          const GlyphAtlasExtent& extent_)             // ← new param
+        : ResourceBase(name_view, cid_)
+        , block(block_), style(style_), glyphs(glyphs_)
+        , atlasExtent(extent_)
+        , atlasTextureID(cid_)
+    {}
 
 
-    Glyph(const std::string_view &name_view, const engine::ResourceID &cid_)
-        : ResourceBase(name_view, cid_) {}
-    [[nodiscard]] bool hasGpuResources() const noexcept override { return false; } // metadata only
+    Glyph(std::string_view name_view, const engine::ResourceID& cid_)
+        : ResourceBase(name_view, cid_), atlasTextureID(cid_) {}
+
+    [[nodiscard]] bool hasGpuResources() const noexcept override { return false; }
     void releaseGpuResources() noexcept override {}
 
-    [[nodiscard]] bool isBold() const noexcept {
-      return style == GlyphStyle::eBold || style == GlyphStyle::eBoldItalic;
-    }
+    [[nodiscard]] bool isBold()    const noexcept { return style == GlyphStyle::eBold || style == GlyphStyle::eBoldItalic; }
+    [[nodiscard]] bool isItalic()  const noexcept { return style == GlyphStyle::eItalic || style == GlyphStyle::eBoldItalic; }
+    [[nodiscard]] bool isRegular() const noexcept { return style == GlyphStyle::eRegular; }
 
-    [[nodiscard]] bool isItalic() const noexcept {
-      return style == GlyphStyle::eItalic || style == GlyphStyle::eBoldItalic;
-    }
-
-    [[nodiscard]] bool isRegular() const noexcept {
-      return style == GlyphStyle::eRegular;
+    [[nodiscard]] const GlyphContext* find(uint32_t codepoint) const noexcept {
+      for (const auto& g : glyphs)
+        if (g.codepoint == codepoint) return &g;
+      return nullptr;
     }
   };
 
-  using GlyphDataBindInfo = std::tuple<engine::ResourceContextCreateInfo, GlyphUnicodeBlock, GlyphStyle, std::vector<GlyphContext>>;
+
+
+using GlyphDataBindInfo = std::tuple<engine::ResourceContextCreateInfo,GlyphUnicodeBlock,GlyphStyle,std::vector<GlyphContext>,GlyphAtlasExtent>;
 }

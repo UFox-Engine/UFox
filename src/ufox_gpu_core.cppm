@@ -796,17 +796,36 @@ export namespace ufox::gpu {
         return createInfo;
     }
 
-    [[nodiscard]] vk::WriteDescriptorSet MakeBufferWriteDescriptorSet(const vk::raii::DescriptorSet& set,const uint32_t& binding, const vk::DescriptorBufferInfo& info, const vk::DescriptorType type, const uint32_t descriptorCount = 1, const uint32_t arrayElement = 0) {
-        vk::WriteDescriptorSet writeDescriptorSet{};
-        writeDescriptorSet
-          .setDstSet(*set)
-          .setDstBinding(binding)
-          .setDstArrayElement(arrayElement)
-          .setDescriptorType(type)
-          .setDescriptorCount(descriptorCount)
-          .setPBufferInfo(&info);
+    // Safe: caller must keep `info` alive until vkUpdateDescriptorSets has run.
+    [[nodiscard]] vk::WriteDescriptorSet MakeBufferWriteDescriptorSet(const vk::raii::DescriptorSet& set,const uint32_t& binding, const vk::DescriptorBufferInfo& info, const vk::DescriptorType type,const uint32_t descriptorCount = 1,const uint32_t arrayElement    = 0) {
+        // pBufferInfo points at ONE struct, so more than one descriptor would read past it.
+        assert(descriptorCount == 1 && "Use the array overload for descriptorCount > 1");
 
-        return writeDescriptorSet;
+        vk::WriteDescriptorSet write{};
+        write
+            .setDstSet(*set)
+            .setDstBinding(binding)
+            .setDstArrayElement(arrayElement)
+            .setDescriptorType(type)
+            .setDescriptorCount(descriptorCount)
+            .setPBufferInfo(&info);
+        return write;
+    }
+
+    // Compile-time guard: passing a temporary is now an error.
+    vk::WriteDescriptorSet MakeBufferWriteDescriptorSet(const vk::raii::DescriptorSet&,const uint32_t&,const vk::DescriptorBufferInfo&&,vk::DescriptorType,uint32_t = 1,uint32_t = 0) = delete;
+
+    // Array version for descriptor arrays (the span must outlive the update call).
+    [[nodiscard]] vk::WriteDescriptorSet MakeBufferWriteDescriptorSet(const vk::raii::DescriptorSet& set,const uint32_t& binding,const std::vector<vk::DescriptorBufferInfo>& infos,const vk::DescriptorType type,const uint32_t arrayElement = 0) {
+        vk::WriteDescriptorSet write{};
+        write
+            .setDstSet(*set)
+            .setDstBinding(binding)
+            .setDstArrayElement(arrayElement)
+            .setDescriptorType(type)
+            .setDescriptorCount(static_cast<uint32_t>(infos.size()))
+            .setPBufferInfo(infos.data());
+        return write;
     }
 
     inline auto COLOR_IMAGE_USAGE_FLAG = vk::ImageUsageFlags{ vk::ImageUsageFlagBits::eColorAttachment };

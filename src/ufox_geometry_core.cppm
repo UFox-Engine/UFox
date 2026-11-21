@@ -489,585 +489,684 @@ export namespace ufox::geometry {
 
 export namespace ufox::geometry::discadelta {
 
-    [[nodiscard]] constexpr float CalculateAlign(const float size, const float parentSize, const AlignMode mode) noexcept {
-        switch (mode) {
-        case AlignMode::eStart: return 0.0f;
-        case AlignMode::eEnd: return parentSize - size;
-        case AlignMode::eCenter: return (parentSize - size) / 2.0f;
-        case AlignMode::eStretch: return 0.0;
-        case AlignMode::eAuto: return parentSize - size;
-        default: return 0.0f;
-        }
+    // ─────────────────────────────────────────────────────────────
+    // Free helpers (replace the three free functions that were in
+    // the original ufox::geometry namespace)
+    // ─────────────────────────────────────────────────────────────
 
+    [[nodiscard]] constexpr float CalculateAlign(
+        const float childSize,
+        const float parentSize,
+        const AlignMode mode) noexcept
+    {
+        switch (mode) {
+        case AlignMode::eStart:   return 0.0f;
+        case AlignMode::eEnd:     return parentSize - childSize;
+        case AlignMode::eCenter:  return (parentSize - childSize) * 0.5f;
+        case AlignMode::eStretch: return 0.0f;
+        case AlignMode::eAuto:    return parentSize - childSize;
+        default:                  return 0.0f;
+        }
     }
 
-    [[nodiscard]] constexpr float CalculateJustifyContent(const float currentOffset, const float parentSize, const float size, const float usedSpace, const float remainSpace, const int sectionSize
-                , const bool isFirst, const bool isLast, JustifyContentMode mode) {
-
+    [[nodiscard]] constexpr float CalculateJustifyContent(
+        const float  currentOffset,
+        const float  parentSize,
+        const float  childSize,
+        const float  usedSpace,
+        const float  remainSpace,
+        const int    itemCount,
+        const bool   isFirst,
+        const bool   isLast,
+        JustifyContentMode mode) noexcept
+    {
         switch (mode) {
+
         case JustifyContentMode::eStart:
             return currentOffset;
-        case JustifyContentMode::eEnd: {
-            if (isFirst) {
-                return currentOffset + parentSize - usedSpace;
-            }
-            return currentOffset;
-        }
-        case JustifyContentMode::eCenter: {
-            if (isFirst) {
-                return currentOffset + (parentSize - usedSpace) / 2.0f;
-            }
-            return currentOffset;
-        }
+
+        case JustifyContentMode::eEnd:
+            return isFirst ? currentOffset + parentSize - usedSpace
+                           : currentOffset;
+
+        case JustifyContentMode::eCenter:
+            return isFirst ? currentOffset + (parentSize - usedSpace) * 0.5f
+                           : currentOffset;
+
         case JustifyContentMode::eSpaceBetween: {
-            const float space = remainSpace / static_cast<float>(sectionSize - 1);
-            if (isLast) {
-                return parentSize - size;
-            }
-            if (isFirst) {
-                return currentOffset;
-            }
-            return currentOffset + space;
+            if (itemCount <= 1) return currentOffset;
+            const float gap = remainSpace / static_cast<float>(itemCount - 1);
+            if (isFirst) return currentOffset;
+            if (isLast)  return parentSize - childSize;
+            return currentOffset + gap;
         }
+
         case JustifyContentMode::eSpaceAround: {
-            const float space = remainSpace / static_cast<float>(sectionSize);
-            if (isLast) {
-                return parentSize - size - space/2;
-            }
-            if (isFirst) {
-                return currentOffset + space/2;
-            }
-            return currentOffset + space;
+            const float half = remainSpace / static_cast<float>(itemCount) * 0.5f;
+            if (isFirst) return currentOffset + half;
+            if (isLast)  return parentSize - childSize - half;
+            return currentOffset + half * 2.0f;
         }
+
         case JustifyContentMode::eSpaceEvenly: {
-            const float space = remainSpace / static_cast<float>(sectionSize+1);
-            return currentOffset + space;
+            const float gap = remainSpace / static_cast<float>(itemCount + 1);
+            return currentOffset + gap;
         }
 
         default: return 0.0f;
         }
     }
 
-
-    [[nodiscard]] constexpr float Scaler(float distance, float accumulateFactor, float factor) noexcept {
-        if (distance <= 0.0f || accumulateFactor <= 0.0f || factor <= 0.0f) {
+    // Guard against both degenerate inputs in one place.
+    [[nodiscard]] constexpr float Scaler(
+        float distance,
+        float totalCapacity,
+        float ownCapacity) noexcept
+    {
+        if (distance <= 0.0f || totalCapacity <= 0.0f || ownCapacity <= 0.0f)
             return 0.0f;
-        }
-        return distance <= 0.0f || accumulateFactor <= 0.0f || factor <= 0.0f ? 0.0f : distance / accumulateFactor * factor;
+        return distance / totalCapacity * ownCapacity;
     }
 
     template<typename Derived>
     class DiscadeltaRectLayoutBase {
 
-
-        virtual void onAdd(Derived* added) =0;
-        virtual void onRemove(Derived* removed) =0;
-        virtual void onTreeStructureChanged() =0;
+        // ── Subclass hooks ────────────────────────────────────────
+        virtual void onAdd(Derived* added)              = 0;
+        virtual void onRemove(Derived* removed)         = 0;
+        virtual void onTreeStructureChanged()           = 0;
 
     protected:
-        explicit DiscadeltaRectLayoutBase(const ResourceID &_id) {
-            id = _id.IsValid() ? _id : ResourceID{nanoid::generate(12)};
+
+        // ── Construction ──────────────────────────────────────────
+
+        explicit DiscadeltaRectLayoutBase(const engine::ResourceID& _id) {
+            id = _id.IsValid() ? _id : engine::ResourceID{nanoid::generate(12)};
         }
 
-        DiscadeltaRectLayoutBase() : id(nanoid::generate(12)){}
+        DiscadeltaRectLayoutBase()
+            : id(nanoid::generate(12)) {}
 
-        void clear() {
+        // ── Tree mutation ─────────────────────────────────────────
+
+        void clear() noexcept {
+            // Detach all children so they don't hold a stale parent pointer.
+            for (auto& entry : container) {
+                if (auto* child = getBaseChild(entry))
+                    child->parent = nullptr;
+            }
+            container.clear();
+            resourceIndex.clear();
+
             if (parent) {
                 parent->resourceIndex.erase(this->id);
                 parent = nullptr;
             }
-            container.clear();
-            resourceIndex.clear();
         }
 
-        void preComputeMetrics() noexcept {
-            accumulatedWidthBase = 0.0f;
-            accumulatedHeightBase = 0.0f;
-            accumulatedWidthMin = 0.0f;
-            accumulatedHeightMin = 0.0f;
-            accumulatedExpandRatio = 0.0f;
-            accumulatedCompressSolidify = 0.0f;
+        // ── Metrics pipeline ─────────────────────────────────────
+        //
+        //  Phase 1 — preComputeMetrics:  walk children, accumulate
+        //  Phase 2 — validateMetrics:    apply style constraints
+        //  Phase 3 — updatePriorityLists: sort compress/expand order
 
-            if (container.empty()) return;
+        void preComputeMetrics() noexcept {
+            // Reset accumulators
+            accumulated = {};
+
+            if (container.empty() || !baseStyle) return;
+
+            const bool isRow = (baseStyle->direction == FlexDirection::eRow);
 
             for (const auto& entry : container) {
-                DiscadeltaRectLayoutBase* child = getBaseChild(entry);
-                if (child == nullptr) continue;
+                const DiscadeltaRectLayoutBase* child = getBaseChild(entry);
+                if (!child) continue;
 
-                float compressSolidify{0.0f};
+                const AxisSlice childBase  = AxisSlice::from(child->validatedWidthBase,  child->validatedHeightBase,  isRow);
+                const AxisSlice childMin   = AxisSlice::from(child->validatedWidthMin,   child->validatedHeightMin,   isRow);
+                const AxisSlice childAccMin= AxisSlice::from(child->accumulated.widthMin, child->accumulated.heightMin, isRow);
+                const float     childSolid = isRow ? child->widthCompressSolidify
+                                                   : child->heightCompressSolidify;
 
-                if (baseStyle->direction == FlexDirection::eRow) {
-                    accumulatedWidthBase += child->validatedWidthBase;
-                    accumulatedHeightBase = ChooseGreaterDistance(accumulatedHeightBase, child->validatedHeightBase);
-                    compressSolidify = child->widthCompressSolidify;
-                    const float& childWidthMin = ChooseGreaterDistance(child->validatedWidthMin, compressSolidify);
-                    const float& childHeightMin = ChooseGreaterDistance(child->validatedHeightMin, child->accumulatedHeightMin);
-                    accumulatedWidthMin += ChooseGreaterDistance(childWidthMin, child->accumulatedWidthMin);
-                    accumulatedHeightMin = ChooseGreaterDistance(accumulatedHeightMin, childHeightMin);
-                }
-                else {
-                    accumulatedWidthBase = ChooseGreaterDistance(accumulatedWidthBase, child->validatedWidthBase);
-                    accumulatedHeightBase += child->validatedHeightBase;
-                    compressSolidify = child->heightCompressSolidify;
-                    const float& childHeightMin = ChooseGreaterDistance(child->validatedHeightMin, compressSolidify);
-                    const float& childWidthMin = ChooseGreaterDistance(child->validatedWidthMin, child->accumulatedWidthMin);
-                    accumulatedWidthMin = ChooseGreaterDistance(accumulatedWidthMin, childWidthMin);
-                    accumulatedHeightMin += ChooseGreaterDistance(child->accumulatedHeightMin, childHeightMin);
-                }
+                // Main axis: children stack
+                accumulated.mainBase(isRow) += childBase.main;
 
-                accumulatedCompressSolidify += compressSolidify;
-                accumulatedExpandRatio += child->expandRatio;
+                // Cross axis: children compete (take the max)
+                float& accCrossBase = accumulated.crossBase(isRow);
+                accCrossBase = ChooseGreaterDistance(accCrossBase, childBase.cross);
+
+                // Main-axis minimum
+                const float childMainMin = ChooseGreaterDistance(childMin.main, childSolid);
+                accumulated.mainMin(isRow) += ChooseGreaterDistance(childMainMin, childAccMin.main);
+
+                // Cross-axis minimum
+                const float childCrossMin = ChooseGreaterDistance(childMin.cross, childAccMin.cross);
+                float& accCrossMin = accumulated.crossMin(isRow);
+                accCrossMin = ChooseGreaterDistance(accCrossMin, childCrossMin);
+
+                accumulated.compressSolidify += childSolid;
+                accumulated.expandRatio      += child->expandRatio;
             }
-
         }
 
         void validateMetrics() noexcept {
-            validatedWidthMin = baseStyle->minWidth.mode == LengthMode::eAuto ? accumulatedWidthMin : ChooseGreaterDistance(0.0f, baseStyle->minWidth.value);
-            validatedWidthMax = baseStyle->maxWidth.mode == LengthMode::eAuto ? std::numeric_limits<float>::max(): ChooseGreaterDistance(baseStyle->maxWidth.value, validatedWidthMin);
-            validatedHeightMin = baseStyle->minHeight.mode == LengthMode::eAuto ? accumulatedHeightMin : ChooseGreaterDistance(0.0f, baseStyle->minHeight.value);
-            validatedHeightMax = baseStyle->maxHeight.mode == LengthMode::eAuto ? std::numeric_limits<float>::max(): ChooseGreaterDistance(baseStyle->maxHeight.value, validatedHeightMin);
-            validatedWidthBase = baseStyle->width.mode == LengthMode::eAuto ? accumulatedWidthBase : baseStyle->width.value;
-            validatedHeightBase = baseStyle->height.mode == LengthMode::eAuto ? accumulatedHeightBase : baseStyle->height.value;
-            // pre clamp temporary off
-            // validatedWidthBase = std::clamp(baseW, validatedWidthMin, validatedWidthMax);
-            // validatedHeightBase = std::clamp(baseH, validatedHeightMin, validatedHeightMax);
-            compressRatio = ChooseGreaterDistance(0.0f,baseStyle->flexCompress);
-            widthCompressCapacity = validatedWidthBase * compressRatio;
-            widthCompressSolidify = ChooseGreaterDistance(0.0f, validatedWidthBase  - widthCompressCapacity);
+            if (!baseStyle) return;
+
+            auto resolveMin = [](const Length& l, float accum) {
+                return l.mode == LengthMode::eAuto
+                    ? accum
+                    : ChooseGreaterDistance(0.0f, l.value);
+            };
+            auto resolveMax = [](const Length& l, float minVal) {
+                return l.mode == LengthMode::eAuto
+                    ? std::numeric_limits<float>::max()
+                    : ChooseGreaterDistance(l.value, minVal);
+            };
+            auto resolveBase = [](const Length& l, float accum) {
+                return l.mode == LengthMode::eAuto ? accum : l.value;
+            };
+
+            validatedWidthMin  = resolveMin(baseStyle->minWidth,   accumulated.widthMin);
+            validatedHeightMin = resolveMin(baseStyle->minHeight,  accumulated.heightMin);
+            validatedWidthMax  = resolveMax(baseStyle->maxWidth,   validatedWidthMin);
+            validatedHeightMax = resolveMax(baseStyle->maxHeight,  validatedHeightMin);
+            validatedWidthBase = resolveBase(baseStyle->width,     accumulated.widthBase);
+            validatedHeightBase= resolveBase(baseStyle->height,    accumulated.heightBase);
+
+            compressRatio          = std::max(0.0f, baseStyle->flexCompress);
+            widthCompressCapacity  = validatedWidthBase  * compressRatio;
+            widthCompressSolidify  = std::max(0.0f, validatedWidthBase  - widthCompressCapacity);
             heightCompressCapacity = validatedHeightBase * compressRatio;
-            heightCompressSolidify = ChooseGreaterDistance(0.0f, validatedHeightBase - heightCompressCapacity);
-            expandRatio = ChooseGreaterDistance(0.0f, baseStyle->flexExpand);
-            order = ChooseGreaterDistance(0, baseStyle->order);
+            heightCompressSolidify = std::max(0.0f, validatedHeightBase - heightCompressCapacity);
+            expandRatio            = std::max(0.0f, baseStyle->flexExpand);
+            order                  = baseStyle->order;
         }
 
         void updatePriorityLists() noexcept {
             compressCascadePriorities.clear();
             expandCascadePriorities.clear();
 
-            if (container.empty()) {
+            if (container.empty() || !baseStyle) return;
+
+            const bool  isRow      = (baseStyle->direction == FlexDirection::eRow);
+            const size_t childCount = container.size();
+
+            struct PriEntry { float room; size_t idx; };
+            std::vector<PriEntry> cPri, ePri;
+            cPri.reserve(childCount);
+            ePri.reserve(childCount);
+
+            for (size_t i = 0; i < childCount; ++i) {
+                const DiscadeltaRectLayoutBase* child = getBaseChild(container[i]);
+                if (!child) continue;
+                if (child->baseStyle &&
+                    child->baseStyle->positionMode == PositionMode::eAbsolute) continue;
+
+                const AxisSlice base = AxisSlice::from(child->validatedWidthBase,  child->validatedHeightBase,  isRow);
+                const AxisSlice vMin = AxisSlice::from(child->validatedWidthMin,   child->validatedHeightMin,   isRow);
+                const AxisSlice vMax = AxisSlice::from(child->validatedWidthMax,   child->validatedHeightMax,   isRow);
+
+                cPri.push_back({ std::max(0.0f, base.main - vMin.main), i });
+                ePri.push_back({ std::max(0.0f, vMax.main - base.main), i });
+            }
+
+            // Compress: least room first (fairest squeeze)
+            std::ranges::sort(cPri, [](const PriEntry& a, const PriEntry& b){
+                return a.room < b.room;
+            });
+            compressCascadePriorities.reserve(cPri.size());
+            for (const auto& e : cPri) compressCascadePriorities.push_back(e.idx);
+
+            // Expand: most room first (prevents over-expansion of small items)
+            std::ranges::sort(ePri, [](const PriEntry& a, const PriEntry& b){
+                return a.room > b.room;
+            });
+            expandCascadePriorities.reserve(ePri.size());
+            for (const auto& e : ePri) expandCascadePriorities.push_back(e.idx);
+        }
+
+        // ── Sizing helpers ────────────────────────────────────────
+
+        [[nodiscard]] SizeMetrics makeSizeMetrics(
+            float targetWidth, float targetHeight, bool round) const noexcept
+        {
+            const bool  isRow = baseStyle->direction == FlexDirection::eRow;
+            const float accBase = isRow ? accumulated.widthBase : accumulated.heightBase;
+            const float roundedAccBase = round ? std::lroundf(accBase) : accBase;
+            const float dirInput       = isRow ? targetWidth : targetHeight;
+
+            return { targetWidth, targetHeight, isRow, dirInput < roundedAccBase };
+        }
+
+        [[nodiscard]] CompressCascade makeCompressCascadeMetrics(
+            float widthInput, float heightInput, bool isRow, bool round) const noexcept
+        {
+            const float input   = isRow ? widthInput : heightInput;
+            const float accBase = isRow ? accumulated.widthBase : accumulated.heightBase;
+            const float rBase   = round ? std::lroundf(accBase) : accBase;
+            return { input - accumulated.compressSolidify,
+                     rBase  - accumulated.compressSolidify,
+                     0.0f };   // ownBase filled per-child below
+        }
+
+        // Called per child during compression pass.
+        [[nodiscard]] CompressCascade makeChildCompressMetrics(
+            const CompressCascade& cascade, bool isRow, bool round) const noexcept
+        {
+            const float childBase = isRow ? validatedWidthBase : validatedHeightBase;
+            const float rBase     = round ? std::lroundf(childBase) : childBase;
+            return { cascade.remainDistance,
+                     cascade.remainCapacity,
+                     rBase };
+        }
+
+        [[nodiscard]] ExpandCascade makeExpandCascadeMetrics(
+            float widthInput, float heightInput, bool isRow, bool round) const noexcept
+        {
+            const float input   = isRow ? widthInput : heightInput;
+            const float accBase = isRow ? accumulated.widthBase : accumulated.heightBase;
+            const float rBase   = round ? std::lroundf(accBase) : accBase;
+            const float delta   = std::max(0.0f, input - rBase);
+            return { delta > 0.0f, delta, accumulated.expandRatio };
+        }
+
+        [[nodiscard]] ExpandSizeInfo makeExpandSizeInfo(bool isRow, bool round) const noexcept {
+            const float base    = isRow ? validatedWidthBase  : validatedHeightBase;
+            const float maxVal  = isRow ? validatedWidthMax   : validatedHeightMax;
+            const float rBase   = round ? std::lroundf(base) : base;
+            return { rBase, std::max(0.0f, maxVal - rBase) };
+        }
+
+        [[nodiscard]] float computeCrossSize(
+            float widthInput, float heightInput, bool isRow) const noexcept
+        {
+            const float input      = isRow ? heightInput : widthInput;
+            const float vBase      = isRow ? validatedHeightBase : validatedWidthBase;
+            const float vMin       = isRow ? validatedHeightMin  : validatedWidthMin;
+            const float vMax       = isRow ? validatedHeightMax  : validatedWidthMax;
+            const LengthMode mode  = isRow ? baseStyle->height.mode : baseStyle->width.mode;
+
+            const float resolved = (mode == LengthMode::eAuto) ? input : vBase;
+            return std::clamp(resolved, vMin, vMax);
+        }
+
+        // ── Core layout passes ────────────────────────────────────
+
+        void compressing(
+            float mainInput, float crossInput,
+            bool isRow, bool round,
+            float rootWidth, float rootHeight) noexcept
+        {
+            CompressCascade cascade = makeCompressCascadeMetrics(
+                mainInput, crossInput, isRow, round);
+
+            for (const size_t idx : compressCascadePriorities) {
+                DiscadeltaRectLayoutBase* child = getBaseChild(container[idx]);
+                if (!child) continue;
+
+                const float childSolid    = isRow ? child->widthCompressSolidify
+                                                  : child->heightCompressSolidify;
+                const float childCapacity = isRow ? child->widthCompressCapacity
+                                                  : child->heightCompressCapacity;
+                const float childMin      = isRow ? child->validatedWidthMin
+                                                  : child->validatedHeightMin;
+                const float childBase     = isRow ? child->validatedWidthBase
+                                                  : child->validatedHeightBase;
+                const float rChildBase    = round ? std::lroundf(childBase) : childBase;
+
+                // How much this child's main size compresses.
+                const float mainSize = std::max(
+                    childMin,
+                    Scaler(cascade.remainDistance - childSolid,
+                           cascade.remainCapacity  - childSolid,
+                           childCapacity)
+                    + childSolid);
+                const float roundedMain = round ? std::lroundf(mainSize) : mainSize;
+
+                const float cross    = child->computeCrossSize(mainInput, crossInput, isRow);
+                const float rCross   = round ? std::lroundf(cross) : cross;
+
+                const auto [w, h] = AxisSlice{roundedMain, rCross}.toWH(isRow);
+                child->sizing(w, h, 0.0f, 0.0f, round, rootWidth, rootHeight);
+
+                cascade.remainDistance  -= roundedMain;
+                cascade.remainCapacity  -= rChildBase;
+                // solidify budget consumed by this child
+            }
+        }
+
+        void expanding(
+            float widthInput, float heightInput,
+            bool isRow, bool round,
+            float rootWidth, float rootHeight) noexcept
+        {
+            ExpandCascade cascade = makeExpandCascadeMetrics(
+                widthInput, heightInput, isRow, round);
+
+            if (!cascade.active) return;
+
+            for (const size_t idx : expandCascadePriorities) {
+                DiscadeltaRectLayoutBase* child = getBaseChild(container[idx]);
+                if (!child) continue;
+
+                const ExpandSizeInfo info = child->makeExpandSizeInfo(isRow, round);
+
+                const float rawDelta    = Scaler(cascade.totalDelta, cascade.totalRatio, child->expandRatio);
+                const float clampedDelta= std::min(rawDelta, info.maxDelta);
+                const float roundedDelta= round ? std::lroundf(clampedDelta) : clampedDelta;
+
+                const float cross  = child->computeCrossSize(widthInput, heightInput, isRow);
+                const float rCross = round ? std::lroundf(cross) : cross;
+
+                const auto [baseW, baseH] = AxisSlice{info.base, rCross}.toWH(isRow);
+                const auto [dW,    dH]    = AxisSlice{roundedDelta, 0.0f}.toWH(isRow);
+                child->sizing(baseW, baseH, dW, dH, round, rootWidth, rootHeight);
+
+                cascade.totalDelta -= roundedDelta;
+                cascade.totalRatio -= child->expandRatio;
+            }
+        }
+
+        // Extracted from sizing() to keep it readable.
+        void applyCrossStretch(float flexWidth, float flexHeight) noexcept {
+                if (!parent || !parent->baseStyle) return;
+
+                const bool pIsRow = parent->baseStyle->direction == FlexDirection::eRow;
+                const bool stretch = baseStyle->alignSelf == AlignMode::eStretch ||
+                                     parent->baseStyle->alignItems == AlignMode::eStretch;
+
+                if (pIsRow) {
+                    // Cross axis = height
+                    if (stretch) {
+                        height = flexHeight;                                // stretch to full cross size
+                    } else {
+                        height = std::clamp(validatedHeightBase, validatedHeightMin, validatedHeightMax);
+                    }
+                } else {
+                    // Cross axis = width
+                    if (stretch) {
+                        width = flexWidth;                                  // stretch to full cross size
+                    } else {
+                        width = std::clamp(validatedWidthBase, validatedWidthMin, validatedWidthMax);
+                    }
+                }
+    }
+
+        void sizing(
+            float widthInput, float heightInput,
+            float widthDelta, float heightDelta,
+            bool  round,
+            float rootWidth, float rootHeight) noexcept
+        {
+            if (!baseStyle) return;
+
+            // Absolute elements re-layout themselves against the root.
+            if (baseStyle->positionMode == PositionMode::eAbsolute) {
+                updateLayout(rootWidth, rootHeight, round);
                 return;
             }
 
-            const size_t childCount = container.size();
-            compressCascadePriorities.reserve(childCount);
-            expandCascadePriorities.reserve(childCount);
+            const SizeMetrics sm = makeSizeMetrics(widthInput, heightInput, round);
+            const float flexWidth  = widthInput  + widthDelta;
+            const float flexHeight = heightInput + heightDelta;
 
-            std::vector<std::pair<float, size_t>> compressPriorities;
-            std::vector<std::pair<float, size_t>> expandPriorities;
-            compressPriorities.reserve(childCount);
-            expandPriorities.reserve(childCount);
+            width  = flexWidth;
+            height = flexHeight;
+            usedMainSpace = 0.0f;
+
+            applyCrossStretch(flexWidth, flexHeight);
+
+            if (parent && parent->baseStyle) {
+                const bool pIsRow = parent->baseStyle->direction == FlexDirection::eRow;
+                const float childMain = pIsRow ? width : height;
+                parent->usedMainSpace += childMain;
+            }
+
+            if (sm.isCompression)
+                compressing(flexWidth, flexHeight, sm.isRow, round, rootWidth, rootHeight);
+            else
+                expanding  (flexWidth, flexHeight, sm.isRow, round, rootWidth, rootHeight);
+        }
+
+        // ── Placement pass ────────────────────────────────────────
+
+        // Returns indices into container sorted by child order value.
+        // Null children are filtered out here.
+        [[nodiscard]] std::vector<size_t> getOrderedIndices() const noexcept {
+            std::vector<size_t> indices;
+            indices.reserve(container.size());
 
             for (size_t i = 0; i < container.size(); ++i) {
-                DiscadeltaRectLayoutBase* child = getBaseChild(container[i]);
-                if (!child) continue;
-                if (child->baseStyle->positionMode == PositionMode::eAbsolute) continue;
-
-                float compressRoom{0.0f};
-                float expandRoom{0.0f};
-
-                if (baseStyle->direction == FlexDirection::eRow) {
-                    compressRoom = ChooseGreaterDistance(0.0f, child->validatedWidthBase - child->validatedWidthMin);
-                    expandRoom   = ChooseGreaterDistance(0.0f, child->validatedWidthMax  - child->validatedWidthBase);
-                } else {
-                    compressRoom = ChooseGreaterDistance(0.0f, child->validatedHeightBase - child->validatedHeightMin);
-                    expandRoom   = ChooseGreaterDistance(0.0f, child->validatedHeightMax  - child->validatedHeightBase);
-                }
-
-                compressPriorities.emplace_back(compressRoom, i);
-                expandPriorities.emplace_back(expandRoom,   i);
+                if (getBaseChild(container[i]))
+                    indices.push_back(i);
             }
 
-            std::ranges::sort(compressPriorities, [](const auto& a, const auto& b) {
-                return a.first < b.first;
-            });
-            for (const auto &val: compressPriorities | std::views::values) {
-                compressCascadePriorities.push_back(val);
-            }
-
-            std::ranges::sort(expandPriorities, [](const auto& a, const auto& b) {
-                return a.first > b.first;
-            });
-            for (const auto &val: expandPriorities | std::views::values) {
-                expandCascadePriorities.push_back(val);
-            }
-        }
-
-
-
-        [[nodiscard]] std::tuple<float, float, bool, bool> makeSizeMetrics(const float& targetWidth, const float& targetHeight, const bool& round) const noexcept {
-            const bool isRow = baseStyle->direction == FlexDirection::eRow;
-            const float directionAccumulatedBase = isRow ? accumulatedWidthBase : accumulatedHeightBase;
-            const float roundedBase = round? std::lroundf(directionAccumulatedBase) : directionAccumulatedBase;
-            const float directionInput =  isRow ? targetWidth : targetHeight;
-            const bool isCompressionMode = directionInput < roundedBase;
-
-            return std::make_tuple(targetWidth, targetHeight, isRow, isCompressionMode);
-        }
-
-        [[nodiscard]] std::tuple<float,float,float>
-        makeCompressCascadeMetrics(const float& widthInput, const float& heightInput, const bool& isRow, const bool& round ) const noexcept {
-            const float& value = isRow ? widthInput : heightInput;
-            const float& directionAccumulatedBase = isRow ? accumulatedWidthBase : accumulatedHeightBase;
-            const float accumulatedBase = round? std::lroundf(directionAccumulatedBase) : directionAccumulatedBase;
-
-            return std::make_tuple(value,accumulatedBase,accumulatedCompressSolidify);
-        }
-
-        [[nodiscard]] std::tuple<const float,const float,const float>
-        makeCompressSizeMetrics(const float& cascadeCompressDistance, const float&cascadeBaseDistance, const float& cascadeCompressSolidify, const bool& isRow, const bool& round) const noexcept {
-            const float childEffectiveBase = isRow ?validatedWidthBase : validatedHeightBase;
-            const float roundedBase = round? std::lroundf(childEffectiveBase) : childEffectiveBase;
-
-            return std::make_tuple(cascadeCompressDistance - cascadeCompressSolidify, cascadeBaseDistance - cascadeCompressSolidify, roundedBase);
-        }
-
-        [[nodiscard]] std::tuple<const bool,float,float>
-        makeExpandCascadeMetrics(const float& widthInput, const float& heightInput, const bool& isRow, const bool& round) const noexcept{
-            const float& value = isRow ? widthInput : heightInput;
-            const float& directionAccumulatedBase = isRow? accumulatedWidthBase: accumulatedHeightBase;
-            const float accumulatedBase = round? std::lroundf(directionAccumulatedBase) : directionAccumulatedBase;
-            const float cascadeExpandDelta = std::max(value - accumulatedBase, 0.0f);
-
-            return std::make_tuple(cascadeExpandDelta > 0.0f,cascadeExpandDelta, accumulatedExpandRatio);
-        }
-
-        [[nodiscard]] std::tuple<const float, const float>
-        makeExpandSizeMetrics(const bool& isRow, const bool& round) const noexcept{
-            const float& directionBase = isRow ?validatedWidthBase :validatedHeightBase;
-            const float roundedBase = round? std::lroundf(directionBase) : directionBase;
-            const float& directionMax = isRow ? validatedWidthMax : validatedHeightMax;
-
-            const float expandCapacity = std::max(0.0f, directionMax - roundedBase);
-
-            return std::make_tuple(roundedBase, expandCapacity);
-        }
-
-        [[nodiscard]] float computeCrossSize(const float widthInput, const float heightInput, const bool isRow) const noexcept {
-            // Select cross-axis values based on direction
-            const float input          = isRow ? heightInput : widthInput;
-            const float validatedBase  = isRow ? validatedHeightBase : validatedWidthBase;
-            const float minVal         = isRow ? validatedHeightMin  : validatedWidthMin;
-            const float maxVal         = isRow ? validatedHeightMax  : validatedWidthMax;
-            const LengthMode mode      = isRow ? baseStyle->height.mode : baseStyle->width.mode;
-
-            // If auto mode, use input size as base, otherwise use validated value
-            const float resolvedBase = mode == LengthMode::eAuto ? input : validatedBase;
-
-            const float lowest = ChooseLowestDistance(maxVal, input, resolvedBase);
-            return ChooseGreaterDistance(0.0f, lowest, minVal);
-        }
-
-
-        void compressing(const float& mainInput, const float& crossInput, const bool& isRow, const bool& round, const float& rootWidth, const float& rootHeight) noexcept {
-            auto [cascadeCompressDistance, cascadeBaseDistance, cascadeCompressSolidify] = makeCompressCascadeMetrics(mainInput, crossInput, isRow, round);
-
-            for (const auto index : compressCascadePriorities) {
-                DiscadeltaRectLayoutBase* child = getBaseChild(container[index]);
-                if (child == nullptr) continue;
-                auto [remainDist, remainCap, validatedBase] = child->makeCompressSizeMetrics(cascadeCompressDistance, cascadeBaseDistance, cascadeCompressSolidify, isRow, round);
-                const float& solidify = isRow ? widthCompressSolidify : heightCompressSolidify;
-                const float& capacity = isRow ? widthCompressCapacity : heightCompressCapacity;
-                const float& validatedMin = isRow ? validatedWidthMin : validatedHeightMin;
-                const float compressBaseDistance = Scaler(remainDist, remainCap, capacity) + solidify;
-                const float clampedDist = ChooseGreaterDistance(compressBaseDistance, validatedMin);
-                const float roundedDist = round? std::lroundf(clampedDist) : clampedDist;
-
-                const float oppositeBase = child->computeCrossSize(mainInput, crossInput, isRow);
-                const float roundedOppositeBase = round? std::lroundf(oppositeBase) : oppositeBase;
-                const float& widthDist = isRow ? roundedDist : roundedOppositeBase;
-                const float& heightDist = isRow ? roundedOppositeBase : roundedDist;
-
-                child->sizing(widthDist, heightDist, 0.0f, 0.0f, round, rootWidth, rootHeight);
-
-                cascadeCompressDistance -= roundedDist;
-                cascadeCompressSolidify -= solidify;
-                cascadeBaseDistance -= validatedBase;
-            }
-        }
-
-        void expanding(const float& widthInput, const float& heightInput, const bool& isRow, const bool& round, const float& rootWidth, const float& rootHeight) {
-            auto [processingExpansion,cascadeExpandDelta, cascadeExpandRatio] = makeExpandCascadeMetrics(widthInput, heightInput, isRow, round);
-
-            if (!processingExpansion) return;
-
-            for (const auto index : expandCascadePriorities) {
-                DiscadeltaRectLayoutBase* child = getBaseChild(container[index]);
-                if (child == nullptr) continue;
-
-                auto [validatedBase, maxDelta] = child->makeExpandSizeMetrics(isRow, round);
-                const float& expandRatio = child->expandRatio;
-                const float expandDelta = Scaler(cascadeExpandDelta, cascadeExpandRatio, expandRatio);
-                const float clampedDelta = ChooseLowestDistance(expandDelta, maxDelta);
-                const float roundedDelta = round? std::lroundf(clampedDelta) : clampedDelta;
-
-                const float& widthDelta = isRow ? roundedDelta : 0;
-                const float& heightDelta = isRow ? 0 : roundedDelta;
-
-                const float oppositeBase = child->computeCrossSize(widthInput, heightInput, isRow);
-                const float roundedOppositeBase = round? std::lroundf(oppositeBase) : oppositeBase;
-                const float& widthDist = isRow ? validatedBase : roundedOppositeBase;
-                const float& heightDist = isRow ? roundedOppositeBase : validatedBase;
-
-
-                child->sizing(widthDist, heightDist, widthDelta, heightDelta , round, rootWidth, rootHeight);
-
-                cascadeExpandDelta -= roundedDelta;
-                cascadeExpandRatio -= expandRatio;
-            }
-        }
-
-        void sizing( const float& widthInput, const float& heightInput, const float& widthDelta, const float& heightDelta, const bool& round, const float& rootWidth, const float& rootHeight) {
-            if (baseStyle->positionMode == PositionMode::eAbsolute) {
-                updateLayout(rootWidth, rootHeight, round);
-            }
-            else {
-                const auto [validatedWidthInput, validatedHeightInput, isRow, processingCompression] = makeSizeMetrics(widthInput, heightInput, round);
-
-                usedWidthSpace = 0.0f;
-                usedHeightSpace = 0.0f;
-
-                widthBase = validatedWidthInput;
-                heightBase = validatedHeightInput;
-                widthExpandDelta = widthDelta;
-                heightExpandDelta = heightDelta;
-
-                const float flexWidth = validatedWidthInput + widthDelta;
-                const float flexHeight = validatedHeightInput + heightDelta;
-
-                width =  flexWidth;
-                height = flexHeight;
-
-                if (parent) {
-                    bool pIsRow = parent->baseStyle->direction == FlexDirection::eRow;
-                    parent->usedWidthSpace += pIsRow ?width : 0.0f;
-                    parent->usedHeightSpace += pIsRow ? 0.0f : height;
-                    bool crossStretching = baseStyle->alignSelf == AlignMode::eStretch || parent->baseStyle->alignItems == AlignMode::eStretch;
-                    width = !pIsRow? crossStretching? width: std::clamp(validatedWidthBase, validatedWidthMin, validatedWidthMax): width;
-                    height = pIsRow? crossStretching? height: std::clamp(validatedHeightBase, validatedHeightMin, validatedHeightMax): height;
-                }
-
-                if (processingCompression) {
-                    compressing(flexWidth, flexHeight, isRow, round, rootWidth, rootHeight);
-                }
-                else {
-                    expanding(flexWidth, flexHeight, isRow, round, rootWidth, rootHeight);
-                }
-            }
-        }
-
-
-        [[nodiscard]] std::vector<size_t> getOrderedIndices() const noexcept {
-            std::vector<size_t> indices(container.size());
-            std::iota(indices.begin(), indices.end(), size_t{0});
-
-            std::ranges::sort(indices, [this](size_t a, size_t b) noexcept {
-                const DiscadeltaRectLayoutBase* childA = getBaseChild(container[a]);
-                const DiscadeltaRectLayoutBase* childB = getBaseChild(container[b]);
-
-                if (!childA || !childB) return false;
-                return childA->order < childB->order;
+            std::ranges::stable_sort(indices, [this](size_t a, size_t b) noexcept {
+                return getBaseChild(container[a])->order
+                     < getBaseChild(container[b])->order;
             });
 
             return indices;
         }
 
-        void placing(const float relativeX = 0.0f, const float relativeY = 0.0f) noexcept {
+        void placing(float relativeX = 0.0f, float relativeY = 0.0f) noexcept {
             x = relativeX;
             y = relativeY;
 
-            if (container.empty()) return;
+            if (container.empty() || !baseStyle) return;
 
-            const auto orderedIndices = getOrderedIndices();
-            const bool isRow = baseStyle->direction == FlexDirection::eRow;
+            const std::vector<size_t> ordered = getOrderedIndices();
+            if (ordered.empty()) return;
 
-            // Use the used space already accumulated during sizing()
-            const float usedMainSpace = isRow ? usedWidthSpace : usedHeightSpace;
-            const float containerMainSize = isRow ? width : height;
-            const float remainSpace = std::max(0.0f, containerMainSize - usedMainSpace);
+            const bool  isRow         = baseStyle->direction == FlexDirection::eRow;
+            const float usedMainSpace = this->usedMainSpace;
+            const float containerMain = isRow ? width  : height;
+            const float remainSpace   = std::max(0.0f, containerMain - usedMainSpace);
 
-            float currentMainOffset = 0.0f;
+            float mainOffset = 0.0f;
 
-            for (const size_t index : orderedIndices) {
-                DiscadeltaRectLayoutBase* child = getBaseChild(container[index]);
-                if (child == nullptr) continue;
+            for (size_t ordIdx = 0; ordIdx < ordered.size(); ++ordIdx) {
+                DiscadeltaRectLayoutBase* child = getBaseChild(container[ordered[ordIdx]]);
+                // null already filtered in getOrderedIndices
 
-                if (child->baseStyle->positionMode == PositionMode::eAbsolute) {
+                // Absolute children are placed at their own origin.
+                if (child->baseStyle &&
+                    child->baseStyle->positionMode == PositionMode::eAbsolute) {
                     child->placing();
                     continue;
                 }
 
-                const bool isFirst = index == orderedIndices.front();
-                const bool isLast  = index == orderedIndices.back();
-
-                const float childMainSize = isRow ? child->width : child->height;
+                const bool  isFirst     = ordIdx == 0;
+                const bool  isLast      = ordIdx == ordered.size() - 1;
+                const float childMain   = isRow ? child->width  : child->height;
+                const float childCross  = isRow ? child->height : child->width;
+                const float parentCross = isRow ? height : width;
 
                 const float mainPos = CalculateJustifyContent(
-                    currentMainOffset,
-                    containerMainSize,
-                    childMainSize,
+                    mainOffset,
+                    containerMain,
+                    childMain,
                     usedMainSpace,
                     remainSpace,
-                    static_cast<int>(orderedIndices.size()),
+                    static_cast<int>(ordered.size()),
                     isFirst,
                     isLast,
-                    baseStyle->justifyContent
-                );
+                    baseStyle->justifyContent);
 
-                // Cross axis (simple start for now)
-                const float& childCrossSize = isRow ? child->height : child->width;
-                const float& parentCrossSize = isRow ? height : width;
-                const AlignMode& chooseMode = child->baseStyle->alignSelf == AlignMode::eAuto? baseStyle->alignItems : child->baseStyle->alignSelf;
-                const float crossPos = CalculateAlign(childCrossSize, parentCrossSize, chooseMode);
+                const AlignMode crossMode =
+                    (child->baseStyle && child->baseStyle->alignSelf != AlignMode::eAuto)
+                        ? child->baseStyle->alignSelf
+                        : baseStyle->alignItems;
 
-                const float childX = isRow ? mainPos : crossPos;
+                const float crossPos = CalculateAlign(childCross, parentCross, crossMode);
+
+                const float childX = isRow ? mainPos  : crossPos;
                 const float childY = isRow ? crossPos : mainPos;
 
                 child->placing(relativeX + childX, relativeY + childY);
 
-                // Advance for next sibling
-                currentMainOffset = mainPos + childMainSize;
+                mainOffset = mainPos + childMain;
             }
         }
 
-        ResourceID id{};
-        float x{0.0f}, y{0.0f}, width{0.0f}, height{0.0f};
-        uint32_t order{0};
+        // ── Internal accumulator — grouped to make clearing trivial ──
+        struct Accumulated {
+            float widthBase{};
+            float heightBase{};
+            float widthMin{};
+            float heightMin{};
+            float compressSolidify{};
+            float expandRatio{};
 
-        float                               accumulatedWidthBase = 0.0f;
-        float                               accumulatedHeightBase = 0.0f;
-        float                               accumulatedWidthMin  = 0.0f;
-        float                               accumulatedHeightMin = 0.0f;
-        float                               accumulatedCompressSolidify = 0.0f;
-        float                               accumulatedExpandRatio = 0.0f;
+            // Mutable references selected by axis direction.
+            float& mainBase(bool isRow)  noexcept { return isRow ? widthBase  : heightBase; }
+            float& crossBase(bool isRow) noexcept { return isRow ? heightBase : widthBase;  }
+            float& mainMin(bool isRow)   noexcept { return isRow ? widthMin   : heightMin;  }
+            float& crossMin(bool isRow)  noexcept { return isRow ? heightMin  : widthMin;   }
+        };
 
-        float                               validatedWidthMin   = 0.0f;
-        float                               validatedHeightMin  = 0.0f;
-        float                               validatedWidthBase  = 0.0f;
-        float                               validatedHeightBase = 0.0f;
-        float                               validatedWidthMax   = 0.0f;
-        float                               validatedHeightMax  = 0.0f;
+        // ── Data members ──────────────────────────────────────────
 
-        float                               compressRatio = 0.0f;
-        float                               widthCompressCapacity = 0.0f;
-        float                               widthCompressSolidify = 0.0f;
-        float                               heightCompressCapacity = 0.0f;
-        float                               heightCompressSolidify = 0.0f;
-        float                               expandRatio = 0.0f;
+        ResourceID              id{};
 
-        float                               widthBase{0.0f};
-        float                               heightBase{0.0f};
-        float                               widthExpandDelta{0.0f};
-        float                               heightExpandDelta{0.0f};
+        // Resolved layout output (written by sizing/placing)
+        float x{};     float y{};
+        float width{}; float height{};
+        uint32_t order{};
 
-        float                               usedWidthSpace{0.0f};
-        float                               usedHeightSpace{0.0f};
+        // Phase-1 accumulators (reset each updateMetrics)
+        Accumulated accumulated{};
 
-        std::vector<size_t>                 compressCascadePriorities{};
-        std::vector<size_t>                 expandCascadePriorities{};
+        // Phase-2 validated constraints
+        float validatedWidthMin{};    float validatedHeightMin{};
+        float validatedWidthBase{};   float validatedHeightBase{};
+        float validatedWidthMax{};    float validatedHeightMax{};
 
-        DiscadeltaRectLayoutBase*           parent = nullptr;
-        DiscadeltaRectLayoutStyleBase*      baseStyle = nullptr;
+        // Derived compress/expand values
+        float compressRatio{};
+        float widthCompressCapacity{};  float widthCompressSolidify{};
+        float heightCompressCapacity{}; float heightCompressSolidify{};
+        float expandRatio{};
+
+        // Transient: filled during sizing(), read during placing()
+        float usedMainSpace{};
+
+        // Phase-3 sorted child index lists
+        std::vector<size_t> compressCascadePriorities{};
+        std::vector<size_t> expandCascadePriorities{};
+
+        DiscadeltaRectLayoutBase*       parent    = nullptr;
+        DiscadeltaRectLayoutStyleBase*  baseStyle = nullptr;
 
     public:
         virtual ~DiscadeltaRectLayoutBase() { clear(); }
 
-        using Owned   = std::unique_ptr<Derived>;
+        using Owned    = std::unique_ptr<Derived>;
         using NonOwned = Derived*;
-        using Entry   = std::variant<Owned, NonOwned>;
+        using Entry    = std::variant<Owned, NonOwned>;
 
-        std::vector<Entry> container{};
-        std::unordered_map<ResourceID, size_t, ResourceIDHash, ResourceIDEq> resourceIndex{};
+        std::vector<Entry>  container{};
+        std::unordered_map<engine::ResourceID, size_t,
+                           engine::ResourceIDHash,
+                           engine::ResourceIDEq>  resourceIndex{};
+
+        // ── Public queries ────────────────────────────────────────
 
         [[nodiscard]] bool isRoot() const noexcept { return parent == nullptr; }
 
-        [[nodiscard]] glm::mat4 getTransformMat4() const {
-            return MakeTransformModel(glm::vec3{x, y, 0.0f}, IDENTITY_QUAT,
-                                    glm::vec3{width, height, 1.0f});
+        [[nodiscard]] bool isContainerEmpty() const noexcept {
+            return container.empty();
         }
 
-        void updateMetrics(const bool updateFamily = true) noexcept{
+        [[nodiscard]] bool contains(const engine::ResourceID& id_) const {
+            return resourceIndex.contains(id_);
+        }
+
+        [[nodiscard]] bool contains(std::string_view name) const {
+            return contains(engine::ResourceID{name});
+        }
+
+        [[nodiscard]] glm::mat4 getTransformMat4() const {
+            return MakeTransformModel(glm::vec3{x, y, 0.0f},
+                                      IDENTITY_QUAT,
+                                      glm::vec3{width, height, 1.0f});
+        }
+
+        // ── Metrics update (public entry point) ───────────────────
+        //
+        //  updateFamily=true  → bubble up to root so parent constraints
+        //                        re-evaluate after a child change.
+        //  updateFamily=false → update only this node (batch inserts).
+
+        void updateMetrics(bool updateFamily = true) noexcept {
             preComputeMetrics();
             validateMetrics();
             updatePriorityLists();
 
-            if (parent == nullptr || parent == this || !updateFamily) return;
-
+            if (!updateFamily || !parent || parent == this) return;
             parent->updateMetrics();
         }
 
+        // ── Layout entry point ────────────────────────────────────
+
+        void updateLayout(float w, float h, bool round) noexcept {
+            sizing(w, h, 0.0f, 0.0f, round, w, h);
+            placing();
+        }
+
+        // ── Child access ──────────────────────────────────────────
+
         [[nodiscard]] DiscadeltaRectLayoutBase* getBaseChild(const Entry& entry) const {
-            return std::visit([]<typename T0>(T0&& arg) -> DiscadeltaRectLayoutBase* {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Owned>) {
+            return std::visit([]<typename T>(T&& arg) -> DiscadeltaRectLayoutBase* {
+                if constexpr (std::is_same_v<std::decay_t<T>, Owned>)
                     return arg.get();
-                } else {
+                else
                     return arg;
-                }
             }, entry);
         }
+
+        // ── Mutation ──────────────────────────────────────────────
 
         void add(Owned resource) {
             if (!resource) return;
 
-            if (resource->parent && resource->parent != this) {
+            if (resource->parent && resource->parent != this)
                 resource->parent->remove(resource.get());
-            }
-
-            resource->updateMetrics();
 
             resource->parent = this;
             onAdd(resource.get());
 
-            const size_t idx = container.size();
-            resourceIndex[resource->id] = idx;
+            resourceIndex[resource->id] = container.size();
             container.emplace_back(std::move(resource));
 
             updateMetrics();
-
             onTreeStructureChanged();
         }
 
         void add(NonOwned resource) {
             if (!resource) return;
 
-            if (resource->parent && resource->parent != this) {
+            if (resource->parent && resource->parent != this)
                 resource->parent->remove(resource);
-            }
 
             resource->parent = this;
             onAdd(resource);
 
-            const size_t idx = container.size();
-            resourceIndex[resource->id] = idx;
+            resourceIndex[resource->id] = container.size();
             container.emplace_back(resource);
 
-            resource->updateMetrics();
-
+            updateMetrics();
             onTreeStructureChanged();
         }
 
         template<typename T = Derived, typename... Args>
         [[nodiscard]] T* createChild(Args&&... args) {
-            auto newChild = std::make_unique<T>(std::forward<Args>(args)...);
-            T* rawPtr = newChild.get();
-
-            add(std::move(newChild));
-            return rawPtr;
+            auto child = std::make_unique<T>(std::forward<Args>(args)...);
+            T* raw = child.get();
+            add(std::move(child));
+            return raw;
         }
 
-        [[nodiscard]] bool isContainerEmpty() const noexcept {
-            return container.empty();
-        }
-
-        // ====================== CONTAINS ======================
-        [[nodiscard]] bool contains(const ResourceID& id) const {
-            return resourceIndex.contains(id);
-        }
-
-        [[nodiscard]] bool contains(const std::string_view name) const {
-            return contains(ResourceID{name});
-        }
-
-        // ====================== REMOVE ======================
         bool remove(NonOwned resource) {
             if (!resource || resource->parent != this) return false;
 
@@ -1075,38 +1174,32 @@ export namespace ufox::geometry::discadelta {
             if (it == resourceIndex.end()) return false;
 
             onRemove(resource);
-
             resource->parent = nullptr;
 
-            size_t idx = it->second;
-            container.erase(container.begin() + idx);
+            const size_t idx = it->second;
+            container.erase(container.begin() + static_cast<ptrdiff_t>(idx));
             resourceIndex.erase(it);
 
+            // Re-index everything after the removed slot.
             for (size_t i = idx; i < container.size(); ++i) {
-                std::visit([&](auto&& arg) {
-                    if (arg) resourceIndex[arg->id] = i;
-                }, container[i]);
+                if (auto* child = getBaseChild(container[i]))
+                    resourceIndex[child->id] = i;
             }
 
             updateMetrics();
-
             onTreeStructureChanged();
             return true;
         }
 
-        void updateLayout(const float width, const float height, const bool round ) {
-            sizing(width, height, 0.0f,0.0f, round, width, height);
-            placing();
-        }
+        // ── Query ─────────────────────────────────────────────────
 
-        // ====================== QUERY ======================
         template<typename T = Derived>
-        [[nodiscard]] T* Q(const ResourceID& id) const {
-            auto it = resourceIndex.find(id);
+        [[nodiscard]] T* Q(const engine::ResourceID& rid) const {
+            auto it = resourceIndex.find(rid);
             if (it == resourceIndex.end()) return nullptr;
 
-            return std::visit([]<typename T0>(T0&& arg) -> T* {
-                if constexpr (std::is_same_v<std::decay_t<T0>, Owned>)
+            return std::visit([]<typename U>(U&& arg) -> T* {
+                if constexpr (std::is_same_v<std::decay_t<U>, Owned>)
                     return dynamic_cast<T*>(arg.get());
                 else
                     return dynamic_cast<T*>(arg);
@@ -1115,7 +1208,7 @@ export namespace ufox::geometry::discadelta {
 
         template<typename T = Derived>
         [[nodiscard]] T* Q(std::string_view name) const {
-            return Q<T>(ResourceID{name});
+            return Q<T>(engine::ResourceID{name});
         }
     };
 }

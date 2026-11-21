@@ -45,6 +45,7 @@ struct ScreenData {
 
 [[vk::binding(3, 0)]] Texture2D    textureArray[];
 [[vk::binding(4, 0)]] SamplerState guiSampler[];
+//[[vk::binding(6,0)]] StructuredBuffer<GlyphGpuData> glyphBuffer[];
 
 struct VSOutput {
     float4 pos : SV_Position;

@@ -8,6 +8,7 @@ module;
 #include <algorithm>
 #include <chrono>
 #include <nlohmann/json.hpp>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
 
@@ -46,40 +47,47 @@ export namespace ufox::font {
       return "unknown";
     }
 
+
     [[nodiscard]] inline nlohmann::json WriteGlyphContextJsonProperties(const GlyphContext& g) {
         return {
-            {"codepoint", g.codepoint},
-            {"advance",   g.advance},
-            {"uvX",       g.uvX},
-            {"uvY",       g.uvY},
-            {"uvW",       g.uvW},
-            {"uvH",       g.uvH}
+            {"codepoint",    g.codepoint},
+            {"advance",      g.advance},
+            {"uvX",          g.uvX},
+            {"uvY",          g.uvY},
+            {"uvW",          g.uvW},
+            {"uvH",          g.uvH},
+            {"planeLeft",    g.planeLeft},
+            {"planeBottom",  g.planeBottom},
+            {"planeRight",   g.planeRight},
+            {"planeTop",     g.planeTop}
         };
     }
 
+
     [[nodiscard]] inline GlyphContext ReadJsonPropertiesToGlyphContext(const nlohmann::json& j) {
         GlyphContext g{};
-
-        g.codepoint = j.value("codepoint", 0u);
-        g.advance   = j.value("advance", 0.0);
-        g.uvX       = j.value("uvX", 0.0f);
-        g.uvY       = j.value("uvY", 0.0f);
-        g.uvW       = j.value("uvW", 0.0f);
-        g.uvH       = j.value("uvH", 0.0f);
-
+        g.codepoint    = j.value("codepoint",    0u);
+        g.advance      = j.value("advance",      0.0);
+        g.uvX          = j.value("uvX",          0.0f);
+        g.uvY          = j.value("uvY",          0.0f);
+        g.uvW          = j.value("uvW",          0.0f);
+        g.uvH          = j.value("uvH",          0.0f);
+        g.planeLeft    = j.value("planeLeft",    0.0f);
+        g.planeBottom  = j.value("planeBottom",  0.0f);
+        g.planeRight   = j.value("planeRight",   0.0f);
+        g.planeTop     = j.value("planeTop",     0.0f);
         return g;
     }
 
-    [[nodiscard]] inline bool WriteGlyphToJson(const std::filesystem::path& jsonPath, const GlyphDataBindInfo& glyphBindInfo) {
-        std::ofstream out(jsonPath);
-        if (!out.is_open()) {
-            return false;
-        }
 
-        const auto& [atlasInfo, block, style, glyphs] = glyphBindInfo;
+    [[nodiscard]] inline bool WriteGlyphToJson(const std::filesystem::path& jsonPath,const GlyphDataBindInfo& glyphBindInfo){
+        std::ofstream out(jsonPath);
+        if (!out.is_open()) return false;
+
+        // Unpack all five fields
+        const auto& [atlasInfo, block, style, glyphs, atlasExtent] = glyphBindInfo;
 
         nlohmann::json j;
-
         j["atlasInfo"] = {
             { "name",          atlasInfo.name },
             { "id",            std::string{atlasInfo.id.view()} },
@@ -88,62 +96,54 @@ export namespace ufox::font {
             { "category",      atlasInfo.category },
             { "lastWriteTime", atlasInfo.lastWriteTimeFromMeta }
         };
+        j["block"]        = block;
+        j["style"]        = style;
+        j["atlasWidth"]   = atlasExtent.width;    // ← new
+        j["atlasHeight"]  = atlasExtent.height;   // ← new
+        j["glyphs"]       = nlohmann::json::array();
 
-        j["block"] = block;
-        j["style"] = style;
-        j["glyphs"] = nlohmann::json::array();
-
-        for (const auto& g : glyphs) {
+        for (const auto& g : glyphs)
             j["glyphs"].push_back(WriteGlyphContextJsonProperties(g));
-        }
 
         out << j.dump(4);
         return static_cast<bool>(out);
     }
 
-    [[nodiscard]] inline bool ReadGlyphFromJson(const std::filesystem::path& jsonPath, GlyphDataBindInfo& glyphBindInfo) {
+    [[nodiscard]] inline bool ReadGlyphFromJson(const std::filesystem::path& jsonPath,GlyphDataBindInfo& glyphBindInfo){
         std::ifstream in(jsonPath);
-        if (!in.is_open()) {
-            return false;
-        }
+        if (!in.is_open()) return false;
 
         try {
             const nlohmann::json j = nlohmann::json::parse(in);
+            if (!j.contains("atlasInfo") || !j["atlasInfo"].is_object()) return false;
 
-            if (!j.contains("atlasInfo") || !j["atlasInfo"].is_object()) {
-                return false;
-            }
-
-            auto& [atlasInfo, block, style, glyphs] = glyphBindInfo;
+            // Unpack all five fields
+            auto& [atlasInfo, block, style, glyphs, atlasExtent] = glyphBindInfo;
             const auto& atlasJson = j["atlasInfo"];
 
-            atlasInfo.name = atlasJson.value("name", "");
-            atlasInfo.id = ResourceID{atlasJson.value("id", "")};
-
-            const std::filesystem::path sourcePath = atlasJson.value("sourcePath", "");
-            atlasInfo.sourcePath = sourcePath;
-            atlasInfo.sourceType = static_cast<SourceType>(atlasJson.value("sourceType", 0));
-            atlasInfo.category = atlasJson.value("category", "");
+            atlasInfo.name                = atlasJson.value("name", "");
+            atlasInfo.id                  = ResourceID{atlasJson.value("id", "")};
+            atlasInfo.sourcePath          = atlasJson.value("sourcePath", "");
+            atlasInfo.sourceType          = static_cast<SourceType>(atlasJson.value("sourceType", 0));
+            atlasInfo.category            = atlasJson.value("category", "");
             atlasInfo.lastWriteTimeFromMeta = atlasJson.value("lastWriteTime", "");
 
             block = static_cast<GlyphUnicodeBlock>(j.value("block", 0));
             style = static_cast<GlyphStyle>(j.value("style", 0));
 
-            glyphs.clear();
+            // ← new: read atlas extent
+            atlasExtent.width  = j.value("atlasWidth",  0u);
+            atlasExtent.height = j.value("atlasHeight", 0u);
 
+            glyphs.clear();
             if (j.contains("glyphs") && j["glyphs"].is_array()) {
                 glyphs.reserve(j["glyphs"].size());
-
-                for (const auto& item : j["glyphs"]) {
+                for (const auto& item : j["glyphs"])
                     glyphs.push_back(ReadJsonPropertiesToGlyphContext(item));
-                }
             }
-
             return true;
         }
-        catch (...) {
-            return false;
-        }
+        catch (...) { return false; }
     }
 
     GlyphStyle GetGlyphStyle(const std::string_view name) {
@@ -209,7 +209,7 @@ export namespace ufox::font {
             if (msdfgen::FontHandle* font = msdfgen::loadFont(ft, outInfo.sourcePath.string().c_str())) {
                 constexpr double fontSizeEm = 40.0;
 
-                auto& [atlasInfo, outBlock, outStyle, outGlyphs] = binding;
+                auto& [atlasInfo, outBlock, outStyle, outGlyphs, outAtlasExtent] = binding;
 
                 std::vector<msdf_atlas::GlyphGeometry> glyphs;
                 msdf_atlas::FontGeometry fontGeometry(&glyphs);
@@ -244,6 +244,9 @@ export namespace ufox::font {
                 const std::string namePreFix = outInfo.sourcePath.parent_path().string() + "/";
                 const std::string extension{".png"};
                 std::string nameEndFix{};
+
+                outAtlasExtent.width  = static_cast<uint32_t>(width);
+                outAtlasExtent.height = static_cast<uint32_t>(height);
 
                 switch (type) {
                 case msdf_atlas::ImageType::MTSDF: {
@@ -317,12 +320,22 @@ export namespace ufox::font {
                     GlyphContext ctx{};
                     ctx.codepoint = g.getCodepoint();
                     ctx.advance = g.getAdvance();
+
                     double x,y,w,h;
                     g.getQuadAtlasBounds(x, h, w, y);
                     ctx.uvX = static_cast<float>(x/atlasWidth);
                     ctx.uvY = static_cast<float>((atlasHeight - y)/atlasHeight);
                     ctx.uvW = static_cast<float>((w - x)/atlasWidth);
                     ctx.uvH = static_cast<float>((y-h)/atlasHeight);
+
+                    // Plane bounds in em-units — bearing + glyph size
+                    double pl, pb, pr, pt;
+                    g.getQuadPlaneBounds(pl, pb, pr, pt);
+                    ctx.planeLeft   = static_cast<float>(pl);
+                    ctx.planeBottom = static_cast<float>(pb);
+                    ctx.planeRight  = static_cast<float>(pr);
+                    ctx.planeTop    = static_cast<float>(pt);
+
                     outGlyphs.emplace_back(ctx);
                 }
 
@@ -346,8 +359,18 @@ export namespace ufox::font {
         return success;
     }
 
+    class Font {
+    public:
+        std::string name;
+        const ResourceID cid;
+        Font(const std::string_view _name, ResourceID  _cid) : name(_name), cid(std::move(_cid)) {}
+
+
+        std::unordered_map<GlyphUnicodeBlock, Glyph*> glyphs;
+    };
+
     class GlyphManager;
-    const ResourceID* MakeGlyphContent(GlyphManager& manager,const ResourceID& atlasTextureID, const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block, const GlyphStyle& style, const ResourceContextCreateInfo& info);
+    const ResourceID* MakeGlyphContent(GlyphManager& manager,const ResourceID& atlasTextureID,const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block,const GlyphStyle& style,const GlyphAtlasExtent& atlasExtent,const ResourceContextCreateInfo& info);
 
     class GlyphManager final : public ResourceManagerBase {
     public:
@@ -399,7 +422,7 @@ export namespace ufox::font {
             }
 
             for (const auto& bind : bindInfos) {
-                const auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts] = bind;
+                const auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts, atlasExtent] = bind;
 
                 if (atlasInfo.id.view().empty() || glyphContexts.empty()) {
                     debug::log(
@@ -410,7 +433,7 @@ export namespace ufox::font {
                     continue;
                 }
 
-                MakeGlyphContent(*this, atlasInfo.id, glyphContexts, glyphBlock, glyphStyle, info);
+                MakeGlyphContent(*this, atlasInfo.id, glyphContexts, glyphBlock, glyphStyle, atlasExtent, info);
             }
         }
 
@@ -440,16 +463,17 @@ export namespace ufox::font {
 
         void onPreDraw() override {}
 
-        // Placeholder for future registration (empty for now)
-        const ResourceID* makeGlyph(const ResourceID& atlasTextureID, const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block, const GlyphStyle& style, const ResourceContextCreateInfo& info) {
+
+        const ResourceID* makeGlyph(const ResourceID& atlasTextureID,const std::vector<GlyphContext>& glyphs, const GlyphUnicodeBlock& block,
+            const GlyphStyle& style,const GlyphAtlasExtent& atlasExtent, const ResourceContextCreateInfo& info){
             ResourceID id = atlasTextureID;
-            if(!makeResourceContext(id, info.overwrite)) {
+            if (!makeResourceContext(id, info.overwrite)) {
                 debug::log(debug::LogLevel::eWarning, "GlyphManager: makeGlyph: skip");
                 return nullptr;
             }
-
-            std::unique_ptr<ResourceBase> res = std::make_unique<Glyph>(info.name, id, block, style, glyphs);
-            return bindResourceToContext(res,info);
+            std::unique_ptr<ResourceBase> res = std::make_unique<Glyph>(
+                info.name, id, block, style, glyphs, atlasExtent);  // ← pass extent
+            return bindResourceToContext(res, info);
         }
 
         // Placeholder lookup
@@ -503,7 +527,7 @@ export namespace ufox::font {
                     return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
                 }
 
-                auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts] = bindInfo;
+                auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts, atlasExtent] = bindInfo;
 
                 if (glyphBlock != blocks[i]) {
                     debug::log(
@@ -514,13 +538,11 @@ export namespace ufox::font {
                     return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
                 }
 
-                if (atlasInfo.sourcePath.empty() || atlasInfo.id.view().empty() || glyphContexts.empty()) {
-                    debug::log(
-                        debug::LogLevel::eInfo,
-                        "GlyphManager: tryLoadBindInfosFromCache: invalid cached glyph data for font: {}. Regenerating.",
-                        info.name
-                    );
-                    return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
+                if (atlasInfo.sourcePath.empty() || atlasInfo.id.view().empty()|| glyphContexts.empty()|| atlasExtent.width == 0 || atlasExtent.height == 0) {
+                    debug::log(debug::LogLevel::eWarning,
+                        "GlyphManager: makeAtlasResourceBindInfos: generated invalid glyph data for font: {}",
+                        info.name);
+                    continue;
                 }
 
                 render::TextureDataBindInfo atlasBindInfo{};
@@ -533,7 +555,7 @@ export namespace ufox::font {
                     return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
                 }
 
-                ufox::render::MakeTextureContent(textureManager, atlasBindInfo, atlasInfo);
+                render::MakeTextureContent(textureManager, atlasBindInfo, atlasInfo);
 
                 bindInfos.push_back(std::move(bindInfo));
             }
@@ -549,7 +571,7 @@ export namespace ufox::font {
 
             for (const auto& block : blocks) {
                 GlyphDataBindInfo bindInfo{};
-                auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts] = bindInfo;
+                auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts, atlasExtent] = bindInfo;
 
                 glyphBlock = block;
                 glyphStyle = resourceStyle;
@@ -582,7 +604,7 @@ export namespace ufox::font {
                     continue;
                 }
 
-                ufox::render::MakeTextureContent(textureManager, atlasBindInfo, atlasInfo);
+                render::MakeTextureContent(textureManager, atlasBindInfo, atlasInfo);
 
                 bindInfos.push_back(std::move(bindInfo));
             }
@@ -592,7 +614,7 @@ export namespace ufox::font {
 
     };
 
-    const ResourceID* MakeGlyphContent(GlyphManager& manager, const ResourceID& atlasTextureID, const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block, const GlyphStyle& style, const ResourceContextCreateInfo& info) {
-       return manager.makeGlyph(atlasTextureID, glyphs, block, style, info);
+    const ResourceID* MakeGlyphContent(GlyphManager& manager,const ResourceID& atlasTextureID,const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block,const GlyphStyle& style,const GlyphAtlasExtent& atlasExtent,const ResourceContextCreateInfo& info){
+        return manager.makeGlyph(atlasTextureID, glyphs, block, style, atlasExtent, info);
     }
 }

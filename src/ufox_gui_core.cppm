@@ -906,11 +906,17 @@ export namespace ufox::gui {
                 samplerInfo.emplace_back(MakeDescriptorSamplerOnlyInfo(sampler));
             }
 
+            const vk::DescriptorBufferInfo elementInfo = makeDescriptorBufferInfo();
+            const vk::DescriptorBufferInfo styleInfo   = paletteManager->makeDescriptorBufferInfo();
+            const vk::DescriptorBufferInfo screenInfo  = window.makeScreenViewProjectionBufferInfo();
+
             for (size_t i =0; i < imageCount; i++) {
                 std::array<vk::WriteDescriptorSet, 5> write{};
-                write[0] = gpu::MakeBufferWriteDescriptorSet(sets[i],0, makeDescriptorBufferInfo(), vk::DescriptorType::eStorageBuffer);
-                write[1] = gpu::MakeBufferWriteDescriptorSet(sets[i],1, paletteManager->makeDescriptorBufferInfo(), vk::DescriptorType::eStorageBuffer);
-                write[2] = gpu::MakeBufferWriteDescriptorSet(sets[i],2, window.makeScreenViewProjectionBufferInfo(), SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
+
+                write[0] = gpu::MakeBufferWriteDescriptorSet(sets[i], 0, elementInfo, vk::DescriptorType::eStorageBuffer);
+                write[1] = gpu::MakeBufferWriteDescriptorSet(sets[i], 1, styleInfo,   vk::DescriptorType::eStorageBuffer);
+                write[2] = gpu::MakeBufferWriteDescriptorSet(sets[i], 2, screenInfo,  SCREEN_VIEW_PROJECTION_BUFFER_TYPE);
+
                 write[3].setDstSet(*sets[i])
                         .setDstBinding(3)
                         .setDstArrayElement(0)
@@ -921,7 +927,7 @@ export namespace ufox::gui {
                         .setDstBinding(4)
                         .setDstArrayElement(0)
                         .setDescriptorType(vk::DescriptorType::eSampler)
-                        .setDescriptorCount(REPEAT_SAMPLER_CONFIGS.size())
+                        .setDescriptorCount(static_cast<uint32_t>(samplerInfo.size()))
                         .setPImageInfo(samplerInfo.data());
                 descriptorSets.push_back(std::move(sets[i]));
                 window.gpuResource.device->updateDescriptorSets(write, {});
