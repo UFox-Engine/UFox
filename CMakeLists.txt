@@ -142,7 +142,7 @@ target_sources(UFox-modules
         PUBLIC
         FILE_SET CXX_MODULES TYPE CXX_MODULES
         FILES
-        src/UFoxEngine.cppm
+        src/ufox_engine.cppm
         src/ufox_nanoid.cppm
         src/ufox_Lib.cppm
         src/ufox_gpu_lib.cppm

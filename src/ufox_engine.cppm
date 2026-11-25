@@ -25,9 +25,9 @@ import ufox_lib;
 using namespace ufox::engine;
 export namespace ufox {
 
-    class UFoxEngine {
+    class ufox_engine {
     public:
-        explicit UFoxEngine(const std::string& title, uint32_t width, uint32_t height): window(CreateUFoxWindow(title, width, height)){}
+        explicit ufox_engine(const std::string& title, uint32_t width, uint32_t height): window(CreateUFoxWindow(title, width, height)){}
 
         void preRun() {
             // create only what the test needs
@@ -141,7 +141,7 @@ export namespace ufox {
         Camera                                       mainCamera{};   // cheap, can stay always present
     };
 
-    [[nodiscard]] std::unique_ptr<UFoxEngine> CreateUFoxEngine(const std::string& title,uint32_t width,uint32_t height){
-    return std::make_unique<UFoxEngine>(title, width, height);
+    [[nodiscard]] std::unique_ptr<ufox_engine> CreateUFoxEngine(const std::string& title,uint32_t width,uint32_t height){
+    return std::make_unique<ufox_engine>(title, width, height);
 }
 }
