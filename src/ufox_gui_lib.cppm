@@ -11,165 +11,123 @@ export module ufox_gui_lib;
 import ufox_lib;
 import ufox_geometry_lib;
 import ufox_gpu_lib;
+import ufox_font_lib;
 
 using namespace ufox::geometry;
 
 export namespace ufox::gui {
-constexpr uint32_t MAX_GUI_TEXTURES = 256;
-constexpr uint32_t MAX_GUI_ELEMENTS = 65536u;
-constexpr uint32_t MAX_TOTAL_CHARACTERS = 1048576u;
+  constexpr uint32_t MAX_GUI_TEXTURES = 256;
+  constexpr uint32_t MAX_GUI_ELEMENTS = 65536u;
+  constexpr uint32_t MAX_TOTAL_CHARACTERS = 1048576u;
 
-Vertex RectVertices[]{
-  {{0.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-  {{1.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-  {{1.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
-  {{0.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},
-};
+  Vertex RectVertices[]{
+    {{0.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+    {{1.0f, 0.0f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+    {{1.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+    {{0.0f, 1.0f, 0.0f}, {1.0f,1.0f,1.0f}, {0.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},
+  };
 
-uint16_t RectIndices[]{
-  0, 1, 2, 2, 3, 0
-};
+  uint16_t RectIndices[]{
+    0, 1, 2, 2, 3, 0
+  };
 
-constexpr auto RECT_MESH_NAME = "gui_rect_mesh";
+  constexpr auto RECT_MESH_NAME = "gui_rect_mesh";
 
-struct StorageBufferIndices {
-  uint32_t bgImageIndex{0};
-  uint32_t parentElementIndex{0};
-};
+  struct StorageBufferIndices {
+    uint32_t bgImageIndex{0};
+    uint32_t parentElementIndex{0};
+  };
 
-using SamplerConfig = std::tuple<
-    vk::SamplerAddressMode,
-    vk::SamplerAddressMode,
-    vk::SamplerAddressMode,
-    vk::BorderColor>;
+  using SamplerConfig = std::tuple<
+      vk::SamplerAddressMode,
+      vk::SamplerAddressMode,
+      vk::SamplerAddressMode,
+      vk::BorderColor>;
 
-constexpr std::array REPEAT_SAMPLER_CONFIGS{
-  SamplerConfig{
-    vk::SamplerAddressMode::eClampToBorder,
-    vk::SamplerAddressMode::eClampToBorder,
-    vk::SamplerAddressMode::eClampToBorder,
-    vk::BorderColor::eFloatTransparentBlack
-  },
-  SamplerConfig{
-    vk::SamplerAddressMode::eRepeat,
-    vk::SamplerAddressMode::eClampToBorder,
-    vk::SamplerAddressMode::eClampToBorder,
-    vk::BorderColor::eFloatTransparentBlack
-  },
-  SamplerConfig{
-    vk::SamplerAddressMode::eClampToBorder,
-    vk::SamplerAddressMode::eRepeat,
-    vk::SamplerAddressMode::eClampToBorder,
-    vk::BorderColor::eFloatTransparentBlack
-  },
-  SamplerConfig{
-    vk::SamplerAddressMode::eRepeat,
-    vk::SamplerAddressMode::eRepeat,
-    vk::SamplerAddressMode::eClampToBorder,
-    vk::BorderColor::eFloatOpaqueBlack
-  }
-};
+  constexpr std::array REPEAT_SAMPLER_CONFIGS{
+    SamplerConfig{
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::BorderColor::eFloatTransparentBlack
+    },
+    SamplerConfig{
+      vk::SamplerAddressMode::eRepeat,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::BorderColor::eFloatTransparentBlack
+    },
+    SamplerConfig{
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::SamplerAddressMode::eRepeat,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::BorderColor::eFloatTransparentBlack
+    },
+    SamplerConfig{
+      vk::SamplerAddressMode::eRepeat,
+      vk::SamplerAddressMode::eRepeat,
+      vk::SamplerAddressMode::eClampToBorder,
+      vk::BorderColor::eFloatOpaqueBlack
+    }
+  };
 
-enum class DisplayOverflowMode : uint8_t {
-  eVisible = 0,
-  eHidden = 1
-};
+  enum class DisplayOverflowMode : uint8_t {
+    eVisible = 0,
+    eHidden = 1
+  };
 
-enum class ImageScaleMode : uint8_t {
-  eStretchToFill,
-  eScaleToFit,
-  eScaleAndCrop
-};
+  enum class ImageScaleMode : uint8_t {
+    eStretchToFill,
+    eScaleToFit,
+    eScaleAndCrop
+  };
 
-enum class ImageRepeatMode : uint8_t {
-  eNone,
-  eRepeatX,
-  eRepeatY,
-  eRepeatXY
-};
+  enum class ImageRepeatMode : uint8_t {
+    eNone,
+    eRepeatX,
+    eRepeatY,
+    eRepeatXY
+  };
 
-enum class ImageAlignment : uint8_t {
-  eTopLeft,
-  eTopCenter,
-  eTopRight,
-  eCenterLeft,
-  eCenter,
-  eCenterRight,
-  eBottomLeft,
-  eBottomCenter,
-  eBottomRight
-};
+  enum class ImageAlignment : uint8_t {
+    eTopLeft,
+    eTopCenter,
+    eTopRight,
+    eCenterLeft,
+    eCenter,
+    eCenterRight,
+    eBottomLeft,
+    eBottomCenter,
+    eBottomRight
+  };
 
 
-struct Style : discadelta::DiscadeltaRectLayoutStyleBase{
-  std::string                    backgroundImage{"default"};
-  DisplayOverflowMode            displayOverflowMode = DisplayOverflowMode::eVisible;
-  ImageScaleMode                 imageScaleMode = ImageScaleMode::eScaleToFit;
-  ImageRepeatMode                imageRepeatMode = ImageRepeatMode::eNone;
-  ImageAlignment                 imageAlignment = ImageAlignment::eCenter;
+  struct Style : discadelta::DiscadeltaRectLayoutStyleBase{
+    std::string                    backgroundImage{"default"};
+    std::string                    fontFamily{"NotoSans"};
 
-  float                          borderTopWidth = 0.0f;
-  float                          borderBottomWidth = 0.0f;
-  float                          borderRightWidth = 0.0f;
-  float                          borderLeftWidth = 0.0f;
-  float                          borderTopLeftRadius = 0.0f;
-  float                          borderTopRightRadius = 0.0f;
-  float                          borderBottomLeftRadius = 0.0f;
-  float                          borderBottomRightRadius = 0.0f;
-  float                          marginTop = 0.0f;
-  float                          marginBottom = 0.0f;
-  float                          marginLeft = 0.0f;
-  float                          marginRight = 0.0f;
+    DisplayOverflowMode            displayOverflowMode = DisplayOverflowMode::eVisible;
+    ImageScaleMode                 imageScaleMode = ImageScaleMode::eScaleToFit;
+    ImageRepeatMode                imageRepeatMode = ImageRepeatMode::eNone;
+    ImageAlignment                 imageAlignment = ImageAlignment::eCenter;
 
-  glm::vec4                      imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
-  glm::vec4                      backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
-  glm::vec4                      borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
-  glm::vec4                      borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
-  glm::vec4                      borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
-  glm::vec4                      borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    float                          fontSize= 12.0f;
 
-  [[nodiscard]] glm::vec4 getBorderThicknessSet() const noexcept {
-    return {borderTopWidth, borderRightWidth, borderBottomWidth, borderLeftWidth};
-  }
+    glm::vec4                      imageColor = {1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4                      fontColor = {1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4                      backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec4                      borderBottomColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderTopColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderLeftColor = {0.0f, 0.0f, 0.0f, 1.0f};
+    glm::vec4                      borderRightColor = {0.0f, 0.0f, 0.0f, 1.0f};
 
-  [[nodiscard]] glm::vec4 getCornerRadiusSet() const noexcept {
-    return {borderBottomRightRadius, borderTopRightRadius, borderBottomLeftRadius, borderTopLeftRadius};
-  }
+    font::FontType                fontType{font::FontType::eRegular};
+    font::GlyphUnicodeBlock        languageCodeBlock{font::GlyphUnicodeBlock::eLGC};
 
-  [[nodiscard]] glm::vec4 getMarginSet() const noexcept {
-    return {marginTop, marginRight, marginBottom, marginLeft};
-  }
-
-  [[nodiscard]] constexpr glm::vec2 getMarginSpace() const noexcept {
-    const float x = marginLeft + marginRight;
-    const float y = marginTop + marginBottom;
-    return {x, y};
-  }
-
-  [[nodiscard]] constexpr glm::vec2 getBorderThicknessSpace() const noexcept {
-    const float x = borderLeftWidth + borderRightWidth;
-    const float y = borderTopWidth + borderBottomWidth;
-    return {x, y};
-  }
-
-  [[nodiscard]] glm::vec2 getImageSpace() const noexcept {
-    const float x = marginLeft + marginRight + borderLeftWidth + borderRightWidth;
-    const float y = marginTop + marginBottom + borderTopWidth + borderBottomWidth;
-    return {x, y};
-  }
-
-  [[nodiscard]]  glm::vec2 getImageBRSpaceOffset() const noexcept {
-    const float x = marginRight + borderRightWidth;
-    const float y = marginBottom + borderBottomWidth;
-    return {x, y};
-  }
-
-  [[nodiscard]] glm::vec2 getImageTLSpaceOffset() const noexcept {
-    const float x = marginLeft + borderLeftWidth;
-    const float y = marginTop + borderTopWidth;
-    return {x, y};
-  }
-};
+    [[nodiscard]] glm::vec4 getCornerRadiusSet() const noexcept {
+      return {borderBottomRightRadius, borderTopRightRadius, borderBottomLeftRadius, borderTopLeftRadius};
+    }
+  };
 
 
   // Size: 48 Bytes (Naturally aligned, no internal padding gaps)
@@ -181,19 +139,19 @@ struct Style : discadelta::DiscadeltaRectLayoutStyleBase{
     glm::vec2 iPOffset;                 //  8 bytes - Offset 40
   };
 
-  // Size: 144 Bytes -> Divisible by 16! (Zero gaps, perfect GPU striding)
   struct alignas(16) ElementData {
-    glm::mat4       model{};            // 64 bytes - Offset 0
-    glm::vec4       imageOffsetAndTiling;// 16 bytes - Offset 64
-    SDRectInputData sdInput;            // 48 bytes - Offset 80
-    glm::vec2       scrollingOffset{0.0f};// 8 bytes- Offset 128
+    glm::mat4       model{};                 // 64 bytes - Offset 0
+    glm::vec4       imageOffsetAndTiling;    // 16 bytes - Offset 64
+    SDRectInputData sdInput;                 // 48 bytes - Offset 80
+    glm::vec2       scrollingOffset{0.0f};   //  8 bytes - Offset 128
 
-    // --- SUCCESS: Dynamic asset context keys grouped right at the end ---
-    uint32_t        styleIndex{0};      //  4 bytes - Offset 136
-    uint32_t        imageID{0};         //  4 bytes - Offset 140
+    uint32_t        styleIndex{0};           //  4 bytes - Offset 136
+    uint32_t        imageID{0};              //  4 bytes - Offset 140
+    uint32_t        tailPadding[2];          //  8 bytes - Offset 148 (keeps 16-byte alignment)
+    // Total: 160 bytes
   };
 
-  // Size: 144 Bytes -> Divisible by 16! (Explicit tailPadding handles Slang alignment matching)
+  // Size: 144 Bytes -> Divisible by 16!
   struct alignas(16) StyleStaticData {
     glm::vec4 radius;                   // 16 bytes - Offset 0
     glm::vec4 iRadius;                  // 16 bytes - Offset 16
@@ -204,9 +162,9 @@ struct Style : discadelta::DiscadeltaRectLayoutStyleBase{
     glm::vec4 borderLeftColor;          // 16 bytes - Offset 96
     glm::vec4 borderRightColor;         // 16 bytes - Offset 112
 
-    // --- REMOVED imageID ---
     uint32_t  imageRepeatMode;          //  4 bytes - Offset 128
-    uint32_t  tailPadding[3];        // 12 bytes - Offset 132 (Fills out exactly to 144 bytes)
+    uint32_t  isFont;                   //  4 bytes - Offset 132  (0 = normal image, 1 = MSDF glyph)
+    uint32_t  tailPadding[2];           //  8 bytes - Offset 136  (keeps total at 144)
 
     static constexpr StyleStaticData Default() noexcept
     {
@@ -219,13 +177,13 @@ struct Style : discadelta::DiscadeltaRectLayoutStyleBase{
       s.borderLeftColor      = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
       s.borderRightColor     = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
       s.borderBottomColor    = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-      s.imageRepeatMode      = 0;
+      s.imageRepeatMode      = 0u;
+      s.isFont               = 0u;
       return s;
     }
   };
 
-  constexpr StyleStaticData DefaultStyleGPU() noexcept
-  {
+  constexpr StyleStaticData DefaultStyleGPU() noexcept{
     StyleStaticData s{};
 
     s.radius               = glm::vec4(0.0f);
@@ -246,7 +204,7 @@ struct Style : discadelta::DiscadeltaRectLayoutStyleBase{
   inline constexpr StyleStaticData DEFAULT_STYLE = StyleStaticData::Default();
 
   // --- RUNTIME STRIDE VALIDATION ASSERTIONS PASS SECURELY ---
-  static_assert(sizeof(ElementData) == 144,       "ElementData byte stride corrupted!");
+  static_assert(sizeof(ElementData) == 160,       "ElementData byte stride corrupted!");
   static_assert(sizeof(StyleStaticData) == 144,   "StyleStaticData byte stride corrupted!");
 }
 
@@ -256,6 +214,7 @@ namespace std {
     struct hash<ufox::gui::StyleStaticData> {
         size_t operator()(const ufox::gui::StyleStaticData& s) const noexcept {
             size_t h = std::hash<uint32_t>{}(s.imageRepeatMode);
+            h ^= std::hash<uint32_t>{}(s.isFont)                + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<glm::vec4>{}(s.imageColor)           + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<glm::vec4>{}(s.backgroundColor)      + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<glm::vec4>{}(s.borderBottomColor)    + 0x9e3779b9 + (h << 6) + (h >> 2);

@@ -8,6 +8,7 @@ module;
 #include <algorithm>
 #include <chrono>
 #include <nlohmann/json.hpp>
+#include <thread>
 #include <utility>
 #include <vector>
 #include <vulkan/vulkan_raii.hpp>
@@ -29,19 +30,11 @@ export namespace ufox::font {
         switch (block) {
       case GlyphUnicodeBlock::eUnknown:
         return "unknown";
-      case GlyphUnicodeBlock::eLatin:
-        return "latin";
-      case GlyphUnicodeBlock::eCyrillic:
-        return "cyrillic";
-      case GlyphUnicodeBlock::eGreek:
-        return "greek";
-      case GlyphUnicodeBlock::eHanzi:
-        return "hanzi";
-      case GlyphUnicodeBlock::eKanji:
-        return "kanji";
-      case GlyphUnicodeBlock::eHangul:
-        return "hangul";
-      case GlyphUnicodeBlock::eThai:
+      case GlyphUnicodeBlock::eLGC:
+        return "LGC";
+      case GlyphUnicodeBlock::eJP:
+        return "JP";
+      case GlyphUnicodeBlock::eTHAI:
         return "thai";
       }
       return "unknown";
@@ -68,14 +61,14 @@ export namespace ufox::font {
         GlyphContext g{};
         g.codepoint    = j.value("codepoint",    0u);
         g.advance      = j.value("advance",      0.0);
-        g.uvX          = j.value("uvX",          0.0f);
-        g.uvY          = j.value("uvY",          0.0f);
-        g.uvW          = j.value("uvW",          0.0f);
-        g.uvH          = j.value("uvH",          0.0f);
-        g.planeLeft    = j.value("planeLeft",    0.0f);
-        g.planeBottom  = j.value("planeBottom",  0.0f);
-        g.planeRight   = j.value("planeRight",   0.0f);
-        g.planeTop     = j.value("planeTop",     0.0f);
+        g.uvX          = j.value("uvX",          0.0);
+        g.uvY          = j.value("uvY",          0.0);
+        g.uvW          = j.value("uvW",          0.0);
+        g.uvH          = j.value("uvH",          0.0);
+        g.planeLeft    = j.value("planeLeft",    0.0);
+        g.planeBottom  = j.value("planeBottom",  0.0);
+        g.planeRight   = j.value("planeRight",   0.0);
+        g.planeTop     = j.value("planeTop",     0.0);
         return g;
     }
 
@@ -85,7 +78,7 @@ export namespace ufox::font {
         if (!out.is_open()) return false;
 
         // Unpack all five fields
-        const auto& [atlasInfo, block, style, glyphs, atlasExtent] = glyphBindInfo;
+        const auto& [atlasInfo, block, style, metrics, glyphs] = glyphBindInfo;
 
         nlohmann::json j;
         j["atlasInfo"] = {
@@ -98,8 +91,12 @@ export namespace ufox::font {
         };
         j["block"]        = block;
         j["style"]        = style;
-        j["atlasWidth"]   = atlasExtent.width;    // ← new
-        j["atlasHeight"]  = atlasExtent.height;   // ← new
+        j["GlyphFontMetrics"] = {
+            {"ascender",  metrics.ascender},
+            {"descender", metrics.descender},
+            {"lineHeight",metrics.lineHeight},
+            {"pxRange",   metrics.pxRange}
+        };
         j["glyphs"]       = nlohmann::json::array();
 
         for (const auto& g : glyphs)
@@ -118,22 +115,25 @@ export namespace ufox::font {
             if (!j.contains("atlasInfo") || !j["atlasInfo"].is_object()) return false;
 
             // Unpack all five fields
-            auto& [atlasInfo, block, style, glyphs, atlasExtent] = glyphBindInfo;
+            auto& [atlasInfo, block, style, metrics, glyphs] = glyphBindInfo;
             const auto& atlasJson = j["atlasInfo"];
+            const auto& metricsJson = j["GlyphFontMetrics"];
 
             atlasInfo.name                = atlasJson.value("name", "");
-            atlasInfo.id                  = ResourceID{atlasJson.value("id", "")};
+            atlasInfo.id                  = KeyID{atlasJson.value("id", "")};
             atlasInfo.sourcePath          = atlasJson.value("sourcePath", "");
             atlasInfo.sourceType          = static_cast<SourceType>(atlasJson.value("sourceType", 0));
             atlasInfo.category            = atlasJson.value("category", "");
             atlasInfo.lastWriteTimeFromMeta = atlasJson.value("lastWriteTime", "");
 
             block = static_cast<GlyphUnicodeBlock>(j.value("block", 0));
-            style = static_cast<GlyphStyle>(j.value("style", 0));
+            style = static_cast<FontType>(j.value("style", 0));
 
-            // ← new: read atlas extent
-            atlasExtent.width  = j.value("atlasWidth",  0u);
-            atlasExtent.height = j.value("atlasHeight", 0u);
+
+            metrics.ascender   = metricsJson.value("ascender",   0.0);
+            metrics.descender  = metricsJson.value("descender",   0.0);
+            metrics.lineHeight = metricsJson.value("lineHeight",  0.0);
+            metrics.pxRange    = metricsJson.value("pxRange",     0.0);
 
             glyphs.clear();
             if (j.contains("glyphs") && j["glyphs"].is_array()) {
@@ -146,52 +146,40 @@ export namespace ufox::font {
         catch (...) { return false; }
     }
 
-    GlyphStyle GetGlyphStyle(const std::string_view name) {
+    FontType GetGlyphStyle(const std::string_view name) {
         const bool isRegular = name.find("Regular") != std::string_view::npos;
         const bool isBold = name.find("Bold") != std::string_view::npos;
         const bool isItalic = name.find("Italic") != std::string_view::npos;
 
         if (isBold && isItalic) {
-            return GlyphStyle::eBoldItalic;
+            return FontType::eBoldItalic;
         }
 
         if (isBold) {
-            return GlyphStyle::eBold;
+            return FontType::eBold;
         }
 
         if (isItalic) {
-            return GlyphStyle::eItalic;
+            return FontType::eItalic;
         }
 
         if (isRegular) {
-            return GlyphStyle::eRegular;
+            return FontType::eRegular;
         }
 
-        return GlyphStyle::eUnknown;
+        return FontType::eUnknown;
     }
 
     const std::set<msdf_atlas::unicode_t>* GetGlyphUnicodeBlock(const GlyphUnicodeBlock& bloc)  {
         switch (bloc) {
-        case GlyphUnicodeBlock::eLatin : return &FONT_LATIN_UNICODE_BLOCK;
+        case GlyphUnicodeBlock::eLGC : return &FONT_LATIN_UNICODE_BLOCK;
             break;
         case GlyphUnicodeBlock::eUnknown:
             return nullptr;
           break;
-        case GlyphUnicodeBlock::eCyrillic:
-            return &FONT_CYRILLIC_UNICODE_BLOCK;
-          break;
-        case GlyphUnicodeBlock::eGreek:
-            return &FONT_GREEK_UNICODE_BLOCK;
-          break;
-            case GlyphUnicodeBlock::eHanzi:
-          break;
-        case GlyphUnicodeBlock::eKanji:
+        case GlyphUnicodeBlock::eJP:
             return &FONT_KANJI_UNICODE_BLOCK;
-          break;
-        case GlyphUnicodeBlock::eHangul:
-            return nullptr;
-          break;
-        case GlyphUnicodeBlock::eThai:
+        case GlyphUnicodeBlock::eTHAI:
             return &FONT_THAI_UNICODE_BLOCK;
           break;
         default: return nullptr;
@@ -199,184 +187,159 @@ export namespace ufox::font {
         return nullptr;
     }
 
-    bool GenerateFreeTypeMSDFGlyph(const msdf_atlas::ImageType type, GlyphDataBindInfo& binding, ResourceContextCreateInfo& outInfo) {
+    bool GenerateFreeTypeMSDFGlyph(GlyphDataBindInfo& binding,ResourceContextCreateInfo& outInfo){
+        auto& [atlasInfo, outBlock, outStyle, outMetrics, outGlyphs] = binding;
 
-        bool success =false;
-
-        debug::log(debug::LogLevel::eInfo, "=== msdf-atlas-gen 1.4: Generating Roboto MSDF Atlas: {} ===", outInfo.name);
-
-        if (msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype()) {
-            if (msdfgen::FontHandle* font = msdfgen::loadFont(ft, outInfo.sourcePath.string().c_str())) {
-                constexpr double fontSizeEm = 40.0;
-
-                auto& [atlasInfo, outBlock, outStyle, outGlyphs, outAtlasExtent] = binding;
-
-                std::vector<msdf_atlas::GlyphGeometry> glyphs;
-                msdf_atlas::FontGeometry fontGeometry(&glyphs);
-                msdf_atlas::Charset charset;
-                std::string blockName = GlyphUnicodeBlockToString(outBlock);
-
-                for (const std::set<msdf_atlas::unicode_t> &uCodes = *GetGlyphUnicodeBlock(outBlock);
-                     auto & code : uCodes) {
-                    charset.add(code);
-                     }
-
-                fontGeometry.loadCharset(font, 1.0, charset);
-
-                // Edge coloring
-                for (auto& glyph : glyphs) {
-                    constexpr double maxCornerAngle = 3.0;
-                    glyph.edgeColoring(&msdfgen::edgeColoringInkTrap, maxCornerAngle, 0);
-                }
-
-                // Tight packing
-                msdf_atlas::TightAtlasPacker packer;
-                packer.setDimensionsConstraint(msdf_atlas::DimensionsConstraint::POWER_OF_TWO_SQUARE);
-                packer.setScale(fontSizeEm);
-                packer.setPixelRange(8.0);
-                packer.setMiterLimit(1.0);
-                packer.setSpacing(5);
-                packer.pack(glyphs.data(), static_cast<int>(glyphs.size()));
-
-                int width = 0, height = 0;
-                packer.getDimensions(width, height);
-
-                const std::string namePreFix = outInfo.sourcePath.parent_path().string() + "/";
-                const std::string extension{".png"};
-                std::string nameEndFix{};
-
-                outAtlasExtent.width  = static_cast<uint32_t>(width);
-                outAtlasExtent.height = static_cast<uint32_t>(height);
-
-                switch (type) {
-                case msdf_atlas::ImageType::MTSDF: {
-                    msdf_atlas::ImmediateAtlasGenerator<float, 4,msdf_atlas::mtsdfGenerator,
-                    msdf_atlas::BitmapAtlasStorage<msdf_atlas::byte, 4>> generator(width, height);
-                    msdf_atlas::GeneratorAttributes attributes;
-                    generator.setAttributes(attributes);
-                    generator.setThreadCount(4);
-                    generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
-
-                    msdfgen::BitmapConstRef<msdf_atlas::byte, 4> bitmapRef = generator.atlasStorage();
-
-
-                    std::string atlasName = outInfo.name + "_" + blockName + "_mtsdf";
-
-                    atlasInfo
-                    .setName(atlasName)
-                    .setSourcePath(namePreFix + atlasName + extension)
-                    .setCategory("Texture/Font")
-                    .setSourceType(SourceType::eBuiltIn)
-                    .setID(ResourceID{atlasName})
-                    .setOverwrite(outInfo.overwrite);
-
-                    msdfgen::savePng(bitmapRef, atlasInfo.sourcePath.string().c_str());
-
-                    std::filesystem::path atlasPath = atlasInfo.sourcePath;
-                    std::string lastWriteTimeStr;
-                    GetFileWriteTime(atlasPath, lastWriteTimeStr);
-                    atlasInfo.setLastWriteTime(lastWriteTimeStr);
-                }
-                    break;
-                case msdf_atlas::ImageType::MSDF: {
-                    msdf_atlas::ImmediateAtlasGenerator<float, 3,msdf_atlas::msdfGenerator,
-                    msdf_atlas::BitmapAtlasStorage<msdf_atlas::byte, 3>> generator(width, height);
-                    msdf_atlas::GeneratorAttributes attributes;
-                    generator.setAttributes(attributes);
-                    generator.setThreadCount(4);
-                    generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
-
-                    msdfgen::BitmapConstRef<msdf_atlas::byte, 3> bitmapRef = generator.atlasStorage();
-
-                    std::string atlasName = outInfo.name + "_" + blockName + "_msdf";
-
-                    atlasInfo
-                    .setName(atlasName)
-                    .setSourcePath(namePreFix + atlasName + extension)
-                    .setCategory("Texture/Font")
-                    .setSourceType(SourceType::eBuiltIn)
-                    .setID(ResourceID{atlasName});
-
-                    msdfgen::savePng(bitmapRef, atlasInfo.sourcePath.string().c_str());
-
-                    std::filesystem::path atlasPath = atlasInfo.sourcePath;
-                    std::string lastWriteTimeStr;
-                    GetFileWriteTime(atlasPath, lastWriteTimeStr);
-                    atlasInfo.setLastWriteTime(lastWriteTimeStr);
-
-                }
-                    break;
-                default:
-
-                    break;
-                }
-
-                auto atlasWidth = static_cast<double>(width);
-                auto atlasHeight = static_cast<double>(height);
-
-                outGlyphs.reserve(glyphs.size());
-
-                for (const auto& g : glyphs) {
-                    GlyphContext ctx{};
-                    ctx.codepoint = g.getCodepoint();
-                    ctx.advance = g.getAdvance();
-
-                    double x,y,w,h;
-                    g.getQuadAtlasBounds(x, h, w, y);
-                    ctx.uvX = static_cast<float>(x/atlasWidth);
-                    ctx.uvY = static_cast<float>((atlasHeight - y)/atlasHeight);
-                    ctx.uvW = static_cast<float>((w - x)/atlasWidth);
-                    ctx.uvH = static_cast<float>((y-h)/atlasHeight);
-
-                    // Plane bounds in em-units — bearing + glyph size
-                    double pl, pb, pr, pt;
-                    g.getQuadPlaneBounds(pl, pb, pr, pt);
-                    ctx.planeLeft   = static_cast<float>(pl);
-                    ctx.planeBottom = static_cast<float>(pb);
-                    ctx.planeRight  = static_cast<float>(pr);
-                    ctx.planeTop    = static_cast<float>(pt);
-
-                    outGlyphs.emplace_back(ctx);
-                }
-
-                outInfo.setCategory("Font");
-
-                std::string jsonPath = namePreFix + outInfo.name + "_" + blockName+".json";
-                if (WriteGlyphToJson(jsonPath, binding)) {
-                    outInfo.attachments.emplace_back(GLYPH_JSON_ATTACHMENT_KEY, jsonPath);
-
-                    if (!atlasInfo.sourcePath.empty()) {
-                        outInfo.attachments.emplace_back(GLYPH_ATLAS_ATTACHMENT_KEY, atlasInfo.sourcePath);
-                    }
-                }
-
-                success = true;
-                msdfgen::destroyFont(font);
-            }
-            msdfgen::deinitializeFreetype(ft);
+        const auto* uCodes = GetGlyphUnicodeBlock(outBlock);
+        if (!uCodes) {                                           // fix #8
+            debug::log(debug::LogLevel::eWarning, "No charset for block {}", GlyphUnicodeBlockToString(outBlock));
+            return false;
         }
 
+        msdfgen::FreetypeHandle* ft = msdfgen::initializeFreetype();
+        if (!ft) return false;
+        msdfgen::FontHandle* font = msdfgen::loadFont(ft, outInfo.sourcePath.string().c_str());
+        if (!font) { msdfgen::deinitializeFreetype(ft); return false; }
+
+        bool success = false;
+        {
+            std::vector<msdf_atlas::GlyphGeometry> glyphs;
+            msdf_atlas::FontGeometry fontGeometry(&glyphs);
+
+            msdf_atlas::Charset charset;
+            for (auto cp : *uCodes) {                            // fix #7
+                if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) continue;
+                charset.add(cp);
+            }
+
+            // fontScale 1.0 => everything in em units. preprocessGeometry + kerning on.
+            fontGeometry.loadCharset(font, 1.0, charset, true, true);
+
+            const auto& m = fontGeometry.getMetrics();
+            outMetrics.ascender   = m.ascenderY;
+            outMetrics.descender  = m.descenderY;
+            outMetrics.lineHeight = m.lineHeight;
+
+            // fix #4: best quality coloring
+            constexpr double maxCornerAngle = 3.0;
+            for (auto & glyph : glyphs)
+                glyph.edgeColoring(&msdfgen::edgeColoringByDistance, maxCornerAngle, 0);
+
+            msdf_atlas::TightAtlasPacker packer;
+            packer.setDimensionsConstraint(msdf_atlas::DimensionsConstraint::POWER_OF_TWO_SQUARE);
+            packer.setScale(ATLAS_SCALE);
+            packer.setPixelRange(PX_RANGE);
+            packer.setMiterLimit(1.0);
+            packer.setSpacing(2);
+            if (packer.pack(glyphs.data(), static_cast<int>(glyphs.size())) != 0) {   // fix #9
+                debug::log(debug::LogLevel::eError, "Atlas pack failed (scale too big)");
+                goto cleanup;
+            }
+            int width = 0, height = 0;
+            packer.getDimensions(width, height);
+
+            // fix #3: scanline pass + overlap support
+            msdf_atlas::GeneratorAttributes attributes;
+            attributes.config.overlapSupport = true;
+            attributes.scanlinePass          = true;
+            // attributes.config.errorCorrection keeps its default (edge-priority) – good
+
+            const std::filesystem::path rangeDir = outInfo.sourcePath.parent_path();
+            const std::filesystem::path cachesDir = rangeDir / "caches";
+            std::error_code ec;
+            std::filesystem::create_directories(cachesDir, ec);
+            if (ec) {
+                debug::log(debug::LogLevel::eError, "Failed to create caches dir: {} ({})", cachesDir.string(), ec.message());
+                goto cleanup;
+            }
+
+            const std::string blockName = GlyphUnicodeBlockToString(outBlock);
+            const std::string atlasName = outInfo.name + "_" + blockName + "_mtsdf";
+            const std::filesystem::path pngPath = cachesDir / (atlasName + ".png");
+            const std::filesystem::path jsonPath = cachesDir / (outInfo.name + "_" + blockName + ".json");
+
+            msdf_atlas::ImmediateAtlasGenerator<float, 4, msdf_atlas::mtsdfGenerator,
+                msdf_atlas::BitmapAtlasStorage<msdf_atlas::byte, 4>> generator(width, height);
+            generator.setAttributes(attributes);
+            generator.setThreadCount(std::max(1u, std::thread::hardware_concurrency()));
+            generator.generate(glyphs.data(), static_cast<int>(glyphs.size()));
+
+            atlasInfo.setName(atlasName)
+                     .setSourcePath(pngPath)
+                     .setCategory("Texture/Font")
+                     .setSourceType(SourceType::eBuiltIn)
+                     .setID(KeyID{atlasName})
+                     .setOverwrite(outInfo.overwrite);
+            msdfgen::savePng(generator.atlasStorage(), atlasInfo.sourcePath.string().c_str());
+
+            std::string t; GetFileWriteTime(atlasInfo.sourcePath, t); atlasInfo.setLastWriteTime(t);
+
+            // ... your existing glyph -> GlyphContext loop is correct, keep it ...
+            // ... JSON write: also write outMetrics (ascender, descender, lineHeight, pxRange) ...
+
+            auto atlasWidth = static_cast<double>(width);
+            auto atlasHeight = static_cast<double>(height);
+
+            outGlyphs.reserve(glyphs.size());
+
+            for (const auto& g : glyphs) {
+                GlyphContext ctx{};
+                ctx.codepoint = g.getCodepoint();
+                ctx.advance = g.getAdvance();
+
+                double x,y,w,h;
+                g.getQuadAtlasBounds(x, h, w, y);
+                ctx.uvX = x/atlasWidth;
+                ctx.uvY = (atlasHeight - y)/atlasHeight;
+                ctx.uvW = (w - x)/atlasWidth;
+                ctx.uvH = (y-h)/atlasHeight;
+
+                // Plane bounds in em-units — bearing + glyph size
+                double pl, pb, pr, pt;
+                g.getQuadPlaneBounds(pl, pb, pr, pt);
+                ctx.planeLeft   = pl;
+                ctx.planeBottom = pb;
+                ctx.planeRight  = pr;
+                ctx.planeTop    = pt;
+
+                outGlyphs.emplace_back(ctx);
+            }
+
+            outInfo.setCategory("Font");
+            outInfo.attachments.clear();
+            outInfo.attachments.reserve(2);
+
+            if (WriteGlyphToJson(jsonPath, binding)) {
+                outInfo.attachments.emplace_back(GLYPH_JSON_ATTACHMENT_KEY, jsonPath);
+
+                if (!atlasInfo.sourcePath.empty()) {
+                    outInfo.attachments.emplace_back(GLYPH_ATLAS_ATTACHMENT_KEY, atlasInfo.sourcePath);
+                }
+            }
+
+            success = true;
+        }
+    cleanup:
+        msdfgen::destroyFont(font);
+        msdfgen::deinitializeFreetype(ft);
         return success;
     }
 
-    class Font {
-    public:
-        std::string name;
-        const ResourceID cid;
-        Font(const std::string_view _name, ResourceID  _cid) : name(_name), cid(std::move(_cid)) {}
-
-
-        std::unordered_map<GlyphUnicodeBlock, Glyph*> glyphs;
-    };
+    [[nodiscard]] inline KeyID MakeFontFamilyKey(std::string_view name) {
+        return KeyID{name.substr(0, name.find('-'))};
+    }
 
     class GlyphManager;
-    const ResourceID* MakeGlyphContent(GlyphManager& manager,const ResourceID& atlasTextureID,const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block,const GlyphStyle& style,const GlyphAtlasExtent& atlasExtent,const ResourceContextCreateInfo& info);
+    const KeyID* MakeGlyphContent(GlyphManager& manager,const KeyID& atlasTextureID,const ResourceContextCreateInfo& info,const GlyphUnicodeBlock& block,const FontType& style, const GlyphFontMetrics& metrics,const std::vector<GlyphContext>& glyphs);
 
     class GlyphManager final : public ResourceManagerBase {
     public:
         explicit GlyphManager(UFoxWindow& _window, render::TextureManager& _textureManager): ResourceManagerBase(_window, FONT_RESOURCE_PATH, FONT_RESOURCE_EXTENSIONS), textureManager(_textureManager) {
             window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<GlyphManager*>(user)->onSystemInit(); }, this);
             window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<GlyphManager*>(user)->onGainsFocus(); }, this);
+
+            for (const auto b : {GlyphUnicodeBlock::eLGC, GlyphUnicodeBlock::eJP, GlyphUnicodeBlock::eTHAI})
+                fonts_.try_emplace(b);
         }
 
         ~GlyphManager() override {
@@ -384,12 +347,12 @@ export namespace ufox::font {
             window->unregisterCallbackEvent(EventType::eGainsFocus,this);
         }
 
-
         void onMakeResource(ResourceContextCreateInfo& info) override {
-            const ResourceID searchedID{info.sourcePath.parent_path().filename().string()};
+            const std::string folderName = info.sourcePath.parent_path().filename().string();
+            const KeyID searchedID{folderName};
 
-            const GlyphStyle resourceStyle = GetGlyphStyle(info.name);
-            if (resourceStyle == GlyphStyle::eUnknown) {
+            const FontType resourceStyle = GetGlyphStyle(info.name);
+            if (resourceStyle == FontType::eUnknown) {
                 debug::log(
                     debug::LogLevel::eInfo,
                     "GlyphManager: onMakeResource: skipped unsupported glyph style for font: {}",
@@ -402,44 +365,25 @@ export namespace ufox::font {
 
             const auto it = sourceTypeMap.find(searchedID);
             if (it == sourceTypeMap.end()) {
-                debug::log(
-                    debug::LogLevel::eWarning,
-                    "GlyphManager: onMakeResource: no glyph source type entry found for source path: {} searchedID: {}",
-                    info.sourcePath.string(),
-                    searchedID.view()
-                );
+                debug::log(debug::LogLevel::eWarning,"GlyphManager: onMakeResource: no glyph source type entry found for source path: {} searchedID: {}",info.sourcePath.string(),searchedID.view());
                 return;
             }
 
-            const std::vector<GlyphDataBindInfo> bindInfos = tryLoadBindInfosFromCache(info, it->second, resourceStyle);
-            if (bindInfos.empty()) {
-                debug::log(
-                    debug::LogLevel::eWarning,
-                    "GlyphManager: onMakeResource: no glyph bind infos were created for font: {}",
-                    info.name
-                );
-                return;
-            }
+            GlyphDataBindInfo bindInfo{};
 
-            for (const auto& bind : bindInfos) {
-                const auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts, atlasExtent] = bind;
-
-                if (atlasInfo.id.view().empty() || glyphContexts.empty()) {
-                    debug::log(
-                        debug::LogLevel::eWarning,
-                        "GlyphManager: onMakeResource: skipped invalid glyph bind info for font: {}",
-                        info.name
-                    );
-                    continue;
+            if (tryLoadBindInfoFromCache(info, bindInfo, it->second, resourceStyle)) {
+                const auto& [atlasInfo, glyphBlock, glyphStyle, metrics, glyphContexts] = bindInfo;
+                if (const KeyID* id = MakeGlyphContent(*this, atlasInfo.id, info, glyphBlock, glyphStyle, metrics, glyphContexts)) {
+                    if (auto* slot = fonts_[glyphBlock][MakeFontFamilyKey(info.name)].slot(glyphStyle))
+                        *slot = *id;      // copy the value, never keep the pointer
                 }
-
-                MakeGlyphContent(*this, atlasInfo.id, glyphContexts, glyphBlock, glyphStyle, atlasExtent, info);
+            } else {
+                debug::log(debug::LogLevel::eWarning,"GlyphManager: onMakeResource: skipped invalid glyph bind info for font: {}",info.name);
             }
         }
 
         void onSystemInit() override {
             ReadResourceContextMetaData(directory, sourceExtensions, this);
-            // builtInResources will be filled later
             debug::log(debug::LogLevel::eInfo, "GlyphManager: init success");
         }
 
@@ -463,158 +407,146 @@ export namespace ufox::font {
 
         void onPreDraw() override {}
 
-
-        const ResourceID* makeGlyph(const ResourceID& atlasTextureID,const std::vector<GlyphContext>& glyphs, const GlyphUnicodeBlock& block,
-            const GlyphStyle& style,const GlyphAtlasExtent& atlasExtent, const ResourceContextCreateInfo& info){
-            ResourceID id = atlasTextureID;
+        const KeyID* makeGlyph(const KeyID& atlasTextureID,const ResourceContextCreateInfo& info,const GlyphUnicodeBlock& block,const FontType& style, const GlyphFontMetrics& metrics,const std::vector<GlyphContext>& glyphs){
+            KeyID id = atlasTextureID;
             if (!makeResourceContext(id, info.overwrite)) {
-                debug::log(debug::LogLevel::eWarning, "GlyphManager: makeGlyph: skip");
                 return nullptr;
             }
             std::unique_ptr<ResourceBase> res = std::make_unique<Glyph>(
-                info.name, id, block, style, glyphs, atlasExtent);  // ← pass extent
+                info.name, id, block, style, metrics, glyphs);  // ← pass extent
             return bindResourceToContext(res, info);
         }
 
-        // Placeholder lookup
-        [[nodiscard]] Glyph* getFont(std::string_view languageKey) const noexcept;
+        // by atlas/glyph ID
+        [[nodiscard]] Glyph* getGlyph(const KeyID& id) {
+            const auto* ctx = getResourceContext(id);
+            if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
+            return dynamic_cast<Glyph*>(ctx->dataPtr.get());
+        }
+
+        // by block + family + style, falls back to Regular
+        [[nodiscard]] const KeyID* findGlyphID(const GlyphUnicodeBlock block, const KeyID& family,
+                                                    const FontType style = FontType::eRegular) const {
+            const auto b = fonts_.find(block);
+            if (b == fonts_.end()) return nullptr;
+            const auto f = b->second.find(family);
+            if (f == b->second.end()) return nullptr;
+
+            const KeyID* want = f->second.slot(style);
+            if (want && want->IsValid()) return want;
+
+            const KeyID* fallback = f->second.slot(FontType::eRegular);
+            return (fallback && fallback->IsValid()) ? fallback : nullptr;
+        }
+
+        [[nodiscard]] Glyph* getGlyph(const GlyphUnicodeBlock block, const KeyID& family,
+                                      const FontType style = FontType::eRegular) {
+            const KeyID* id = findGlyphID(block, family, style);
+            return id ? getGlyph(*id) : nullptr;
+        }
+
+        [[nodiscard]] Glyph* getGlyph(const GlyphUnicodeBlock block, const std::string_view family,
+                                      const FontType style = FontType::eRegular) {
+            return getGlyph(block, KeyID{family}, style);
+        }
 
     private:
         render::TextureManager& textureManager;
+        std::unordered_map<GlyphUnicodeBlock, std::unordered_map<KeyID, GlyphTypeKey>> fonts_;
+
         BuiltInResources MakeFontBuiltInResources(GlyphManager& manager);
-        [[nodiscard]] std::vector<GlyphDataBindInfo> tryLoadBindInfosFromCache(ResourceContextCreateInfo& info, const std::vector<GlyphUnicodeBlock>& blocks, const GlyphStyle resourceStyle) const {
-            if (blocks.empty()) {
+
+        [[nodiscard]] bool tryLoadBindInfoFromCache(ResourceContextCreateInfo& info,GlyphDataBindInfo& bindInfo, const GlyphUnicodeBlock& block, const FontType resourceStyle) const {
+            if (block == GlyphUnicodeBlock::eUnknown) {
                 debug::log(
                     debug::LogLevel::eWarning,
-                    "GlyphManager: tryLoadBindInfosFromCache: no glyph blocks configured for font: {}",
+                    "GlyphManager: tryLoadBindInfoFromCache: glyph block is unknown type{}",
                     info.name
                 );
-                return {};
+                return false;
             }
 
-            std::vector<std::filesystem::path> glyphJsonPaths;
-            glyphJsonPaths.reserve(blocks.size());
+            const std::filesystem::path* glyphJsonPath{nullptr};
 
             for (const auto& [key, path] : info.attachments) {
                 if (key == GLYPH_JSON_ATTACHMENT_KEY) {
-                    glyphJsonPaths.push_back(path);
+                    glyphJsonPath = &path;
                 }
             }
 
-            // If the glyph JSON attachment size does not match the block size, remake the data.
-            if (blocks.size() != glyphJsonPaths.size()) {
+            if (!glyphJsonPath) {
                 debug::log(
                     debug::LogLevel::eInfo,
-                    "GlyphManager: tryLoadBindInfosFromCache: cache glyph json attachment count mismatch for font: {}. Regenerating.",
+                    "GlyphManager: tryLoadBindInfoFromCache: cache glyph json attachment missing for font: {}. Regenerating.",
                     info.name
                 );
-                return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
+                return makeAtlasResourceBindInfos(info, bindInfo, block, resourceStyle);
             }
 
-            std::vector<GlyphDataBindInfo> bindInfos;
-            bindInfos.reserve(blocks.size());
-
-            for (size_t i = 0; i < blocks.size(); ++i) {
-                const auto& jsonPath = glyphJsonPaths[i];
-
-                GlyphDataBindInfo bindInfo{};
-                if (!ReadGlyphFromJson(jsonPath, bindInfo)) {
-                    debug::log(
-                        debug::LogLevel::eInfo,
-                        "GlyphManager: tryLoadBindInfosFromCache: failed to read glyph cache: {}. Regenerating.",
-                        jsonPath.string()
-                    );
-                    return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
-                }
-
-                auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts, atlasExtent] = bindInfo;
-
-                if (glyphBlock != blocks[i]) {
-                    debug::log(
-                        debug::LogLevel::eInfo,
-                        "GlyphManager: tryLoadBindInfosFromCache: cached glyph block mismatch for font: {}. Regenerating.",
-                        info.name
-                    );
-                    return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
-                }
-
-                if (atlasInfo.sourcePath.empty() || atlasInfo.id.view().empty()|| glyphContexts.empty()|| atlasExtent.width == 0 || atlasExtent.height == 0) {
-                    debug::log(debug::LogLevel::eWarning,
-                        "GlyphManager: makeAtlasResourceBindInfos: generated invalid glyph data for font: {}",
-                        info.name);
-                    continue;
-                }
-
-                render::TextureDataBindInfo atlasBindInfo{};
-                if (!render::LoadPixelsFromFile(atlasInfo.sourcePath, atlasBindInfo)) {
-                    debug::log(
-                        debug::LogLevel::eInfo,
-                        "GlyphManager: tryLoadBindInfosFromCache: failed to load cached atlas texture: {}. Regenerating.",
-                        atlasInfo.sourcePath.string()
-                    );
-                    return makeAtlasResourceBindInfos(info, blocks, resourceStyle);
-                }
-
-                render::MakeTextureContent(textureManager, atlasBindInfo, atlasInfo);
-
-                bindInfos.push_back(std::move(bindInfo));
+            if (!ReadGlyphFromJson(*glyphJsonPath, bindInfo)) {
+                debug::log(
+                    debug::LogLevel::eInfo,
+                    "GlyphManager: tryLoadBindInfoFromCache: failed to read glyph cache: {}. Regenerating.",
+                    glyphJsonPath->string()
+                );
+                return makeAtlasResourceBindInfos(info, bindInfo, block, resourceStyle);
             }
 
-            return bindInfos;
+            auto& [atlasInfo, glyphBlock, glyphStyle, metrics, glyphContexts] = bindInfo;
+
+            if (glyphBlock != block) {
+                debug::log(
+                    debug::LogLevel::eInfo,
+                    "GlyphManager: tryLoadBindInfoFromCache: cached glyph block mismatch for font: {}. Regenerating.",
+                    info.name
+                );
+                return makeAtlasResourceBindInfos(info, bindInfo, block, resourceStyle);
+            }
+
+            render::TextureDataBindInfo atlasBindInfo{};
+            if (!render::LoadPixelsFromFile(atlasInfo.sourcePath, atlasBindInfo)) {
+                debug::log(
+                    debug::LogLevel::eInfo,
+                    "GlyphManager: tryLoadBindInfoFromCache: failed to load cached atlas texture: {}. Regenerating.",
+                    atlasInfo.sourcePath.string()
+                );
+                return makeAtlasResourceBindInfos(info, bindInfo, block, resourceStyle);
+            }
+
+            render::MakeTextureContent(textureManager, atlasBindInfo, atlasInfo);
+
+            return true;
         }
 
-        [[nodiscard]] std::vector<GlyphDataBindInfo> makeAtlasResourceBindInfos(ResourceContextCreateInfo& info, const std::vector<GlyphUnicodeBlock>& blocks,const GlyphStyle resourceStyle) const {
-            std::vector<GlyphDataBindInfo> bindInfos;
-            bindInfos.reserve(blocks.size());
-            info.attachments.clear();
-            info.attachments.reserve(blocks.size());
+        [[nodiscard]] bool makeAtlasResourceBindInfos(ResourceContextCreateInfo& info,GlyphDataBindInfo& bindInfo , const GlyphUnicodeBlock& block,const FontType resourceStyle) const {
+            auto& [atlasInfo, glyphBlock, glyphStyle, metrics, glyphContexts] = bindInfo;
 
-            for (const auto& block : blocks) {
-                GlyphDataBindInfo bindInfo{};
-                auto& [atlasInfo, glyphBlock, glyphStyle, glyphContexts, atlasExtent] = bindInfo;
+            glyphBlock = block;
+            glyphStyle = resourceStyle;
 
-                glyphBlock = block;
-                glyphStyle = resourceStyle;
-
-                if (!GenerateFreeTypeMSDFGlyph(msdf_atlas::ImageType::MTSDF, bindInfo, info)) {
-                    debug::log(
-                        debug::LogLevel::eWarning,
-                        "GlyphManager: makeAtlasResourceBindInfos: failed to generate atlas for font: {}",
-                        info.name
-                    );
-                    continue;
-                }
-
-                if (atlasInfo.sourcePath.empty() || atlasInfo.id.view().empty() || glyphContexts.empty()) {
-                    debug::log(
-                        debug::LogLevel::eWarning,
-                        "GlyphManager: makeAtlasResourceBindInfos: generated invalid glyph data for font: {}",
-                        info.name
-                    );
-                    continue;
-                }
-
-                render::TextureDataBindInfo atlasBindInfo{};
-                if (!render::LoadPixelsFromFile(atlasInfo.sourcePath, atlasBindInfo)) {
-                    debug::log(
-                        debug::LogLevel::eWarning,
-                        "GlyphManager: makeAtlasResourceBindInfos: failed to load generated atlas texture: {}",
-                        atlasInfo.sourcePath.string()
-                    );
-                    continue;
-                }
-
-                render::MakeTextureContent(textureManager, atlasBindInfo, atlasInfo);
-
-                bindInfos.push_back(std::move(bindInfo));
+            if (!GenerateFreeTypeMSDFGlyph(bindInfo, info)) {
+                debug::log(debug::LogLevel::eWarning,"GlyphManager: makeAtlasResourceBindInfos: failed to generate atlas for font: {}",info.name);
+                return false;
             }
 
-            return bindInfos;
-        }
+            if (atlasInfo.sourcePath.empty() || atlasInfo.id.view().empty() || glyphContexts.empty()) {
+                debug::log(debug::LogLevel::eWarning,"GlyphManager: makeAtlasResourceBindInfos: generated invalid glyph data for font: {}",info.name);
+                return false;
+            }
 
+            render::TextureDataBindInfo atlasBindInfo{};
+            if (!render::LoadPixelsFromFile(atlasInfo.sourcePath, atlasBindInfo)) {
+                debug::log(debug::LogLevel::eWarning,"GlyphManager: makeAtlasResourceBindInfos: failed to load generated atlas texture: {}",atlasInfo.sourcePath.string());
+                return false;
+            }
+
+            render::MakeTextureContent(textureManager, atlasBindInfo, atlasInfo);
+
+            return true;
+        }
     };
 
-    const ResourceID* MakeGlyphContent(GlyphManager& manager,const ResourceID& atlasTextureID,const std::vector<GlyphContext>& glyphs,const GlyphUnicodeBlock& block,const GlyphStyle& style,const GlyphAtlasExtent& atlasExtent,const ResourceContextCreateInfo& info){
-        return manager.makeGlyph(atlasTextureID, glyphs, block, style, atlasExtent, info);
+    const KeyID* MakeGlyphContent(GlyphManager& manager,const KeyID& atlasTextureID,const ResourceContextCreateInfo& info,const GlyphUnicodeBlock& block,const FontType& style, const GlyphFontMetrics& metrics,const std::vector<GlyphContext>& glyphs){
+        return manager.makeGlyph(atlasTextureID, info, block, style, metrics, glyphs);
     }
 }

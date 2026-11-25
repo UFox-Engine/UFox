@@ -35,9 +35,9 @@ using namespace ufox::engine;
 
 export namespace ufox::geometry {
     class MeshManager;
-    const ResourceID* MakeQuad(MeshManager& manager);
-    const ResourceID* MakeCube(MeshManager& manager);
-    const ResourceID* MakeMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info);
+    const KeyID* MakeQuad(MeshManager& manager);
+    const KeyID* MakeCube(MeshManager& manager);
+    const KeyID* MakeMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info);
 
     void LoadGLTF(std::string_view MODEL_PATH,std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
 
@@ -379,7 +379,7 @@ export namespace ufox::geometry {
                 {CUBE, MakeCube(manager)}};
     }
 
-    [[nodiscard]] const ResourceID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
+    [[nodiscard]] const KeyID* LoadGLTF(MeshManager& manager,std::span<const std::byte> glbData,std::string_view name);
 
     void MakeVertexBuffer(const gpu::GPUResources& gpu, Mesh& mesh) {
         gpu::MakeAndCopyBuffer(gpu, mesh.vertices, vk::BufferUsageFlagBits::eVertexBuffer, mesh.vertexBuffer);
@@ -426,8 +426,8 @@ export namespace ufox::geometry {
 
         void onPreDraw() override {}
 
-        const ResourceID* makeMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
-            ResourceID id = ResolveResourceID(info);
+        const KeyID* makeMesh(const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
+            KeyID id = ResolveResourceID(info);
             if(!makeResourceContext(id, info.overwrite)) return nullptr;
 
             std::unique_ptr<ResourceBase> res = std::make_unique<Mesh>(info.name, vertices, indices, id);
@@ -439,7 +439,7 @@ export namespace ufox::geometry {
         }
 
 
-        [[nodiscard]] Mesh* getMesh(const ResourceID& id) {
+        [[nodiscard]] Mesh* getMesh(const KeyID& id) {
             const auto* ctx = getResourceContext(id);
             if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
 
@@ -448,11 +448,11 @@ export namespace ufox::geometry {
         }
     };
 
-    const ResourceID* MakeMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
+    const KeyID* MakeMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info) {
         return manager.makeMesh(vertices, indices, info);
     }
 
-    const ResourceID* MakeQuad(MeshManager& manager) {
+    const KeyID* MakeQuad(MeshManager& manager) {
         ResourceContextCreateInfo info{};
         info.setName(DEFAULT_QUAD_MESH_NAME)
             .setSourceType(SourceType::eBuiltIn)
@@ -461,7 +461,7 @@ export namespace ufox::geometry {
         return MakeMeshContent(manager, QuadVertices, QuadIndices, info);
     }
 
-    const ResourceID* MakeCube(MeshManager& manager) {
+    const KeyID* MakeCube(MeshManager& manager) {
         ResourceContextCreateInfo info{};
         info.setName(DEFAULT_CUBE_MESH_NAME)
             .setSourceType(SourceType::eBuiltIn)
@@ -574,14 +574,15 @@ export namespace ufox::geometry::discadelta {
         // ── Subclass hooks ────────────────────────────────────────
         virtual void onAdd(Derived* added)              = 0;
         virtual void onRemove(Derived* removed)         = 0;
-        virtual void onTreeStructureChanged()           = 0;
+
 
     protected:
 
+        virtual void onTreeStructureChanged()           = 0;
         // ── Construction ──────────────────────────────────────────
 
-        explicit DiscadeltaRectLayoutBase(const engine::ResourceID& _id) {
-            id = _id.IsValid() ? _id : engine::ResourceID{nanoid::generate(12)};
+        explicit DiscadeltaRectLayoutBase(const engine::KeyID& _id) {
+            id = _id.IsValid() ? _id : engine::KeyID{nanoid::generate(12)};
         }
 
         DiscadeltaRectLayoutBase()
@@ -666,12 +667,14 @@ export namespace ufox::geometry::discadelta {
                 return l.mode == LengthMode::eAuto ? accum : l.value;
             };
 
+            glm::vec2 cropOutSpace = baseStyle->getCropOutSpace();
+
             validatedWidthMin  = resolveMin(baseStyle->minWidth,   accumulated.widthMin);
             validatedHeightMin = resolveMin(baseStyle->minHeight,  accumulated.heightMin);
             validatedWidthMax  = resolveMax(baseStyle->maxWidth,   validatedWidthMin);
             validatedHeightMax = resolveMax(baseStyle->maxHeight,  validatedHeightMin);
-            validatedWidthBase = resolveBase(baseStyle->width,     accumulated.widthBase);
-            validatedHeightBase= resolveBase(baseStyle->height,    accumulated.heightBase);
+            validatedWidthBase = resolveBase(baseStyle->width,     accumulated.widthBase)+cropOutSpace.x;
+            validatedHeightBase= resolveBase(baseStyle->height,    accumulated.heightBase)+cropOutSpace.y;
 
             compressRatio          = std::max(0.0f, baseStyle->flexCompress);
             widthCompressCapacity  = validatedWidthBase  * compressRatio;
@@ -993,10 +996,7 @@ export namespace ufox::geometry::discadelta {
                     isLast,
                     baseStyle->justifyContent);
 
-                const AlignMode crossMode =
-                    (child->baseStyle && child->baseStyle->alignSelf != AlignMode::eAuto)
-                        ? child->baseStyle->alignSelf
-                        : baseStyle->alignItems;
+                const AlignMode crossMode = child->baseStyle && child->baseStyle->alignSelf != AlignMode::eAuto ? child->baseStyle->alignSelf : baseStyle->alignItems;
 
                 const float crossPos = CalculateAlign(childCross, parentCross, crossMode);
 
@@ -1027,7 +1027,7 @@ export namespace ufox::geometry::discadelta {
 
         // ── Data members ──────────────────────────────────────────
 
-        ResourceID              id{};
+        KeyID              id{};
 
         // Resolved layout output (written by sizing/placing)
         float x{};     float y{};
@@ -1066,7 +1066,7 @@ export namespace ufox::geometry::discadelta {
         using Entry    = std::variant<Owned, NonOwned>;
 
         std::vector<Entry>  container{};
-        std::unordered_map<engine::ResourceID, size_t,
+        std::unordered_map<engine::KeyID, size_t,
                            engine::ResourceIDHash,
                            engine::ResourceIDEq>  resourceIndex{};
 
@@ -1078,12 +1078,12 @@ export namespace ufox::geometry::discadelta {
             return container.empty();
         }
 
-        [[nodiscard]] bool contains(const engine::ResourceID& id_) const {
+        [[nodiscard]] bool contains(const engine::KeyID& id_) const {
             return resourceIndex.contains(id_);
         }
 
         [[nodiscard]] bool contains(std::string_view name) const {
-            return contains(engine::ResourceID{name});
+            return contains(engine::KeyID{name});
         }
 
         [[nodiscard]] glm::mat4 getTransformMat4() const {
@@ -1194,7 +1194,7 @@ export namespace ufox::geometry::discadelta {
         // ── Query ─────────────────────────────────────────────────
 
         template<typename T = Derived>
-        [[nodiscard]] T* Q(const engine::ResourceID& rid) const {
+        [[nodiscard]] T* Q(const engine::KeyID& rid) const {
             auto it = resourceIndex.find(rid);
             if (it == resourceIndex.end()) return nullptr;
 
@@ -1208,7 +1208,7 @@ export namespace ufox::geometry::discadelta {
 
         template<typename T = Derived>
         [[nodiscard]] T* Q(std::string_view name) const {
-            return Q<T>(engine::ResourceID{name});
+            return Q<T>(engine::KeyID{name});
         }
     };
 }

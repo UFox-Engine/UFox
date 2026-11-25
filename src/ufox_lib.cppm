@@ -15,10 +15,11 @@ module;
 
 #include <format>
 
+#include <source_location>
+#include <filesystem>
+
 #include <functional>
 #include <ranges>
-
-#include <vulkan/vulkan_raii.hpp>
 
 #include <glm/glm.hpp>
 
@@ -27,8 +28,6 @@ module;
 #include <SDL3/SDL.h>
 
 #include <SDL3/SDL_vulkan.h>
-
-#include <SDL3_image/SDL_image.h>
 
 #else
 
@@ -258,7 +257,7 @@ export namespace ufox {
      * @param value  Value to normalize.
      * @param min    Range minimum.
      * @param max    Range maximum.
-     * @param clamp  Clamp result to [0.0, 1.0] (default: true).
+     * @param clamp  Clamp the result to [0.0, 1.0] (default: true).
      * @return       Normalized float.
      */
     template<Arithmetic U, Arithmetic V>
@@ -346,24 +345,42 @@ export namespace ufox {
     }
 
     namespace debug {
-        enum class LogLevel {
-            eInfo,
-            eWarning,
-            eError
-        };
+    enum class LogLevel {
+        eInfo,
+        eWarning,
+        eError
+    };
 
-        template<typename... Args>
+    struct FormatWithLocation {
+        std::string_view format;
+        std::source_location location;
 
-        void log(LogLevel level, const std::string& format_str, Args&&... args) {
+        template<typename T>
+        FormatWithLocation(const T& fmt,
+                           std::source_location loc = std::source_location::current())
+            : format(fmt)
+            , location(loc)
+        {}
+    };
+
+
+    template<typename... Args>
+        void log(LogLevel level, FormatWithLocation fmt, Args&&... args){
+            // Extract only the filename (no full path)
+            const std::string fileName = std::filesystem::path(fmt.location.file_name()).filename().string();
+
             std::string level_str;
             switch (level) {
-                case LogLevel::eInfo:    level_str = "INFO"; break;
-                case LogLevel::eWarning: level_str = "WARNING"; break;
-                case LogLevel::eError:   level_str = "ERROR"; break;
+            case LogLevel::eInfo:    level_str = "INFO";    break;
+            case LogLevel::eWarning: level_str = "WARNING"; break;
+            case LogLevel::eError:   level_str = "ERROR";   break;
             }
 
-            std::string message = std::vformat(format_str, std::make_format_args(args...));
-            std::cout << std::format("[{}] {}\n", level_str, message);
+            std::string message = std::vformat(fmt.format, std::make_format_args(args...));
+
+            // Clickable format: filename(line): [LEVEL] message
+            // Double-click in the Output window / console jumps to the source line.
+            std::cout << std::format("{}({}): [{}] {}\n",fileName,fmt.location.line(),level_str,message);
         }
     }
 

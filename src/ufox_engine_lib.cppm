@@ -34,7 +34,23 @@ export namespace ufox::engine {
     ePreDraw,
     eUpdateBuffer,
     eRenderPass,
+    ePointer,
+    eProcessInput
   };
+
+  enum class PointerButton : uint8_t { eNone, eLeft, eRight, eMiddle, eX1, eX2 };
+  enum class PointerPhase  : uint8_t { eMove, eDown, eUp, eWheel, eLeave };
+
+  struct PointerEvent {
+    PointerPhase  phase{PointerPhase::eMove};
+    PointerButton button{PointerButton::eNone};
+    glm::vec2     pos{0.0f};      // window space, y-down, same space as layout x/y
+    glm::vec2     delta{0.0f};    // motion delta, or wheel amount
+    uint8_t       clicks{0};      // SDL click count: 1 single, 2 double
+  };
+
+  using PointerEventHandler      = bool(*)(const PointerEvent& e, void* user);   // true = consumed
+  using ProcessInputEventHandler = void(*)(void* user);
 
   using ResizeEventHandler = void(*)(const float& w, const float& h, void* user);
   using SystemInitEventHandler = void(*)(void* user);
@@ -88,6 +104,16 @@ export namespace ufox::engine {
     using Handler = RenderPassEventHandler;
   };
 
+  template<>
+  struct EventTraits<EventType::ePointer> {
+    using Handler = PointerEventHandler;
+  };
+
+  template<>
+    struct EventTraits<EventType::eProcessInput> {
+    using Handler = ProcessInputEventHandler;
+  };
+
   constexpr auto META_TAG_RESOURCE_CONTEXT = "resource-context";
 
   inline auto SCREEN_VIEW_METRIX = glm::mat4(1.0f);
@@ -97,11 +123,11 @@ export namespace ufox::engine {
   template<typename T>
   concept Arithmetic = std::is_arithmetic_v<T>;
 
-  struct ResourceID final {
+  struct KeyID final {
     std::string data{};
 
-    ResourceID() = default;
-    explicit ResourceID(std::string_view s) : data(s) {}
+    KeyID() = default;
+    explicit KeyID(std::string_view s) : data(s) {}
 
     [[nodiscard]] bool empty() const noexcept { return data.empty(); }
     [[nodiscard]] bool IsValid() const noexcept { return !empty(); }
@@ -110,20 +136,20 @@ export namespace ufox::engine {
     [[nodiscard]] std::string_view view() const noexcept { return data; }
     [[nodiscard]] const std::string& str() const noexcept { return data; }
 
-    friend auto operator<=>(const ResourceID&, const ResourceID&) noexcept = default;
-    friend bool operator==(const ResourceID&, const ResourceID&) noexcept = default;
+    friend auto operator<=>(const KeyID&, const KeyID&) noexcept = default;
+    friend bool operator==(const KeyID&, const KeyID&) noexcept = default;
 
-    friend std::ostream& operator<<(std::ostream& os, const ResourceID& id) {
+    friend std::ostream& operator<<(std::ostream& os, const KeyID& id) {
       return os << (id.IsValid() ? id.data : "[invalid]");
     }
   };
 
-  inline const ResourceID INVALID_CONTENT_ID{};
+  inline const KeyID INVALID_CONTENT_ID{};
 
   struct ResourceIDHash {
     using is_transparent = void;
 
-    [[nodiscard]] std::size_t operator()(const ResourceID& id) const noexcept {
+    [[nodiscard]] std::size_t operator()(const KeyID& id) const noexcept {
       return std::hash<std::string_view>{}(id.view());
     }
 
@@ -139,23 +165,23 @@ export namespace ufox::engine {
   struct ResourceIDEq {
     using is_transparent = void;
 
-    [[nodiscard]] bool operator()(const ResourceID& a, const ResourceID& b) const noexcept {
+    [[nodiscard]] bool operator()(const KeyID& a, const KeyID& b) const noexcept {
       return a.data == b.data;
     }
 
-    [[nodiscard]] bool operator()(const ResourceID& a, std::string_view b) const noexcept {
+    [[nodiscard]] bool operator()(const KeyID& a, std::string_view b) const noexcept {
       return a.data == b;
     }
 
-    [[nodiscard]] bool operator()(std::string_view a, const ResourceID& b) const noexcept {
+    [[nodiscard]] bool operator()(std::string_view a, const KeyID& b) const noexcept {
       return a == b.data;
     }
 
-    [[nodiscard]] bool operator()(const ResourceID& a, const char* b) const noexcept {
+    [[nodiscard]] bool operator()(const KeyID& a, const char* b) const noexcept {
       return b && a.data == b;
     }
 
-    [[nodiscard]] bool operator()(const char* a, const ResourceID& b) const noexcept {
+    [[nodiscard]] bool operator()(const char* a, const KeyID& b) const noexcept {
       return a && std::string_view{a} == b.data;
     }
   };
@@ -203,9 +229,9 @@ export namespace ufox::engine {
     virtual ~ResourceBase() = default;
 
     std::string                       name;
-    const ResourceID                  iD;
+    const KeyID                  iD;
 
-    explicit ResourceBase(const std::string_view name_view,ResourceID cid_)
+    explicit ResourceBase(const std::string_view name_view,KeyID cid_)
         : name(name_view), iD(std::move(cid_)){}
 
     [[nodiscard]] virtual bool hasGpuResources() const noexcept=0;
@@ -267,11 +293,11 @@ export namespace ufox::engine {
     std::string                       category{};
     std::string                       lastWriteTimeFromMeta{};
     SourceType                        sourceType{SourceType::eBuiltIn};
-    ResourceID                        id{};
+    KeyID                        id{};
     std::vector<ResourceAttachment>   attachments{};
     bool                              overwrite{false};
 
-    constexpr ResourceContextCreateInfo& setID(const ResourceID& id) noexcept {
+    constexpr ResourceContextCreateInfo& setID(const KeyID& id) noexcept {
       this->id = id; return *this;
     }
     constexpr ResourceContextCreateInfo& setSourcePath(const std::filesystem::path& path) noexcept {
@@ -299,14 +325,14 @@ export namespace ufox::engine {
 
   using ResourceContextCreateEventHandler = void(*)(const ResourceContextCreateInfo& info,void* userData);
 
-  using BuiltInResources = std::unordered_map<std::string, const ResourceID*>;
+  using BuiltInResources = std::unordered_map<std::string, const KeyID*>;
 }
 
 
 namespace std {
   template <>
-  struct hash<ufox::engine::ResourceID>{
-    [[nodiscard]] size_t operator()(const ufox::engine::ResourceID& id) const noexcept{
+  struct hash<ufox::engine::KeyID>{
+    [[nodiscard]] size_t operator()(const ufox::engine::KeyID& id) const noexcept{
       return std::hash<std::string>{}(id.data);
     }
   };

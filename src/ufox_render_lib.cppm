@@ -61,7 +61,7 @@ export namespace ufox::render {
     gpu::Image                            image{};
     std::optional<vk::raii::Sampler>      sampler{};
 
-    explicit Texture(const std::string_view name_view, std::vector<std::byte>& _pixels, const vk::Extent2D _extent, const engine::ResourceID& cid)
+    explicit Texture(const std::string_view name_view, std::vector<std::byte>& _pixels, const vk::Extent2D _extent, const engine::KeyID& cid)
         : ResourceBase(name_view, cid), pixels(std::move(_pixels)), extent(_extent) {
     }
 

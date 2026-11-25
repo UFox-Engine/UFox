@@ -34,10 +34,8 @@ export namespace ufox::font {
     0x00C0,0x00C1,0x00C2,0x00C3,0x00C4,0x00C5,0x00C6,0x00C7,0x00C8,0x00C9,0x00CA,0x00CB,0x00CC,0x00CD,0x00CE,0x00CF,
     0x00D0,0x00D1,0x00D2,0x00D3,0x00D4,0x00D5,0x00D6,0x00D7,0x00D8,0x00D9,0x00DA,0x00DB,0x00DC,0x00DD,0x00DE,0x00DF,
     0x00E0,0x00E1,0x00E2,0x00E3,0x00E4,0x00E5,0x00E6,0x00E7,0x00E8,0x00E9,0x00EA,0x00EB,0x00EC,0x00ED,0x00EE,0x00EF,
-    0x00F0,0x00F1,0x00F2,0x00F3,0x00F4,0x00F5,0x00F6,0x00F7,0x00F8,0x00F9,0x00FA,0x00FB,0x00FC,0x00FD,0x00FE,0x00FF//1 Supplement end
-  };
+    0x00F0,0x00F1,0x00F2,0x00F3,0x00F4,0x00F5,0x00F6,0x00F7,0x00F8,0x00F9,0x00FA,0x00FB,0x00FC,0x00FD,0x00FE,0x00FF,//1 Supplement end
 
-  inline std::set<msdf_atlas::unicode_t> FONT_GREEK_UNICODE_BLOCK = {
     0x0370,0x0371,0x0372,0x0373,0x0374,0x0375,0x0376,0x0377,0x0378,0x0379,0x037A,0x037B,0x037C,0x037D,0x037E,0x037F,//Greek start
     0x0380,0x0381,0x0382,0x0383,0x0384,0x0385,0x0386,0x0387,0x0388,0x0389,0x038A,0x038B,0x038C,0x038D,0x038E,0x038F,
     0x0390,0x0391,0x0392,0x0393,0x0394,0x0395,0x0396,0x0397,0x0398,0x0399,0x039A,0x039B,0x039C,0x039D,0x039E,0x039F,
@@ -47,9 +45,7 @@ export namespace ufox::font {
     0x03D0,0x03D1,0x03D2,0x03D3,0x03D4,0x03D5,0x03D6,0x03D7,0x03D8,0x03D9,0x03DA,0x03DB,0x03DC,0x03DD,0x03DE,0x03DF,
     0x03E0,0x03E1,0x03E2,0x03E3,0x03E4,0x03E5,0x03E6,0x03E7,0x03E8,0x03E9,0x03EA,0x03EB,0x03EC,0x03ED,0x03EE,0x03EF,
     0x03F0,0x03F1,0x03F2,0x03F3,0x03F4,0x03F5,0x03F6,0x03F7,0x03F8,0x03F9,0x03FA,0x03FB,0x03FC,0x03FD,0x03FE,0x03FF,//Greek end
-  };
 
-  inline std::set<msdf_atlas::unicode_t> FONT_CYRILLIC_UNICODE_BLOCK = {
     0x0400,0x0401,0x0402,0x0403,0x0404,0x0405,0x0406,0x0407,0x0408,0x0409,0x040A,0x040B,0x040C,0x040D,0x040E,0x040F,//Base Cyrillic start
     0x0410,0x0411,0x0412,0x0413,0x0414,0x0415,0x0416,0x0417,0x0418,0x0419,0x041A,0x041B,0x041C,0x041D,0x041E,0x041F,
     0x0420,0x0421,0x0422,0x0423,0x0424,0x0425,0x0426,0x0427,0x0428,0x0429,0x042A,0x042B,0x042C,0x042D,0x042E,0x042F,
@@ -94,21 +90,30 @@ export namespace ufox::font {
     0x30F0,0x30F1,0x30F2,0x30F3,0x30F4,0x30F5,0x30F6,0x30F7,0x30F8,0x30F9,0x30FA,0x30FB,0x30FC,0x30FD,0x30FE,0x30FF//Katakana end
   };
 
+  struct Glyph;
+
+  constexpr double ATLAS_SCALE = 40.0;   // px per em in the atlas
+  constexpr double PX_RANGE    = 8.0;    // MUST match shader PX_RANGE
+
+
+
   struct GlyphContext {
     uint32_t    codepoint{0};
 
     // Advance width in em-units (divide by FONT_SIZE_EM, multiply by fontSize px)
     double      advance{0.0};
 
-    float       uvX{0.0f};
-    float       uvY{0.0f};
-    float       uvW{0.0f};
-    float       uvH{0.0f};
+    double       uvX{0.0f};
+    double       uvY{0.0f};
+    double       uvW{0.0f};
+    double       uvH{0.0f};
 
-    float       planeLeft{0.0f};
-    float       planeBottom{0.0f};
-    float       planeRight{0.0f};
-    float       planeTop{0.0f};
+    double       planeLeft{0.0f};
+    double       planeBottom{0.0f};
+    double       planeRight{0.0f};
+    double       planeTop{0.0f};
+
+    Glyph*      glyph {nullptr};
   };
 
   struct MSDFFontData {
@@ -120,19 +125,15 @@ export namespace ufox::font {
 
   enum class GlyphUnicodeBlock : uint8_t {
     eUnknown,
-    eLatin,
-    eCyrillic,
-    eGreek,
-    eHanzi,
-    eKanji,
-    eHangul,
-    eThai,
+    eLGC,
+    eJP,
+    eTHAI,
   };
 
   // ──────────────────────────────────────────────────────────────
   // Font Style (simple enum, no flags)
   // ──────────────────────────────────────────────────────────────
-  enum class GlyphStyle : uint8_t {
+  enum class FontType : uint8_t {
     eUnknown,
     eRegular,
     eBold,
@@ -140,7 +141,7 @@ export namespace ufox::font {
     eBoldItalic
   };
 
-  // Range table for fast codepoint → GlyphType lookup
+  // Range table for fast codepoint → FontType lookup
   struct GlyphRange {
     const std::set<msdf_atlas::unicode_t>& set;
     const GlyphUnicodeBlock character;
@@ -148,56 +149,53 @@ export namespace ufox::font {
     GlyphRange(const std::set<msdf_atlas::unicode_t>& _set, GlyphUnicodeBlock _character) : set(_set), character(_character) {}
   };
 
-  // inline const std::array<GlyphRange, 5> GlyphTypeRanges = {{
-  //   {FONT_LATIN_UNICODE_BLOCK, GlyphUnicodeBlock::eLatin},
-  //   {FONT_GREEK_UNICODE_BLOCK, GlyphUnicodeBlock::eGreek},
-  //   {FONT_CYRILLIC_UNICODE_BLOCK, GlyphUnicodeBlock::eCyrillic},
-  //   {FONT_KANJI_UNICODE_BLOCK, GlyphUnicodeBlock::eKanji},
-  //   {FONT_THAI_UNICODE_BLOCK, GlyphUnicodeBlock::eThai}
-  // }};
-
-
-  inline const std::unordered_map<engine::ResourceID, std::vector<GlyphUnicodeBlock>> GLYPH_SOURCE_TYPE_MAP = {
-    {engine::ResourceID{"Default"}, {GlyphUnicodeBlock::eLatin, GlyphUnicodeBlock::eGreek, GlyphUnicodeBlock::eCyrillic}},
-    {engine::ResourceID{"JP"}, {GlyphUnicodeBlock::eKanji}},
-    {engine::ResourceID{"Thai"}, {GlyphUnicodeBlock::eThai}}
+  inline const std::unordered_map<engine::KeyID, GlyphUnicodeBlock> GLYPH_SOURCE_TYPE_MAP = {
+    {engine::KeyID{"0000-04FF"}, {GlyphUnicodeBlock::eLGC}},
+    {engine::KeyID{"3040-30FF"}, {GlyphUnicodeBlock::eJP}},
+    {engine::KeyID{"0E00-0E7F"}, {GlyphUnicodeBlock::eTHAI}}
   };
 
-  struct GlyphAtlasExtent {
-    uint32_t width{0};
-    uint32_t height{0};
+
+  struct GlyphFontMetrics {              // add to Glyph + JSON
+    double ascender   = 0;             // em units
+    double descender  = 0;             // negative
+    double lineHeight = 0;
+    double pxRange    = PX_RANGE;
   };
 
   struct Glyph final : engine::ResourceBase {
     GlyphUnicodeBlock           block{GlyphUnicodeBlock::eUnknown};
-    GlyphStyle                  style{GlyphStyle::eRegular};
+    FontType          style{FontType::eRegular};
+    double                      maxAscent{0.0};
+    double                      maxDescent{0.0};
+    engine::KeyID          atlasTextureID{};
+    GlyphFontMetrics            metrics{};
     std::vector<GlyphContext>   glyphs{};
 
-    uint32_t                    atlasWidth{0};
-    GlyphAtlasExtent            atlasExtent{};
-
-    engine::ResourceID          atlasTextureID{};
-
-    Glyph(std::string_view name_view, const engine::ResourceID& cid_,
-          GlyphUnicodeBlock block_, GlyphStyle style_,
-          const std::vector<GlyphContext>& glyphs_,
-          const GlyphAtlasExtent& extent_)             // ← new param
+    Glyph(std::string_view name_view, const engine::KeyID& cid_,
+          GlyphUnicodeBlock block_, FontType style_,
+          const GlyphFontMetrics & _metrics,
+          const std::vector<GlyphContext>& glyphs_)
         : ResourceBase(name_view, cid_)
-        , block(block_), style(style_), glyphs(glyphs_)
-        , atlasExtent(extent_)
-        , atlasTextureID(cid_)
-    {}
+        , block(block_), style(style_), atlasTextureID(cid_), metrics(_metrics), glyphs(glyphs_) {
 
+      for (auto& c : glyphs) {
+        c.glyph = this;
+        if (c.uvW <= 0.0f || c.uvH <= 0.0f) continue;   // space / nbsp: no quad
+        maxAscent  = std::max(maxAscent,  static_cast<double>(c.planeTop));
+        maxDescent = std::max(maxDescent, -c.planeBottom);
+      }
+    }
 
-    Glyph(std::string_view name_view, const engine::ResourceID& cid_)
+    Glyph(std::string_view name_view, const engine::KeyID& cid_)
         : ResourceBase(name_view, cid_), atlasTextureID(cid_) {}
 
     [[nodiscard]] bool hasGpuResources() const noexcept override { return false; }
     void releaseGpuResources() noexcept override {}
 
-    [[nodiscard]] bool isBold()    const noexcept { return style == GlyphStyle::eBold || style == GlyphStyle::eBoldItalic; }
-    [[nodiscard]] bool isItalic()  const noexcept { return style == GlyphStyle::eItalic || style == GlyphStyle::eBoldItalic; }
-    [[nodiscard]] bool isRegular() const noexcept { return style == GlyphStyle::eRegular; }
+    [[nodiscard]] bool isBold()    const noexcept { return style == FontType::eBold || style == FontType::eBoldItalic; }
+    [[nodiscard]] bool isItalic()  const noexcept { return style == FontType::eItalic || style == FontType::eBoldItalic; }
+    [[nodiscard]] bool isRegular() const noexcept { return style == FontType::eRegular; }
 
     [[nodiscard]] const GlyphContext* find(uint32_t codepoint) const noexcept {
       for (const auto& g : glyphs)
@@ -206,7 +204,23 @@ export namespace ufox::font {
     }
   };
 
+  struct GlyphTypeKey final {
+    engine::KeyID regular, bold, italic, boldItalic;
 
+    [[nodiscard]] engine::KeyID* slot(const FontType t) noexcept {
+      switch (t) {
+      case FontType::eRegular:    return &regular;
+      case FontType::eBold:       return &bold;
+      case FontType::eItalic:     return &italic;
+      case FontType::eBoldItalic: return &boldItalic;
+      default:                              return nullptr;
+      }
+    }
 
-using GlyphDataBindInfo = std::tuple<engine::ResourceContextCreateInfo,GlyphUnicodeBlock,GlyphStyle,std::vector<GlyphContext>,GlyphAtlasExtent>;
+    [[nodiscard]] const engine::KeyID* slot(const FontType t) const noexcept {
+      return const_cast<GlyphTypeKey*>(this)->slot(t);
+    }
+  };
+
+  using GlyphDataBindInfo = std::tuple<engine::ResourceContextCreateInfo,GlyphUnicodeBlock,FontType, GlyphFontMetrics,std::vector<GlyphContext>>;
 }

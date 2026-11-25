@@ -40,10 +40,21 @@ import ufox_nanoid;
 export namespace ufox::engine {
 
 #ifdef USE_SDL
+  [[nodiscard]] constexpr PointerButton ToPointerButton(const uint8_t sdlButton) noexcept {
+    switch (sdlButton) {
+    case SDL_BUTTON_LEFT:   return PointerButton::eLeft;
+    case SDL_BUTTON_MIDDLE: return PointerButton::eMiddle;
+    case SDL_BUTTON_RIGHT:  return PointerButton::eRight;
+    case SDL_BUTTON_X1:     return PointerButton::eX1;
+    case SDL_BUTTON_X2:     return PointerButton::eX2;
+    default:                return PointerButton::eNone;
+    }
+  }
   constexpr bool FramebufferResizeCallback(void* userData,SDL_Event* event);
 #else
   constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int height);
 #endif
+
 
   template<Arithmetic T>
   constexpr void CalculateAspectRatio(const T& width, const T& height, float& data) noexcept{
@@ -152,6 +163,13 @@ export namespace ufox::engine {
       }
     }
 
+    template<typename... Args>
+    bool executeUntilHandled(const Args&... args) const {
+      for (const auto& [callback, user] : handlers)
+        if (callback && callback(args..., user)) return true;
+      return false;
+    }
+
     [[nodiscard]] bool empty() const noexcept {
       return handlers.empty();
     }
@@ -219,35 +237,28 @@ export namespace ufox::engine {
       case EventType::eRenderPass:
         renderPassEvents.remove(user);
         break;
+      case EventType::ePointer:
+        pointerEvents.remove(user);
+        break;
+      case EventType::eProcessInput:
+        processInputEvents.remove(user);
+        break;
       }
     }
 
     template<EventType Type>
-    auto& getEventList() {
-      if constexpr (Type == EventType::eResize) {
-        return resizeEventHandlers;
-      }
-      else if constexpr (Type == EventType::eSystemInit) {
-        return systemInitEvents;
-      }
-      else if constexpr (Type == EventType::ePostSystemInit) {
-        return postSystemInitEvents;
-      }
-      else if constexpr (Type == EventType::eStart) {
-        return startEvents;
-      }
-      else if constexpr (Type == EventType::eGainsFocus) {
-        return gainsFocusEvents;
-      }
-      else if constexpr (Type == EventType::ePreDraw) {
-        return preDrawEvents;
-      }
-      else if constexpr (Type == EventType::eUpdateBuffer) {
-        return updateBufferEvents;
-      }
-      else if constexpr (Type == EventType::eRenderPass) {
-        return renderPassEvents;
-      }
+auto& getEventList() {
+      if constexpr (Type == EventType::eResize)               { return resizeEventHandlers; }
+      else if constexpr (Type == EventType::eSystemInit)      { return systemInitEvents; }
+      else if constexpr (Type == EventType::ePostSystemInit)  { return postSystemInitEvents; }
+      else if constexpr (Type == EventType::eStart)           { return startEvents; }
+      else if constexpr (Type == EventType::eGainsFocus)      { return gainsFocusEvents; }
+      else if constexpr (Type == EventType::ePreDraw)         { return preDrawEvents; }
+      else if constexpr (Type == EventType::eUpdateBuffer)    { return updateBufferEvents; }
+      else if constexpr (Type == EventType::eRenderPass)      { return renderPassEvents; }
+      else if constexpr (Type == EventType::ePointer)         { return pointerEvents; }
+      else if constexpr (Type == EventType::eProcessInput)    { return processInputEvents; }
+      else { static_assert(Type != Type, "getEventList: unhandled EventType"); }
     }
 
     template<typename T>
@@ -307,6 +318,7 @@ export namespace ufox::engine {
       while (running) {
         executeStart();
         sdlPollEvents(event, running);
+        executeProcessInput();
         executePreDraw();
         drawFrame();
       }
@@ -359,6 +371,8 @@ export namespace ufox::engine {
     EventList<PreDrawEventHandler>                                preDrawEvents{};
     EventList<UpdateBufferEventHandler>                           updateBufferEvents{};
     EventList<RenderPassEventHandler>                             renderPassEvents{};
+    EventList<PointerEventHandler>                                pointerEvents{};
+    EventList<ProcessInputEventHandler>                           processInputEvents{};
 
     bool                                                          running {false};
     bool                                                          framebufferResized {false};
@@ -426,6 +440,9 @@ export namespace ufox::engine {
       if (renderPassEvents.empty()) return;
       renderPassEvents.execute(cmb, imageIndex, *windowResource, colorAttachment, depthAttachment);
     }
+
+    void dispatchPointer(const PointerEvent& e) const { pointerEvents.executeUntilHandled(e); }
+    void executeProcessInput() const { if (!processInputEvents.empty()) processInputEvents.execute();}
 
     vk::Extent2D recreateSwapchain() {
       // Handle window minimization
@@ -587,30 +604,27 @@ export namespace ufox::engine {
 
           break;
         }
-        case SDL_EVENT_MOUSE_BUTTON_DOWN:{
-          // input::MouseButton button = input::MouseButton::eNone;
-          // input::ActionPhase phase = input::ActionPhase::eStart;
-          //
-          // if (event.button.button == SDL_BUTTON_LEFT) {button = input::MouseButton::eLeft;}
-          // else if (event.button.button == SDL_BUTTON_RIGHT) {button = input::MouseButton::eRight;}
-          // else if (event.button.button == SDL_BUTTON_MIDDLE) {button = input::MouseButton::eMiddle;}
-          //
-          // input::CatchMouseButton(*inputResource, button, phase, 1,0);
-
+        case SDL_EVENT_MOUSE_MOTION:
+          dispatchPointer({PointerPhase::eMove, PointerButton::eNone,
+                           {event.motion.x, event.motion.y}, {event.motion.xrel, event.motion.yrel}, 0});
           break;
-        }
-        case SDL_EVENT_MOUSE_BUTTON_UP: {
-          // input::MouseButton button = input::MouseButton::eNone;
-          // input::ActionPhase phase = input::ActionPhase::eEnd;
-          //
-          // if (event.button.button == SDL_BUTTON_LEFT) {button = input::MouseButton::eLeft;}
-          // else if (event.button.button == SDL_BUTTON_RIGHT) {button = input::MouseButton::eRight;}
-          // else if (event.button.button == SDL_BUTTON_MIDDLE) {button = input::MouseButton::eMiddle;}
-          //
-          // input::CatchMouseButton(*inputResource, button, phase,0,0);
-
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+          SDL_CaptureMouse(true);                               // keep receiving motion/up while dragging outside the window
+          dispatchPointer({PointerPhase::eDown, ToPointerButton(event.button.button),
+                           {event.button.x, event.button.y}, {}, event.button.clicks});
           break;
-        }
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+          dispatchPointer({PointerPhase::eUp, ToPointerButton(event.button.button),
+                           {event.button.x, event.button.y}, {}, event.button.clicks});
+          if (SDL_GetMouseState(nullptr, nullptr) == 0) SDL_CaptureMouse(false);
+          break;
+        case SDL_EVENT_MOUSE_WHEEL:
+          dispatchPointer({PointerPhase::eWheel, PointerButton::eNone,
+                           {event.wheel.mouse_x, event.wheel.mouse_y}, {event.wheel.x, event.wheel.y}, 0});
+          break;
+        case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+          dispatchPointer({PointerPhase::eLeave, PointerButton::eNone, {-1.0f, -1.0f}, {}, 0});
+          break;
 
         default: {}
         }
@@ -688,7 +702,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
   void MakeResourceContextCreateInfo(const ResourceContext& ctx, ResourceContextCreateInfo& outInfo, const std::string_view lastWriteTime = "") {
     outInfo.setSourcePath(ctx.sourcePath)
       .setName(ctx.name)
-      .setID(ctx.dataPtr ? ctx.dataPtr->iD : ResourceID{})
+      .setID(ctx.dataPtr ? ctx.dataPtr->iD : KeyID{})
       .setCategory(ctx.category)
       .setSourceType(ctx.sourceType)
       .setLastWriteTime(!lastWriteTime.empty() ? lastWriteTime : ctx.lastWriteTime)
@@ -879,7 +893,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     virtual void onGainsFocus() = 0;
     virtual void onPreDraw() = 0;
 
-    [[nodiscard]] ResourceContext* getResourceContext(const ResourceID& id) noexcept {
+    [[nodiscard]] ResourceContext* getResourceContext(const KeyID& id) noexcept {
       const auto it = container.find(id);
       return it != container.end() ? &it->second : nullptr;
     }
@@ -893,13 +907,13 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       return id ? getResourceContext(std::string_view{id}) : nullptr;
     }
 
-    [[nodiscard]] const ResourceContext* getResourceContext(const ResourceID& id) const noexcept {
+    [[nodiscard]] const ResourceContext* getResourceContext(const KeyID& id) const noexcept {
       const auto it = container.find(id);
       return it != container.end() ? &it->second : nullptr;
     }
 
 
-    bool removeResourceContext(const ResourceID& id) {
+    bool removeResourceContext(const KeyID& id) {
       const auto it = container.find(id);
       if (it == container.end()) {
         return false;
@@ -919,13 +933,13 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       std::span<const std::string_view> sourceExtensions{};
 
       BuiltInResources builtInResources{};
-      std::unordered_map<ResourceID, ResourceContext, ResourceIDHash, ResourceIDEq> container{};
+      std::unordered_map<KeyID, ResourceContext, ResourceIDHash, ResourceIDEq> container{};
 
       [[nodiscard]] const std::filesystem::path& getDirectory() const noexcept {
         return directory;
       }
 
-      [[nodiscard]] bool isBuiltInResource(const ResourceID& id) const noexcept {
+      [[nodiscard]] bool isBuiltInResource(const KeyID& id) const noexcept {
         const auto it = container.find(id);
         if (it == container.end()) {
           return false;
@@ -933,10 +947,10 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         return it->second.sourceType == SourceType::eBuiltIn;
       }
 
-      bool makeResourceContext(ResourceID& id, const bool& overwrite) {
+      bool makeResourceContext(KeyID& id, const bool& overwrite) {
         if (!id.IsValid()) {
           do {
-            id = ResourceID(nanoid::generate(12));
+            id = KeyID(nanoid::generate(12));
           } while (container.contains(id));
         }
 
@@ -952,7 +966,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         return true;
       }
 
-     [[nodiscard]] const ResourceID* bindResourceToContext(std::unique_ptr<ResourceBase>& resource, const ResourceContextCreateInfo& info) {
+     [[nodiscard]] const KeyID* bindResourceToContext(std::unique_ptr<ResourceBase>& resource, const ResourceContextCreateInfo& info) {
         auto& ctx = *getResourceContext(resource->iD);
         ctx.name = info.name;
         ctx.sourceType = info.sourceType;
@@ -991,7 +1005,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     const std::string sourcePathStr = ctx.value("sourcePath", "");
 
     if (!idStr.empty() && manager) {
-      manager->removeResourceContext(ResourceID{idStr});
+      manager->removeResourceContext(KeyID{idStr});
     }
 
     if (ctx.contains("attachments") && ctx["attachments"].is_array()) {
@@ -1119,7 +1133,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
         ResourceContextCreateInfo info{};
         info.setSourcePath(sourcePathStr)
             .setName(name)
-            .setID(ResourceID{idStr})
+            .setID(KeyID{idStr})
             .setCategory(category)
             .setSourceType(SourceType::ePortIn)
             .setLastWriteTime(lastWriteTime);
@@ -1145,7 +1159,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
           }
         }
 
-        ResourceID resourceID{idStr};
+        KeyID resourceID{idStr};
 
         manager->onMakeResource(info);
 
@@ -1165,7 +1179,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       ResourceContextCreateInfo info{};
       info.setSourcePath(source)
           .setName(name)
-          .setID(ResourceID{})
+          .setID(KeyID{})
           .setCategory("Miscellaneous")
           .setSourceType(SourceType::ePortIn)
           .setLastWriteTime("");
@@ -1233,8 +1247,8 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     }
   }
 
-  [[nodiscard]] ResourceID ResolveResourceID(const ResourceContextCreateInfo& info) {
-    return info.sourceType == SourceType::eBuiltIn ? info.id : ResourceID{info.sourcePath.filename().string()};
+  [[nodiscard]] KeyID ResolveResourceID(const ResourceContextCreateInfo& info) {
+    return info.sourceType == SourceType::eBuiltIn ? info.id : KeyID{info.sourcePath.filename().string()};
   }
 
 }

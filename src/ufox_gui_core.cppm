@@ -29,13 +29,18 @@ import ufox_gui_lib;
 import ufox_nanoid;
 import ufox_render_lib;
 import ufox_render_core;
-
+import ufox_font_lib;
+import ufox_font_core;
 
 using namespace ufox::geometry;
 using namespace ufox::render;
 using namespace ufox::engine;
 
 export namespace ufox::gui {
+    class Document;
+    class VisualElement;
+    void ForgetPointerTarget(Document& document, VisualElement* removed) noexcept;
+
     glm::vec4 CalculateInnerRadius(const glm::vec4& borderThickness, const glm::vec4& cornerRadius) {
         return glm::max(glm::vec4(0.0f), cornerRadius - glm::vec4(
             glm::max(borderThickness.z, borderThickness.y), // BR
@@ -114,40 +119,62 @@ export namespace ufox::gui {
         }
     }
 
+    [[nodiscard]] glm::vec4 ComputeGlyphUVRect(const float elementWidth, const float elementHeight, const font::GlyphContext& glyphCtx, const Style& style) noexcept{
+        //tiling
+        const glm::vec2 imageFrame = style.getCropOutSpace();
+        const glm::vec2 elementSize{elementWidth, elementHeight};
+        const glm::vec2 trueElementSize = elementSize - imageFrame;
+
+        // Guard against zero/negative content size
+        if (trueElementSize.x <= 0.0f || trueElementSize.y <= 0.0f) {
+            return {0.0f, 0.0f, 1.0f, 1.0f};
+        }
+
+        const glm::vec2 glyphSourceUVSize{glyphCtx.uvW, glyphCtx.uvH};
+        const glm::vec2 tilingScaler = elementSize / trueElementSize;
+        const glm::vec2 tiling = glyphSourceUVSize * tilingScaler;
+
+        // Offset
+        const glm::vec2 offsetSpacing = style.getUVTopLeftOffset() / trueElementSize / tilingScaler;
+        const glm::vec2 atlasOffset = glm::vec2{glyphCtx.uvX, glyphCtx.uvY} / glyphSourceUVSize / tilingScaler;
+        const glm::vec2 offset = atlasOffset - offsetSpacing;
+
+
+        return {offset, tiling};
+    }
+
     [[nodiscard]] glm::vec4 ComputeImageUVRect(const float elementWidth, const float elementHeight,const float textureWidth, const float textureHeight, const Style& style) noexcept{
         if (textureWidth <= 0.0f || textureHeight <= 0.0f || elementWidth <= 0.0f || elementHeight <= 0.0f)
             return {0.0f, 0.0f, 1.0f, 1.0f};
 
-        const glm::vec2 imageSpace = style.getImageSpace();
+        const glm::vec2 imageFrame = style.getCropOutSpace();
         const ImageScaleMode& mode = style.imageScaleMode;
         const ImageAlignment& alignment = style.imageAlignment;
 
-        const glm::vec2 rectSize{elementWidth, elementHeight};
-        const glm::vec2 imageSize = rectSize - imageSpace;
-        const glm::vec2 imageRect = imageSize / rectSize;
-        const glm::vec2 texTiling = rectSize / imageSize;
-        const glm::vec2 borderTLOffset = style.getImageTLSpaceOffset() / rectSize ;
-
+        const glm::vec2 elementSize{elementWidth, elementHeight};
+        const glm::vec2 uvSize = elementSize - imageFrame;
+        const glm::vec2 normalizedUVSize = uvSize / elementSize;
+        const glm::vec2 texTiling = elementSize / uvSize;
+        const glm::vec2 topLeftOffset = style.getUVTopLeftOffset() / elementSize ;
 
         const float elemAspect = elementWidth / elementHeight;
         const float texAspect  = textureWidth / textureHeight ;
-        const float imageAspect = imageSize.x / imageSize.y ;
-
+        const float imageAspect = uvSize.x / uvSize.y ;
 
         switch (mode) {
         case ImageScaleMode::eStretchToFill:
-            return {-borderTLOffset, texTiling};
+            return {-topLeftOffset, texTiling};
 
         case ImageScaleMode::eScaleToFit: {
             if (imageAspect > texAspect) {
                 const float uvWidth =  imageAspect / texAspect;
                 const glm::vec2 tiling = glm::vec2{uvWidth, 1.0f} * texTiling;
-                const glm::vec2 offset = ComputeImageUVPositionX(tiling, borderTLOffset, imageRect, alignment);
+                const glm::vec2 offset = ComputeImageUVPositionX(tiling, topLeftOffset, normalizedUVSize, alignment);
                 return {offset, tiling } ;
             }
             const float uvHeight = texAspect / imageAspect;
             const glm::vec2 tiling = glm::vec2{1.0f, uvHeight} * texTiling;
-            const glm::vec2 offset = ComputeImageUVPositionY(tiling, borderTLOffset, imageRect, alignment) ;
+            const glm::vec2 offset = ComputeImageUVPositionY(tiling, topLeftOffset, normalizedUVSize, alignment) ;
             return {offset, tiling};
         }
 
@@ -160,16 +187,101 @@ export namespace ufox::gui {
             return {(1.0f - uvWidth) * 0.5f, 0.0f, uvWidth, 1.0f};
         }
         }
-        return {-borderTLOffset, texTiling};
+        return {-topLeftOffset, texTiling};
     }
 
-    class Document;
+
     void MarkGUITreeStructureChanged(Document& document) noexcept;
     void MarkGUILayoutChanged(Document& document) noexcept;
     void MarkGUIStyleChanged(Document& document) noexcept;
 
+    enum class ElementEventType : uint8_t {
+        AttachmentEvent, DetachEvent,
+        PointerMotion, PointerEnter, PointerLeave,
+        PointerDown, PointerUp, PointerClick, PointerWheel
+    };
 
-    StyleStaticData MakeStyleStaticData(const Style& style) noexcept {
+    struct ElementPointerEvent {
+        glm::vec2        pos{0};            // window space
+        glm::vec2        local{0};          // relative to currentTarget's visible rect
+        glm::vec2        delta{0};
+        PointerButton    button{PointerButton::eNone};
+        uint8_t          clicks{0};
+        VisualElement*   target{nullptr};
+        VisualElement*   currentTarget{nullptr};
+        bool             stopped{false};
+        void stopPropagation() noexcept { stopped = true; }
+    };
+    using ElementPointerHandler = void(*)(ElementPointerEvent& e, void* user);
+
+    using AttachmentEventHandler = void(*)(void* user);
+    using DetachEventHandler = void(*)(void* user);
+    using PointerMotionEventHandler = void(*)(ElementPointerEvent& e, void* user);
+    using PointerEnterEventHandler = void(*)(ElementPointerEvent& e, void* user);
+    using PointerLeaveEventHandler = void(*)(ElementPointerEvent& e, void* user);
+    using PointerDownEventHandler = void(*)(ElementPointerEvent& e, void* user);
+    using PointerUpEventHandler = void(*)(ElementPointerEvent& e, void* user);
+    using PointerClickEventHandler = void(*)(ElementPointerEvent& e, void* user);
+    using PointerWheelEventHandler = void(*)(ElementPointerEvent& e, void* user);
+
+
+    template<ElementEventType Type>
+    struct EventTraits;
+
+    template<>
+    struct EventTraits<ElementEventType::AttachmentEvent> {
+        using Handler = AttachmentEventHandler;
+    };
+
+    template<>
+    struct EventTraits<ElementEventType::DetachEvent> {
+        using Handler = DetachEventHandler;
+    };
+
+    template<>
+    struct EventTraits<ElementEventType::PointerEnter> {
+        using Handler = PointerEnterEventHandler;
+    };
+
+    template<>
+    struct EventTraits<ElementEventType::PointerLeave> {
+        using Handler = PointerLeaveEventHandler;
+    };
+
+    template<>
+    struct EventTraits<ElementEventType::PointerMotion> {
+        using Handler = PointerMotionEventHandler;
+    };
+
+    template<>
+    struct EventTraits<ElementEventType::PointerUp> {
+        using Handler = PointerUpEventHandler;
+    };
+
+    template<>
+        struct EventTraits<ElementEventType::PointerDown> {
+        using Handler = PointerDownEventHandler;
+    };
+
+    template<>
+        struct EventTraits<ElementEventType::PointerClick> {
+        using Handler = PointerClickEventHandler;
+    };
+
+    template<>
+        struct EventTraits<ElementEventType::PointerWheel> {
+        using Handler = PointerWheelEventHandler;
+    };
+
+    struct PendingPointer {
+        VisualElement*      target;
+        ElementEventType    type;
+        ElementPointerEvent ev;
+        bool                bubbles;
+    };
+
+
+    [[nodiscard]] StyleStaticData MakeStyleStaticData(const Style& style) noexcept {
         StyleStaticData s{};
         s.radius            = style.getCornerRadiusSet();
         s.iRadius           = CalculateInnerRadius(style.getBorderThicknessSet(),
@@ -181,7 +293,19 @@ export namespace ufox::gui {
         s.borderRightColor  = style.borderRightColor;
         s.borderBottomColor = style.borderBottomColor;
         s.imageRepeatMode   = static_cast<uint32_t>(style.imageRepeatMode);
+
         return s;
+    }
+
+    [[nodiscard]] StyleStaticData MakeFontStyleStaticData(glm::vec4 fontColor) {
+        StyleStaticData sd{};
+        sd.isFont = 1u;
+        sd.radius = sd.iRadius = glm::vec4(0.0f);
+        sd.imageColor = fontColor;
+        sd.backgroundColor = glm::vec4(0.0f);
+        sd.borderTopColor = sd.borderBottomColor = sd.borderLeftColor = sd.borderRightColor = glm::vec4(0.0f);
+        sd.imageRepeatMode = 0u;
+        return sd;
     }
 
     class GUIPaletteManager {
@@ -200,20 +324,20 @@ export namespace ufox::gui {
         }
 
         void addPreset(const std::string_view name,const StyleStaticData& data) {
-            _stylePreset.emplace(ResourceID{name},data);
+            _stylePreset.emplace(KeyID{name},data);
 
             MarkGUIStyleChanged(*_document);
         }
 
         void addPreset(const std::string_view name,const Style& style) {
             const auto data = MakeStyleStaticData(style);
-            _stylePreset.emplace(ResourceID{name},data);
+            _stylePreset.emplace(KeyID{name},data);
 
             MarkGUIStyleChanged(*_document);
         }
 
         void removePreset(const std::string_view name) {
-            if (const auto it = _stylePreset.find(ResourceID{name}); it != _stylePreset.end()) {
+            if (const auto it = _stylePreset.find(KeyID{name}); it != _stylePreset.end()) {
                 _stylePreset.erase(it);
             }
 
@@ -303,6 +427,7 @@ export namespace ufox::gui {
         struct StyleEqual {
             bool operator()(const StyleStaticData& a, const StyleStaticData& b) const noexcept {
                 return a.imageRepeatMode == b.imageRepeatMode &&
+                       a.isFont          == b.isFont &&
                        a.radius          == b.radius &&
                        a.iRadius         == b.iRadius &&
                        a.imageColor      == b.imageColor &&
@@ -322,15 +447,16 @@ export namespace ufox::gui {
         // Cache Maps
         std::unordered_map<StyleStaticData, uint32_t, std::hash<StyleStaticData>, StyleEqual>   _staticMap{};
         std::unordered_map<StyleStaticData, uint32_t, std::hash<StyleStaticData>, StyleEqual>   _dynamicMap{};
-        std::unordered_map<ResourceID,StyleStaticData, ResourceIDHash, ResourceIDEq>            _stylePreset{};
+        std::unordered_map<KeyID,StyleStaticData, ResourceIDHash, ResourceIDEq>            _stylePreset{};
         uint32_t                                                                                _validatedPresetCount{0};
         uint32_t                                                                                _maxStyles{0};
     };
 
-
+    [[nodiscard]] const font::Glyph* GetGlyph(const Document& doc, const Style& style) noexcept;
 
     class VisualElement: public discadelta::DiscadeltaRectLayoutBase<VisualElement> {
     public:
+        Document*                                               document{nullptr};
         std::string_view                                        name;
         Style                                                   style{};
         size_t                                                  ssboIndex = 0;
@@ -342,19 +468,23 @@ export namespace ufox::gui {
         uint32_t                                                flatLeafCount = 0;
         uint32_t                                                styleDataIndex = 0;
 
-        VisualElement(const ResourceID& _id, const std::string_view _name)
-            : DiscadeltaRectLayoutBase(_id)
-            , name(_name)
-        {
-            baseStyle = &style;
-        }
+        const font::GlyphContext* const                         glyphContext{nullptr};
 
-        explicit VisualElement(const std::string_view _name): DiscadeltaRectLayoutBase(ResourceID{_name}), name(_name) {}
+        virtual ~VisualElement() = default;
 
-        VisualElement() = default;
+        [[nodiscard]] virtual uint32_t extraSlotCount() const noexcept { return 0; }
+        [[nodiscard]] virtual bool isBatchableLeaf() const noexcept { return isContainerEmpty(); }
+
+        VisualElement(const KeyID& id, std::string_view name_): VisualElement(id, name_, nullptr){}
+
+        VisualElement(const KeyID& id, std::string_view name_,const font::GlyphContext* glyph_): DiscadeltaRectLayoutBase(id), name(name_), glyphContext(glyph_){initVisualElement();}
+
+        explicit VisualElement(std::string_view name_): VisualElement(KeyID{name_}, name_, nullptr){}
+
+        [[nodiscard]] bool isGlyphElement() const noexcept {return glyphContext != nullptr;}
 
         [[nodiscard]] ElementData makeUniformData(const TextureManager& textureManager, GUIPaletteManager& paletteManager)  {
-            const ResourceID imageID{style.backgroundImage};
+            const KeyID imageID{style.backgroundImage};
             auto [texWidth, texHeight] = textureManager.getTextureSize<float>(imageID);
 
             StyleStaticData styleData{};
@@ -374,12 +504,17 @@ export namespace ufox::gui {
             ElementData data{};
             data.model = getTransformMat4();
             data.sdInput = MakeSDRectInputData(glm::vec2(width, height), style.getMarginSet(), style.getBorderThicknessSet());
-            data.imageOffsetAndTiling = ComputeImageUVRect(width, height, texWidth, texHeight, style);
+            data.imageOffsetAndTiling = isGlyphElement()? ComputeGlyphUVRect(width,height, *glyphContext, style): ComputeImageUVRect(width, height, texWidth, texHeight, style);
             data.styleIndex = styleDataIndex;
             data.imageID = textureManager.getTextureIndex(imageID);
             data.scrollingOffset = {0,0};//not yet feature
 
             return data;
+        }
+
+        void markStyleChanged() noexcept {
+            Document* doc = root ? root->document : document;
+            if (doc != nullptr) MarkGUIStyleChanged(*doc);
         }
 
         // Called once per rebuild: assigns slot, writes initial data, registers pointer
@@ -389,9 +524,9 @@ export namespace ufox::gui {
         }
 
         // Called on layout change — writes directly to mapped memory, no copy
-        void syncToGpu(const TextureManager& tex, GUIPaletteManager& palette) {
+        virtual void syncToGpu(const TextureManager& tex, GUIPaletteManager& palette) {
             if (!gpuSlot) return;
-            const ResourceID imageID{style.backgroundImage};
+            const KeyID imageID{style.backgroundImage};
             auto [tw, th] = tex.getTextureSize<float>(imageID);
 
             const StyleStaticData styleData = MakeStyleStaticData(style);
@@ -401,7 +536,7 @@ export namespace ufox::gui {
             elementData.sdInput            = MakeSDRectInputData(glm::vec2(width, height),
                                                  style.getMarginSet(),
                                                  style.getBorderThicknessSet());
-            elementData.imageOffsetAndTiling = ComputeImageUVRect(width, height, tw, th, style);
+            elementData.imageOffsetAndTiling = isGlyphElement()? ComputeGlyphUVRect(width,height, *glyphContext, style):ComputeImageUVRect(width, height, tw, th, style);
             elementData.styleIndex         = styleDataIndex;
             elementData.imageID            = tex.getTextureIndex(imageID);
             elementData.scrollingOffset    = {0.0f, 0.0f};
@@ -413,33 +548,97 @@ export namespace ufox::gui {
             this->document = document;
         }
 
-    private:
-        Document*                           document{nullptr};
+        template<ElementEventType Type>
+        void registerCallbackEvent(EventTraits<Type>::Handler callback, void* user) {
+            getEventList<Type>().add(callback, user);
+        }
+
+        void unregisterCallbackEvent(const ElementEventType type, void* user) {
+            switch (type) {
+            case ElementEventType::AttachmentEvent: onAttachment.remove(user);break;
+            case ElementEventType::DetachEvent: onDetachment.remove(user);break;
+            case ElementEventType::PointerMotion: onPointerMotion.remove(user);break;
+            case ElementEventType::PointerEnter: onPointerEnter.remove(user);break;
+            case ElementEventType::PointerLeave: onPointerLeave.remove(user);break;
+            case ElementEventType::PointerDown: onPointerDown.remove(user);break;
+            case ElementEventType::PointerUp: onPointerUp.remove(user);break;
+            case ElementEventType::PointerClick: onPointerClick.remove(user);break;
+            case ElementEventType::PointerWheel: onPointerWheel.remove(user);break;
+            }
+        }
+
+        template<ElementEventType Type>
+        auto& getEventList() {
+            if constexpr (Type == ElementEventType::AttachmentEvent) {
+                return onAttachment;
+            }
+            else if constexpr (Type == ElementEventType::DetachEvent) {
+                return onDetachment;
+            }
+            else if constexpr (Type == ElementEventType::PointerMotion) {
+                return onPointerMotion;
+            }
+            else if constexpr (Type == ElementEventType::PointerEnter) {
+                return onPointerEnter;
+            }
+            else if constexpr (Type == ElementEventType::PointerLeave) {
+                return onPointerLeave;
+            }
+            else if constexpr (Type == ElementEventType::PointerDown) {
+                return onPointerDown;
+            }
+            else if constexpr (Type == ElementEventType::PointerUp) {
+                return onPointerUp;
+            }
+            else if constexpr (Type == ElementEventType::PointerClick) {
+                return onPointerClick;
+            }
+            else if constexpr (Type == ElementEventType::PointerWheel) {
+                return onPointerWheel;
+            }
+        }
+
+        [[nodiscard]] VisualElement* parentElement() const noexcept {
+            return dynamic_cast<VisualElement*>(parent);
+        }
+
+        [[nodiscard]] bool wantsPointer() const noexcept {
+            return !(onPointerMotion.empty() && onPointerEnter.empty() && onPointerLeave.empty() &&
+                     onPointerDown.empty() && onPointerUp.empty() && onPointerClick.empty() && onPointerWheel.empty());
+        }
+
+        // topmost element under p, following draw order (last branch is drawn last = on top)
+        [[nodiscard]] VisualElement* hitTest(const glm::vec2& p) {
+            const glm::vec2 tl   = glm::vec2(x, y) + glm::vec2(style.marginLeft, style.marginTop);
+            const glm::vec2 size = glm::vec2(width, height) - style.getMarginSpace();
+            const bool inside = p.x >= tl.x && p.y >= tl.y && p.x < tl.x + size.x && p.y < tl.y + size.y;
+
+            if (!inside && style.displayOverflowMode == DisplayOverflowMode::eHidden) return nullptr;  // clipped
+
+            for (auto it = branchChildren.rbegin(); it != branchChildren.rend(); ++it)
+                if (auto* h = (*it)->hitTest(p)) return h;
+            for (auto it = leafChildren.rbegin(); it != leafChildren.rend(); ++it)
+                if (auto* h = (*it)->hitTest(p)) return h;
+            return inside ? this : nullptr;
+        }
+
+        void dispatchPointer(const ElementEventType type, ElementPointerEvent& e) {
+            e.currentTarget = this;
+            e.local = e.pos - (glm::vec2(x, y) + glm::vec2(style.marginLeft, style.marginTop));
+            switch (type) {
+            case ElementEventType::PointerMotion: if (!onPointerMotion.empty()) onPointerMotion.execute(e); break;
+            case ElementEventType::PointerEnter:  if (!onPointerEnter.empty())  onPointerEnter.execute(e);  break;
+            case ElementEventType::PointerLeave:  if (!onPointerLeave.empty())  onPointerLeave.execute(e);  break;
+            case ElementEventType::PointerDown:   if (!onPointerDown.empty())   onPointerDown.execute(e);   break;
+            case ElementEventType::PointerUp:     if (!onPointerUp.empty())     onPointerUp.execute(e);     break;
+            case ElementEventType::PointerClick:  if (!onPointerClick.empty())  onPointerClick.execute(e);  break;
+            case ElementEventType::PointerWheel:  if (!onPointerWheel.empty())  onPointerWheel.execute(e);  break;
+            default: break;
+            }
+        }
+
+    protected:
         VisualElement*                      root = nullptr;
-
-        friend VisualElement;
-
-        void onAdd(VisualElement* target) override {
-            if (target->isContainerEmpty()) {
-                addChildToLeaf(target);
-            }else {
-                addChildToBranch(target);
-            }
-            switchToBranch();
-
-            if (!root) {
-                target->root = this;
-            }else {
-                target->root = root;
-            }
-        }
-        void onRemove(VisualElement* target) override {
-            std::erase(leafChildren,target);
-            std::erase(branchChildren,target);
-            switchToLeaf();
-            target->root = nullptr;
-        }
-
         void onTreeStructureChanged() override {
             if (root) {
                 if (root->document) {
@@ -450,6 +649,48 @@ export namespace ufox::gui {
                 MarkGUITreeStructureChanged(*document);
                 MarkGUILayoutChanged(*document);
             }
+        }
+
+        void executeOnAttachment() {
+            if (onAttachment.empty()) return;
+            onAttachment.execute();
+        }
+
+        void executeOnDetachment() {
+            if (onDetachment.empty()) return;
+            onDetachment.execute();
+        }
+    private:
+        EventList<AttachmentEventHandler>    onAttachment{};
+        EventList<DetachEventHandler>        onDetachment{};
+        EventList<PointerEnterEventHandler>  onPointerEnter{};
+        EventList<PointerLeaveEventHandler>  onPointerLeave{};
+        EventList<PointerMotionEventHandler> onPointerMotion{};
+        EventList<PointerUpEventHandler>     onPointerUp{};
+        EventList<PointerDownEventHandler>   onPointerDown{};
+        EventList<PointerClickEventHandler>  onPointerClick{};
+        EventList<PointerWheelEventHandler>  onPointerWheel{};
+
+
+        void initVisualElement() {
+            baseStyle = &style;
+        }
+
+        void onAdd(VisualElement* target) override {
+            if (target->isBatchableLeaf()) addChildToLeaf(target); else addChildToBranch(target);
+            switchToBranch();
+            target->root = root? root : this;
+            target->executeOnAttachment();
+        }
+        void onRemove(VisualElement* target) override {
+            if (Document* doc = root ? root->document : document)
+                ForgetPointerTarget(*doc, target);
+
+            std::erase(leafChildren,target);
+            std::erase(branchChildren,target);
+            switchToLeaf();
+            target->root = nullptr;
+            target->executeOnDetachment();
         }
 
         void addChildToBranch(VisualElement* child) {
@@ -474,12 +715,145 @@ export namespace ufox::gui {
         }
 
         void switchToLeaf() {
-            if (!parent || !isContainerEmpty()) return;
+            if (!parent || !isBatchableLeaf()) return;
             auto* p = dynamic_cast<VisualElement*>(parent);
             if (const auto it = std::ranges::find(p->leafChildren, this);
                 it != p->leafChildren.end()) return;
             p->leafChildren.push_back(this);
             std::erase(p->branchChildren, this);
+        }
+
+
+    };
+
+    class Label final : public VisualElement {
+    public:
+
+        Label(const KeyID& id, std::string_view name,std::string_view utf8 = {}, float fontSize = 12.0f, float lineHeightEm = 1.5f): VisualElement(id, name), text_(DecodeUtf8(utf8)), lineHeightEm_(lineHeightEm){
+           init(fontSize);
+        }
+
+        ~Label() override {
+            release();
+        }
+
+        void setText(std::string_view utf8) { text_ = DecodeUtf8(utf8); rebuild(); }
+        void setFontSize(float px)          { style.fontSize = px;      rebuild(); }
+        void setLineHeight(float em)        { lineHeightEm_ = em;       rebuild(); }
+        void setColor(const glm::vec4& c)   { style.imageColor = c; }   // text color
+
+        uint32_t extraSlotCount() const noexcept override { return visible_; }
+        bool isBatchableLeaf() const noexcept override { return false; }
+
+        void syncToGpu(const TextureManager& tex, GUIPaletteManager& palette) override {
+            VisualElement::syncToGpu(tex, palette);            // background box of the label
+            if (!gpuSlot || visible_ == 0) return;
+            if (font_ == nullptr) return;
+
+            // one shared style for all glyphs of this label
+            StyleStaticData sd = MakeFontStyleStaticData(style.fontColor);
+            const uint32_t styleIdx = palette.getOrCreateStyle(sd);
+            const uint32_t atlasIdx = tex.getTextureIndex(KeyID{font_->atlasTextureID.view()});
+
+            const float fs    = style.fontSize;
+            const auto& m     = font_->metrics;                          // ascender > 0, descender < 0 (em)
+            const glm::vec2 o = glm::vec2(x, y) + style.getUVTopLeftOffset();   // content origin
+            const float baseline = std::round(o.y + (((lineHeightEm_ - static_cast<float>(m.ascender - m.descender)) * 0.5f)
+                                                     + static_cast<float>(m.ascender)) * fs);
+            static const Style kNoFrame{};                                // zero margin/border
+            float penX = o.x;
+            ElementData* out = gpuSlot + 1;
+
+            for (const auto* g : glyphs_) {
+                if (g->uvW > 0.0f && g->uvH > 0.0f) {
+                    const float qw = (g->planeRight - g->planeLeft) * fs;
+                    const float qh = (g->planeTop   - g->planeBottom) * fs;
+                    const float qx = penX + g->planeLeft * fs;
+                    const float qy = baseline - g->planeTop * fs;         // y-down, overhang is fine
+
+                    ElementData d{};
+                    d.model = MakeTransformModel(glm::vec3{qx, qy, 0.0f}, IDENTITY_QUAT, glm::vec3{qw, qh, 1.0f});
+                    d.sdInput = MakeSDRectInputData({qw, qh}, glm::vec4(0.0f), glm::vec4(0.0f));
+                    d.imageOffsetAndTiling = ComputeGlyphUVRect(qw, qh, *g, kNoFrame);
+                    d.styleIndex = styleIdx;
+                    d.imageID = atlasIdx;
+
+                    *out++ = d;
+                }
+                penX += static_cast<float>(g->advance) * fs;                           // kerning goes here later
+            }
+        }
+
+    private:
+        const font::Glyph*                          font_{nullptr};
+        std::u32string                              text_{};
+        std::vector<const font::GlyphContext*>      glyphs_{};
+        uint32_t                                    visible_{0};
+        float                                       lineHeightEm_{1.5f};
+
+        void init(const float fontSize) {
+            style.fontSize = fontSize;
+            style.fontType = font::FontType::eRegular;
+            style.fontFamily = "NotoSans";
+            style.backgroundColor = glm::vec4(0.0f);
+
+            registerCallbackEvent<ElementEventType::AttachmentEvent>([](void* user) {
+                auto label = static_cast<Label*>(user);
+                label->rebuild();
+            }, this);
+        }
+
+        void release() {
+            unregisterCallbackEvent(ElementEventType::AttachmentEvent, this);
+        }
+
+        void resolveFont() {
+            if (font_ != nullptr) return;
+            if (root == nullptr || root->document == nullptr) return;     // not attached yet
+            font_ = GetGlyph(*root->document, style);
+            if (font_ == nullptr)
+                debug::log(debug::LogLevel::eError, "Font not found - {}", style.fontFamily);
+        }
+
+        void rebuild() {
+            resolveFont();
+
+            glyphs_.clear();
+            visible_ = 0;
+            float w = 0.0f;
+            const float fs = style.fontSize;
+
+            if (font_ != nullptr) {
+                for (const char32_t cp : text_) {
+                    const auto* g = font_->find(cp);
+                    if (!g) g = font_->find('?');
+                    if (!g) continue;
+                    glyphs_.push_back(g);
+                    w += static_cast<float>(g->advance) * fs;
+                    if (g->uvW > 0.0f && g->uvH > 0.0f) ++visible_;
+                }
+            }
+
+            style.width  = discadelta::Length(discadelta::LengthMode::eFlat, w);
+            style.height = discadelta::Length(discadelta::LengthMode::eFlat, lineHeightEm_ * fs);
+            style.flexExpand = 0.0f;
+            style.flexCompress = 0.0f;
+
+            updateMetrics();
+            onTreeStructureChanged();
+        }
+
+        static std::u32string DecodeUtf8(std::string_view s) {
+            std::u32string out;
+            for (size_t i = 0; i < s.size();) {
+                const unsigned char c = s[i];
+                const int n = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : 4;
+                char32_t cp = n == 1 ? c : c & (0xFF >> (n + 1));
+                for (int k = 1; k < n && i + k < s.size(); ++k) cp = (cp << 6) | (s[i + k] & 0x3F);
+                out.push_back(cp);
+                i += n;
+            }
+            return out;
         }
     };
 
@@ -487,7 +861,7 @@ export namespace ufox::gui {
         // Assign this element
         element.ssboIndex = slotIndex;
         element.bindGpuSlot(mappedBase + slotIndex, tex, palette);
-        slotIndex++;
+        slotIndex += 1 + element.extraSlotCount();
 
         // Leaf batch — contiguous block, same as before
         element.flatLeafStartSsboIndex = slotIndex;
@@ -529,6 +903,10 @@ export namespace ufox::gui {
             0, 0,
             static_cast<uint32_t>(element.ssboIndex) // Passes to shader as SV_StartInstanceLocation
         );
+
+        // Draw Sub Elements
+        if (const uint32_t n = element.extraSlotCount(); n > 0)
+            cmb.drawIndexed(std::size(RectIndices), n, 0, 0, static_cast<uint32_t>(element.ssboIndex) + 1);
 
         // If this element has absolutely zero children, we stop immediately
         if (element.leafChildren.empty() && element.branchChildren.empty()) return;
@@ -608,11 +986,11 @@ export namespace ufox::gui {
         for (auto* branch : el.branchChildren) SyncSubtree(*branch, textureManager, paletteManager);
     }
 
-    inline ResourceID TESTER_TEXTURE_ID{"grok-image-b9472c20-0cfc-4f3d-b558-d5c3066aa081.jpg"};
+    inline KeyID TESTER_TEXTURE_ID{"grok-image-b9472c20-0cfc-4f3d-b558-d5c3066aa081.jpg"};
 
     class  Document {
     public:
-        explicit Document(UFoxWindow& _window, MeshManager* _meshManager = nullptr, TextureManager* _textureManager = nullptr) : window(&_window) , meshManager(_meshManager), textureManager(_textureManager) {
+        explicit Document(UFoxWindow& _window, MeshManager& _meshManager, font::GlyphManager& _glyphManager, TextureManager* _textureManager = nullptr) : window(&_window) , meshManager(&_meshManager), glyphManager(&_glyphManager), textureManager(_textureManager) {
             window->registerCallbackEvent<EventType::eSystemInit>([](void* user) { static_cast<Document*>(user)->init();}, this);
             window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->onPostSystemInit(w,h);}, this);
             window->registerCallbackEvent<EventType::eStart>([](void* user) { static_cast<Document*>(user)->onStart();}, this);
@@ -622,10 +1000,19 @@ export namespace ufox::gui {
             window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->onLayoutChanged(currentImage);}, this);
             window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
             const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, stencilAttachment);}, this);
+            window->registerCallbackEvent<EventType::ePointer>(
+    [](const PointerEvent& e, void* user) { return static_cast<Document*>(user)->onPointer(e); }, this);
+            window->registerCallbackEvent<EventType::eProcessInput>(
+                [](void* user) { static_cast<Document*>(user)->flushPointerQueue(); }, this);
             paletteManager = std::make_unique<GUIPaletteManager>(window, this);
         }
 
         ~Document() {
+            hovered_ = nullptr;
+            pressed_ = nullptr;
+            pointerQueue_.clear();
+            rootElement.reset();
+
             if (window != nullptr) {
                 window->unregisterCallbackEvent(EventType::eSystemInit,this);
                 window->unregisterCallbackEvent(EventType::ePostSystemInit,this);
@@ -635,6 +1022,9 @@ export namespace ufox::gui {
                 window->unregisterCallbackEvent(EventType::ePreDraw,this);
                 window->unregisterCallbackEvent(EventType::eUpdateBuffer,this);
                 window->unregisterCallbackEvent(EventType::eRenderPass,this);
+                window->unregisterCallbackEvent(EventType::ePointer, this);
+                window->unregisterCallbackEvent(EventType::eProcessInput, this);
+
                 window = nullptr;
             }
 
@@ -662,15 +1052,15 @@ export namespace ufox::gui {
                 );
             }
 
-            rootElement = std::make_unique<VisualElement>(ResourceID("root"),"Root");
+            rootElement = std::make_unique<VisualElement>(KeyID("root"),"Root");
             rootElement->setAsRenderRoot(this);
             rootElement->style.backgroundColor = glm::vec4{0.0f, 0.0f, 0.0f, 0.0f};
             rootElement->style.direction = discadelta::FlexDirection::eRow;
             rootElement->style.displayOverflowMode = DisplayOverflowMode::eHidden;
-            rootElement->style.justifyContent = discadelta::JustifyContentMode::eSpaceEvenly;
+            rootElement->style.justifyContent = discadelta::JustifyContentMode::eStart;
             rootElement->style.flexCompress =1.0f;
             rootElement->style.flexExpand =1.0f;
-            rootElement->style.alignItems = discadelta::AlignMode::eEnd;
+            rootElement->style.alignItems = discadelta::AlignMode::eStart;
 
             debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
         }
@@ -715,14 +1105,37 @@ export namespace ufox::gui {
             styleChangedFlag = true;
         }
 
-        std::unique_ptr<VisualElement> rootElement{};
+        void forgetPointerTarget(VisualElement* gone) noexcept {
+            auto inSubtree = [gone](VisualElement* e) {
+                for (; e != nullptr; e = e->parentElement())
+                    if (e == gone) return true;
+                return false;
+            };
+            if (inSubtree(hovered_)) hovered_ = nullptr;
+            if (inSubtree(pressed_)) pressed_ = nullptr;
+            for (auto& p : pointerQueue_)
+                if (inSubtree(p.target)) p.target = nullptr;      // flush skips null targets
+        }
 
+        [[nodiscard]] font::Glyph* GetGlyph(const Style& style) const {
+            if (glyphManager == nullptr) return nullptr;
+            return glyphManager->getGlyph(style.languageCodeBlock, style.fontFamily, style.fontType);
+        }
+
+        std::unique_ptr<VisualElement>                                      rootElement{};
     private:
-        UFoxWindow*                                                         window = nullptr;
-        MeshManager*                                                        meshManager = nullptr;
-        TextureManager*                                                     textureManager = nullptr;
+        UFoxWindow*                                                         window {nullptr};
+        MeshManager*                                                        meshManager {nullptr};
+        font::GlyphManager*                                                 glyphManager {nullptr};
+        TextureManager*                                                     textureManager {nullptr};
         std::unique_ptr<GUIPaletteManager>                                  paletteManager{nullptr};
-        const ResourceID*                                                   meshID{nullptr};
+
+
+        std::vector<PendingPointer> pointerQueue_{};
+        VisualElement*              hovered_{nullptr};   // element under the pointer
+        VisualElement*              pressed_{nullptr};   // got the Down, owns Move/Up until release
+
+        const KeyID*                                                        meshID{nullptr};
         const Mesh*                                                         mesh{nullptr};
         const Texture*                                                      texture{nullptr};
 
@@ -742,6 +1155,78 @@ export namespace ufox::gui {
         bool                                                                treeStructureChangedFlag{false};
         bool                                                                layoutChangedFlag{false};
         bool                                                                styleChangedFlag{false};
+
+        bool onPointer(const PointerEvent& e) {
+    if (!rootElement) return false;                          // before init()
+
+    VisualElement* hit    = rootElement->hitTest(e.pos);
+    VisualElement* target = (pressed_ && e.phase != PointerPhase::eDown) ? pressed_ : hit;
+
+    ElementPointerEvent ev{};
+    ev.pos = e.pos; ev.delta = e.delta; ev.button = e.button; ev.clicks = e.clicks;
+
+    switch (e.phase) {
+    case PointerPhase::eMove:
+        if (hit != hovered_) {
+            enqueue(hovered_, ElementEventType::PointerLeave, ev, false);
+            enqueue(hit,      ElementEventType::PointerEnter, ev, false);
+            hovered_ = hit;
+        }
+        enqueueMotion(target, ev);
+        break;
+    case PointerPhase::eDown:
+        pressed_ = hit;
+        enqueue(hit, ElementEventType::PointerDown, ev, true);
+        break;
+    case PointerPhase::eUp:
+        enqueue(pressed_, ElementEventType::PointerUp, ev, true);
+        if (pressed_ != nullptr && pressed_ == hit)
+            enqueue(hit, ElementEventType::PointerClick, ev, true);
+        pressed_ = nullptr;
+        break;
+    case PointerPhase::eWheel:
+        enqueue(hit, ElementEventType::PointerWheel, ev, true);
+        break;
+    case PointerPhase::eLeave:
+        enqueue(hovered_, ElementEventType::PointerLeave, ev, false);
+        hovered_ = nullptr;
+        break;
+    }
+
+    // consumed only if the target or one of its ancestors listens; otherwise main gets it
+    for (auto* el = target; el != nullptr; el = el->parentElement())
+        if (el->wantsPointer()) return true;
+    return false;
+}
+
+void enqueue(VisualElement* target, const ElementEventType type, const ElementPointerEvent& ev, const bool bubbles) {
+    if (target == nullptr) return;
+    pointerQueue_.push_back({target, type, ev, bubbles});
+}
+
+void enqueueMotion(VisualElement* target, const ElementPointerEvent& ev) {
+    if (target == nullptr) return;
+    if (!pointerQueue_.empty() && pointerQueue_.back().type == ElementEventType::PointerMotion
+        && pointerQueue_.back().target == target) {
+        pointerQueue_.back().ev = ev;                     // coalesce: keep the newest position
+        return;
+    }
+    enqueue(target, ElementEventType::PointerMotion, ev, false);
+}
+
+void flushPointerQueue() {
+    for (size_t i = 0; i < pointerQueue_.size(); ++i) {
+        auto& p = pointerQueue_[i];
+        p.ev.target = p.target;
+        for (auto* el = p.target; el != nullptr; ) {
+            auto* next = el->parentElement();             // read before a handler can detach el
+            el->dispatchPointer(p.type, p.ev);
+            if (p.ev.stopped || !p.bubbles) break;
+            el = next;
+        }
+    }
+    pointerQueue_.clear();
+}
 
         void makeDescriptorSetLayout(const gpu::GPUResources& gpu) {
             auto descriptorLayout = gpu::MakeDescriptorSetLayout(gpu,{
@@ -1020,6 +1505,7 @@ export namespace ufox::gui {
         void onPreDraw() {
             onStyleChanged();
             onTreeStructureChanged();
+            debug::log(debug::LogLevel::eInfo, "GUI Document PreDraw : Susses");
         }
 
         void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment
@@ -1065,6 +1551,10 @@ export namespace ufox::gui {
         }
     };
 
+    [[nodiscard]] const font::Glyph* GetGlyph(const Document& doc, const Style& style) noexcept {
+        return doc.GetGlyph(style);
+    }
+
     void MarkGUITreeStructureChanged(Document& document) noexcept {
         document.markGUITreeStructureChanged();
     }
@@ -1075,5 +1565,9 @@ export namespace ufox::gui {
 
     void MarkGUIStyleChanged(Document& document) noexcept {
         document.markGUIStyleChanged();
+    }
+
+    void ForgetPointerTarget(Document& document, VisualElement* removed) noexcept {
+        document.forgetPointerTarget(removed);
     }
 }

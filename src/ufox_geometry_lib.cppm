@@ -108,8 +108,8 @@ export namespace ufox::geometry {
     inline const auto QUAD = "quad";
     inline const auto CUBE = "cube";
 
-    inline const engine::ResourceID BUILTIN_QUAD_ID  {QUAD};
-    inline const engine::ResourceID BUILTIN_CUBE_ID  {CUBE};
+    inline const engine::KeyID BUILTIN_QUAD_ID  {QUAD};
+    inline const engine::KeyID BUILTIN_CUBE_ID  {CUBE};
 
     struct Mesh final : engine::ResourceBase {
         std::vector<Vertex>                     vertices{};
@@ -118,7 +118,7 @@ export namespace ufox::geometry {
         std::optional<gpu::Buffer>      vertexBuffer{};
         std::optional<gpu::Buffer>      indexBuffer{};
 
-        explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::ResourceID& cid_): ResourceBase(name_view, cid_) {
+        explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::KeyID& cid_): ResourceBase(name_view, cid_) {
             vertices.assign(std::begin(_vertices), std::end(_vertices));
             indices.assign(std::begin(_indices), std::end(_indices));
         }
@@ -155,8 +155,19 @@ export namespace ufox::geometry::discadelta {
 
 
     struct Length {
-        LengthMode  mode{LengthMode::eAuto};
-        float       value{0.0f};
+        LengthMode mode{LengthMode::eAuto};
+        float value{0.0f};
+
+        constexpr Length() = default;
+
+        constexpr Length(LengthMode _mode, float _value) : mode(_mode),  value(_value){}
+
+        constexpr Length(float v) noexcept
+            : value{v} {}
+
+        constexpr operator float() const noexcept {
+            return value;
+        }
     };
 
     enum class JustifyContentMode : uint8_t {
@@ -226,6 +237,19 @@ export namespace ufox::geometry::discadelta {
         Length                          maxWidth{};
         Length                          maxHeight{};
 
+        float                          borderTopWidth = 0.0f;
+        float                          borderBottomWidth = 0.0f;
+        float                          borderRightWidth = 0.0f;
+        float                          borderLeftWidth = 0.0f;
+        float                          borderTopLeftRadius = 0.0f;
+        float                          borderTopRightRadius = 0.0f;
+        float                          borderBottomLeftRadius = 0.0f;
+        float                          borderBottomRightRadius = 0.0f;
+        float                          marginTop = 0.0f;
+        float                          marginBottom = 0.0f;
+        float                          marginLeft = 0.0f;
+        float                          marginRight = 0.0f;
+
         size_t                          order {0};
         FlexDirection                   direction {FlexDirection::eColumn};
         float                           flexCompress {1.0f};
@@ -235,6 +259,45 @@ export namespace ufox::geometry::discadelta {
         AlignMode                       alignSelf {AlignMode::eAuto};
         AlignMode                       alignItems {AlignMode::eStretch};
         //AlignMode                       alignContent {AlignMode::eStretch};
+
+        [[nodiscard]] glm::vec4 getBorderThicknessSet() const noexcept {
+            return {borderTopWidth, borderRightWidth, borderBottomWidth, borderLeftWidth};
+        }
+
+
+        [[nodiscard]] glm::vec4 getMarginSet() const noexcept {
+            return {marginTop, marginRight, marginBottom, marginLeft};
+        }
+
+        [[nodiscard]] constexpr glm::vec2 getMarginSpace() const noexcept {
+            const float x = marginLeft + marginRight;
+            const float y = marginTop + marginBottom;
+            return {x, y};
+        }
+
+        [[nodiscard]] constexpr glm::vec2 getBorderThicknessSpace() const noexcept {
+            const float x = borderLeftWidth + borderRightWidth;
+            const float y = borderTopWidth + borderBottomWidth;
+            return {x, y};
+        }
+
+        [[nodiscard]] glm::vec2 getCropOutSpace() const noexcept {
+            const float x = marginLeft + marginRight + borderLeftWidth + borderRightWidth;
+            const float y = marginTop + marginBottom + borderTopWidth + borderBottomWidth;
+            return {x, y};
+        }
+
+        [[nodiscard]]  glm::vec2 getImageBRSpaceOffset() const noexcept {
+            const float x = marginRight + borderRightWidth;
+            const float y = marginBottom + borderBottomWidth;
+            return {x, y};
+        }
+
+        [[nodiscard]] glm::vec2 getUVTopLeftOffset() const noexcept {
+            const float x = marginLeft + borderLeftWidth;
+            const float y = marginTop + borderTopWidth;
+            return {x, y};
+        }
     };
 }
 

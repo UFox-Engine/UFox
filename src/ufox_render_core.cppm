@@ -31,8 +31,8 @@ export namespace ufox::render {
     namespace procedures {
         inline auto WHITE = "white";
         inline auto BLACK = "black";
-        inline ResourceID BUILTIN_WHITE_ID  {"white"};
-        inline ResourceID BUILTIN_BLACK_ID  {"black"};
+        inline KeyID BUILTIN_WHITE_ID  {"white"};
+        inline KeyID BUILTIN_BLACK_ID  {"black"};
 
 
 
@@ -83,10 +83,10 @@ export namespace ufox::render {
     }
 
     class TextureManager;
-    const ResourceID* MakeWhiteTexture(TextureManager& manager);
-    const ResourceID* MakeBlackTexture(TextureManager& manager);
-    const ResourceID* MakeDefaultTexture(TextureManager& manager);
-    const ResourceID* MakeTextureContent(TextureManager& manager, TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info);
+    const KeyID* MakeWhiteTexture(TextureManager& manager);
+    const KeyID* MakeBlackTexture(TextureManager& manager);
+    const KeyID* MakeDefaultTexture(TextureManager& manager);
+    const KeyID* MakeTextureContent(TextureManager& manager, TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info);
 
     bool LoadPixelsFromFile(const std::filesystem::path& sourcePath, TextureDataBindInfo& bindInfo) {
         auto& [outPixels, outExtent] = bindInfo;
@@ -240,9 +240,9 @@ export namespace ufox::render {
             return std::max( maxDescriptorSetSamplerImages, request );
         }
 
-        const ResourceID* makeTexture(TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {
+        const KeyID* makeTexture(TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {
             auto& [pixels, extent] = bindInfo;
-            ResourceID id = ResolveResourceID(info);
+            KeyID id = ResolveResourceID(info);
             if(!makeResourceContext(id, info.overwrite)) return nullptr;
 
             std::unique_ptr<ResourceBase> res = std::make_unique<Texture>(info.name, pixels, extent, id);
@@ -253,7 +253,7 @@ export namespace ufox::render {
             return bindResourceToContext(res, info);
         }
 
-        void makeTextureMap(std::map<const ResourceID,const uint32_t>& textureMap, uint32_t& defaultMapIndex) noexcept {
+        void makeTextureMap(std::map<const KeyID,const uint32_t>& textureMap, uint32_t& defaultMapIndex) noexcept {
             textureMap.clear();
 
             uint32_t index = 0;
@@ -262,7 +262,7 @@ export namespace ufox::render {
                 index++;
             }
 
-            defaultMapIndex = textureMap.find(ResourceID{"default"})->second;
+            defaultMapIndex = textureMap.find(KeyID{"default"})->second;
         }
 
         [[nodiscard]] std::vector<vk::DescriptorImageInfo> makeCombinedImageSamplerDescriptorImageInfos() const noexcept {
@@ -289,7 +289,7 @@ export namespace ufox::render {
             return std::move(descriptorImageInfos);
         }
 
-        [[nodiscard]] Texture* getTexture(const ResourceID& id) {
+        [[nodiscard]] Texture* getTexture(const KeyID& id) {
             const auto* ctx = getResourceContext(id);
             if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
 
@@ -297,7 +297,7 @@ export namespace ufox::render {
             return texture;
         }
 
-        [[nodiscard]] const Texture* getTexture(const ResourceID& id) const{
+        [[nodiscard]] const Texture* getTexture(const KeyID& id) const{
             const auto* ctx = getResourceContext(id);
             if (ctx == nullptr || ctx->dataPtr == nullptr) return nullptr;
 
@@ -306,7 +306,7 @@ export namespace ufox::render {
         }
 
         template<Arithmetic T>
-        void getTextureSize(const ResourceID& id, T& width, T& height) const noexcept {
+        void getTextureSize(const KeyID& id, T& width, T& height) const noexcept {
             const auto* tex = getTexture(id);
             if (tex == nullptr) {
                 width = 1;
@@ -317,7 +317,7 @@ export namespace ufox::render {
         }
 
         template<Arithmetic T>
-        std::pair<T,T> getTextureSize(const ResourceID& id) const noexcept {
+        std::pair<T,T> getTextureSize(const KeyID& id) const noexcept {
             const auto* tex = getTexture(id);
             if (tex == nullptr) {
                 return std::make_pair(1,1);
@@ -327,7 +327,7 @@ export namespace ufox::render {
             return std::make_pair(width, height);
         }
 
-        [[nodiscard]] uint32_t getTextureIndex(const ResourceID& id) const noexcept {
+        [[nodiscard]] uint32_t getTextureIndex(const KeyID& id) const noexcept {
             const auto it = textureMap.find(id);
             if (it == textureMap.end()) {
                 return defaultMapIndex;
@@ -342,16 +342,16 @@ export namespace ufox::render {
 
     private:
         uint32_t                                                    maxDescriptorSetSamplerImages{1};
-        std::map<const ResourceID, const uint32_t>                  textureMap{};
+        std::map<const KeyID, const uint32_t>                  textureMap{};
         uint32_t                                                    defaultMapIndex{0};
         bool                                                        enablePreDrawRefresh{true};
     };
 
-    const ResourceID* MakeTextureContent(TextureManager& manager, TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {
+    const KeyID* MakeTextureContent(TextureManager& manager, TextureDataBindInfo& bindInfo, const ResourceContextCreateInfo& info) {
         return manager.makeTexture(bindInfo, info);
     }
 
-    const ResourceID* MakeWhiteTexture(TextureManager& manager) {
+    const KeyID* MakeWhiteTexture(TextureManager& manager) {
             auto bindInfo = procedures::WhitePixel();
             ResourceContextCreateInfo info{};
             info
@@ -362,7 +362,7 @@ export namespace ufox::render {
             return MakeTextureContent(manager, bindInfo, info);
         }
 
-    const ResourceID* MakeBlackTexture(TextureManager& manager) {
+    const KeyID* MakeBlackTexture(TextureManager& manager) {
             auto bindInfo  = procedures::BlackPixel();
             ResourceContextCreateInfo info{};
             info
@@ -374,7 +374,7 @@ export namespace ufox::render {
             return MakeTextureContent(manager, bindInfo, info);
         }
 
-    const ResourceID* MakeDefaultTexture(TextureManager& manager) {
+    const KeyID* MakeDefaultTexture(TextureManager& manager) {
         auto bindInfo = procedures::CreateSolidColorPixels(
         1, 1, Color{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}});
             ResourceContextCreateInfo info{};
@@ -382,7 +382,7 @@ export namespace ufox::render {
             .setName("default")
             .setSourceType(SourceType::eBuiltIn)
             .setCategory("Standard")
-            .setID(ResourceID{"default"});
+            .setID(KeyID{"default"});
             return MakeTextureContent(manager, bindInfo, info);
         }
 }

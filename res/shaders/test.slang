@@ -13,13 +13,15 @@ struct SDRectInputData {
     float2 iPOffset;
 };
 
+
 struct ElementData {
     float4x4        model;
     float4          imageOffsetAndTiling;
     SDRectInputData sdInput;
     float2          scrollingOffset;
-    uint32_t        styleIndex;
-    uint32_t        imageIndex;
+    uint            styleIndex;
+    uint            imageIndex;
+    uint            tailPadding[2];
 };
 
 struct StyleStaticData {
@@ -31,8 +33,10 @@ struct StyleStaticData {
     float4 borderTopColor;
     float4 borderLeftColor;
     float4 borderRightColor;
-    uint32_t  imageRepeatMode;
-    uint32_t  padding[3];
+
+    uint  imageRepeatMode;
+    uint  isFont;
+    uint  tailPadding[2];
 };
 
 struct ScreenData {
@@ -51,8 +55,11 @@ struct VSOutput {
     float4 pos : SV_Position;
 
     float2 imageUV;
-    uint   imageID;
-    uint   imageRepeatMode;
+    uint imageID;
+    uint imageRepeatMode;
+    uint isFont;
+
+    float fontSize;
 
     float4 bgColor;
     float4 imageColor;
@@ -71,8 +78,7 @@ struct VSOutput {
 };
 
 [shader("vertex")]
-VSOutput vertMain(VSInput input, uint instanceID : SV_InstanceID, uint baseInstanceOffset : SV_StartInstanceLocation)
-{
+VSOutput vertMain(VSInput input, uint instanceID : SV_InstanceID, uint baseInstanceOffset : SV_StartInstanceLocation){
     uint instanceIndex = instanceID + baseInstanceOffset;
 
     ElementData el = elementBuffer[instanceIndex];
@@ -103,23 +109,54 @@ VSOutput vertMain(VSInput input, uint instanceID : SV_InstanceID, uint baseInsta
     o.imageUV         = (input.inTexCoord + el.imageOffsetAndTiling.xy) * el.imageOffsetAndTiling.zw;
     o.imageID         = el.imageIndex;
     o.imageRepeatMode = style.imageRepeatMode;
+    o.isFont          = style.isFont;
 
     return o;
 }
 
 // Rounded Box SDF
-float sdRoundedBox(float2 p, float2 b, float4 r)
-{
+float sdRoundedBox(float2 p, float2 b, float4 r){
     r.xy = (p.x > 0.0) ? r.xy : r.zw;
     r.x  = (p.y > 0.0) ? r.x  : r.y;
     float2 q = abs(p) - b + r.x;
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r.x;
 }
 
+static const float PX_RANGE = 8.0;
+
+// Median filter
+float median3(float r, float g, float b) {
+    return max(min(r, g), min(max(r, g), b));
+}
+
+float4 sampleGlyph(VSOutput i)
+{
+    Texture2D tex = textureArray[i.imageID];   // fix #6
+
+    float2 texSize;
+    tex.GetDimensions(texSize.x, texSize.y);
+
+    float4 s  = tex.Sample(guiSampler[0], i.imageUV);
+    float  sd = median3(s.r, s.g, s.b);
+
+    // Screen-space pixel range (the standard msdf-atlas-gen formula)
+    float2 unitRange      = PX_RANGE / texSize;
+    float2 screenTexSize  = 1.0 / max(fwidth(i.imageUV), 1e-6);
+    float  screenPxRange  = max(0.5 * dot(unitRange, screenTexSize), 1.0);
+
+    float opacity = clamp(screenPxRange * (sd - 0.5) + 0.5, 0.0, 1.0);
+
+    // s.a holds the true SDF (MTSDF). Use it for outlines/glow later:
+    // float outline = clamp(screenPxRange * (s.a - 0.5 + outlineWidth) + 0.5, 0, 1);
+
+    return float4(i.imageColor.rgb, opacity * i.imageColor.a);
+}
+
+
+
 // Your original smart border color selector
 float4 selectBorderColor(float2 outerP, float2 outerSize, float2 innerP, float2 innerSize,
-                         float4 topColor, float4 bottomColor, float4 leftColor, float4 rightColor)
-{
+                         float4 topColor, float4 bottomColor, float4 leftColor, float4 rightColor){
     float2 p = outerP;
     float2 s = sign(p);
 
@@ -142,31 +179,24 @@ float4 selectBorderColor(float2 outerP, float2 outerSize, float2 innerP, float2 
 [shader("fragment")]
 float4 fragMain(VSOutput i) : SV_TARGET
 {
-    // Outer shape
     float outerDist = sdRoundedBox(i.outerP, i.outerSize, i.outerRadius);
-    float outerAA = fwidth(outerDist);
-    float outerMask = 1.0 - smoothstep(-outerAA, outerAA, outerDist);
+    float outerMask = 1.0 - smoothstep(0.0, 2.0, outerDist);
 
-    if (outerMask < 0.01) discard;
-
-    // Inner shape (for border)
     float innerDist = sdRoundedBox(i.innerP, i.innerSize, i.innerRadius);
-    float innerAA = fwidth(innerDist);
-    float innerMask = smoothstep(-innerAA, innerAA, innerDist);
+    float innerMask = smoothstep(0.0, 3.0, innerDist);
 
-    // Smart border color per edge
-    float4 borderColor = selectBorderColor(i.outerP, i.outerSize, i.innerP, i.innerSize,
-            i.borderTopColor, i.borderBottomColor, i.borderLeftColor, i.borderRightColor);
+    float4 borderColor = selectBorderColor(i.outerP, i.outerSize, i.innerP, i.innerSize,i.borderTopColor, i.borderBottomColor, i.borderLeftColor, i.borderRightColor);
 
-    // Texture
-    float4 texColor = textureArray[i.imageID].Sample(guiSampler[i.imageRepeatMode], i.imageUV);
-    float4 tintedTex = i.imageColor * texColor;
+    float4 texColor = (i.isFont != 0)? sampleGlyph(i) : textureArray[i.imageID].Sample(guiSampler[i.imageRepeatMode], i.imageUV) * i.imageColor;
 
-    // Background + texture blend
-    float4 finalBG = lerp(i.bgColor, tintedTex, tintedTex.a);
+    // fix #2: proper "over" compositing (non-premultiplied output for SrcAlpha blend)
+    float  aOut  = texColor.a + i.bgColor.a * (1.0 - texColor.a);
+    float3 cOut  = (texColor.rgb * texColor.a + i.bgColor.rgb * i.bgColor.a * (1.0 - texColor.a))/ max(aOut, 1e-5);
 
-    // Final color with border
-    float4 color = lerp(finalBG, borderColor, innerMask);
+    // border over the (bg+image) result
+    float  bA    = borderColor.a * innerMask;
+    float  fA    = bA + aOut * (1.0 - bA);
+    float3 fC    = (borderColor.rgb * bA + cOut * aOut * (1.0 - bA)) / max(fA, 1e-5);
 
-    return float4(color.rgb, color.a * outerMask);
+    return float4(fC, fA * outerMask);
 }

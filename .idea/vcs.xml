@@ -9,7 +9,6 @@
     <mapping directory="$PROJECT_DIR$/cmake-build-debug-mingw_clang/_deps/msdf-atlas-gen-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-debug-mingw_clang/_deps/msdf-atlas-gen-src/artery-font-format" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-debug-mingw_clang/_deps/msdf-atlas-gen-src/msdfgen" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/cmake-build-debug-mingw_clang/_deps/sdl3-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-debug-mingw_clang/_deps/sdl3_image-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-debug-mingw_clang/_deps/sdl3_image-src/external/aom" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/cmake-build-debug-mingw_clang/_deps/sdl3_image-src/external/dav1d" vcs="Git" />

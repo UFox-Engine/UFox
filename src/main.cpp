@@ -79,9 +79,9 @@ int main() {
       auto window = ufox::engine::CreateUFoxWindow("UFox", 800, 800);
       ufox::geometry::MeshManager meshManager{*window};
       ufox::render::TextureManager textureManager{*window};
-      ufox::font::GlyphManager glyph_manager{*window,textureManager};
+      ufox::font::GlyphManager glyphManager{*window,textureManager};
 
-      ufox::gui::Document doc(*window, &meshManager, &textureManager);
+      ufox::gui::Document doc(*window, meshManager, glyphManager, &textureManager);
       ufox::engine::Camera mainCamera{};
 
       window->registerCallbackEvent<ufox::engine::EventType::eStart>([](void*){ std::cout << "STARTED"<< std::endl; }, nullptr);
@@ -90,45 +90,56 @@ int main() {
         ufox::engine::CalculateAspectRatio(w,h, camera->aspectRatio);
       }, &mainCamera);
 
-
-
       window->registerCallbackEvent<ufox::engine::EventType::ePostSystemInit>([](const float& w, const float& h, void* user) {
         auto* doc = static_cast<ufox::gui::Document*>(user);
         if (doc == nullptr) return;
         if (doc->rootElement == nullptr) return;
-        auto* v1 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v1"},"v1");
-        auto* v2 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v2"},"v2");
-        auto* v3 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v3"},"v3");
-        auto* v4 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::ResourceID{"v4"},"v4");
 
-        v1->style.backgroundColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
-        v1->style.flexCompress =1.0f;
-        v1->style.flexExpand =1.0f;
-        v1->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
-        v1->style.alignSelf = ufox::geometry::discadelta::AlignMode::eStretch;
+        auto* v11 = doc->rootElement->createChild<ufox::gui::VisualElement>(ufox::engine::KeyID{"v11"},"v11");
+        v11->style.backgroundColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
+        v11->style.flexCompress =1.0f;
+        v11->style.flexExpand =1.0f;
+        v11->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,150};
+        v11->style.alignSelf = ufox::geometry::discadelta::AlignMode::eStretch;
+        v11->style.marginLeft = 5;
+        v11->style.marginRight = 5;
+        v11->style.marginTop = 5;
+        v11->style.marginBottom = 5;
+        v11->style.borderBottomColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
+        v11->style.borderBottomWidth = 5;
+        v11->style.borderBottomLeftRadius = 25;
+        v11->style.borderBottomRightRadius = 17;
+        v11->style.borderTopColor = glm::vec4{1.0f, 0.0f, 0.0f, 1.0f};
+        v11->style.borderTopWidth = 18;
+        v11->style.borderTopLeftRadius = 25;
+        v11->style.borderTopRightRadius = 20;
+        v11->style.borderLeftColor = glm::vec4{1.0f, 0.0f, 1.0f, 1.0f};
+        v11->style.borderLeftWidth = 12;
+        v11->style.borderRightColor = glm::vec4{1.0f, 1.0f, 0.0f, 1.0f};
+        v11->style.borderRightWidth = 8;
 
-        v2->style.backgroundColor = glm::vec4{0.0f, 1.0f, 1.0f, 1.0f};
-        v2->style.flexCompress =1.0f;
-        v2->style.flexExpand =1.0f;
-        v2->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
-        v2->style.height = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,150};
-        v2->style.alignSelf = ufox::geometry::discadelta::AlignMode::eStretch;
+        v11->registerCallbackEvent<ufox::gui::ElementEventType::PointerEnter>(
+    [](ufox::gui::ElementPointerEvent&, void* user) {
+        auto* el = static_cast<ufox::gui::VisualElement*>(user);
+        el->style.backgroundColor = {1, 0, 0, 1};
+        el->markStyleChanged();
+    }, v11);
 
-        v3->style.backgroundColor = glm::vec4{0.0f, 0.0f, 1.0f, 1.0f};
-        v3->style.flexCompress =1.0f;
-        v3->style.flexExpand =1.0f;
-        v3->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
+v11->registerCallbackEvent<ufox::gui::ElementEventType::PointerLeave>(
+    [](ufox::gui::ElementPointerEvent&, void* user) {
+        auto* el = static_cast<ufox::gui::VisualElement*>(user);
+        el->style.backgroundColor = {1, 1, 1, 1};
+        el->markStyleChanged();
+    }, v11);
 
-        v4->style.backgroundColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-        v4->style.flexCompress =1.0f;
-        v4->style.flexExpand =1.0f;
-        v4->style.maxWidth = ufox::geometry::discadelta::Length{ufox::geometry::discadelta::LengthMode::eFlat,100};
+        v11->updateMetrics();
 
+        auto* t = doc->rootElement->createChild<ufox::gui::Label>(
+        ufox::engine::KeyID{"title"}, "title", "Hallo, gg Welt!", 24.0f);
+        t->setColor({1, 1, 1, 1});
 
-        v1->updateMetrics(false);
-        v2->updateMetrics(false);
-        v3->updateMetrics(false);
-        v4->updateMetrics();
+        std::unique_ptr<ufox::gui::VisualElement> v3 = std::make_unique<ufox::gui::VisualElement>("v3");
+        doc->rootElement->add(std::move(v3));
 
       }, &doc);
 
