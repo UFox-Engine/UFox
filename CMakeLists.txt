@@ -142,6 +142,7 @@ target_sources(UFox-modules
         PUBLIC
         FILE_SET CXX_MODULES TYPE CXX_MODULES
         FILES
+        src/UFoxEngine.cppm
         src/ufox_nanoid.cppm
         src/ufox_Lib.cppm
         src/ufox_gpu_lib.cppm
@@ -153,6 +154,8 @@ target_sources(UFox-modules
         src/ufox_geometry_core.cppm
         src/ufox_render_lib.cppm
         src/ufox_render_core.cppm
+        src/ufox_action_lib.cppm
+        src/ufox_action_core.cppm
         src/ufox_font_lib.cppm
         src/ufox_font_core.cppm
         src/ufox_gui_lib.cppm

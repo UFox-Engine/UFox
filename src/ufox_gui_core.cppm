@@ -37,9 +37,9 @@ using namespace ufox::render;
 using namespace ufox::engine;
 
 export namespace ufox::gui {
-    class Document;
+    class UIDocument;
     class VisualElement;
-    void ForgetPointerTarget(Document& document, VisualElement* removed) noexcept;
+    void ForgetPointerTarget(UIDocument& document, VisualElement* removed) noexcept;
 
     glm::vec4 CalculateInnerRadius(const glm::vec4& borderThickness, const glm::vec4& cornerRadius) {
         return glm::max(glm::vec4(0.0f), cornerRadius - glm::vec4(
@@ -191,9 +191,9 @@ export namespace ufox::gui {
     }
 
 
-    void MarkGUITreeStructureChanged(Document& document) noexcept;
-    void MarkGUILayoutChanged(Document& document) noexcept;
-    void MarkGUIStyleChanged(Document& document) noexcept;
+    void MarkGUITreeStructureChanged(UIDocument& document) noexcept;
+    void MarkGUILayoutChanged(UIDocument& document) noexcept;
+    void MarkGUIStyleChanged(UIDocument& document) noexcept;
 
     enum class ElementEventType : uint8_t {
         AttachmentEvent, DetachEvent,
@@ -310,7 +310,7 @@ export namespace ufox::gui {
 
     class GUIPaletteManager {
     public:
-        explicit GUIPaletteManager(UFoxWindow* window, Document* document) : _window(window), _document(document){
+        explicit GUIPaletteManager(UFoxWindow* window, UIDocument* document) : _window(window), _document(document){
             if (_window != nullptr) {
                 _window->registerCallbackEvent<EventType::eSystemInit>([](void* user) { static_cast<GUIPaletteManager*>(user)->init();}, this);
             }
@@ -440,7 +440,7 @@ export namespace ufox::gui {
         };
 
         UFoxWindow*                                                                             _window{nullptr};
-        Document*                                                                               _document{nullptr};
+        UIDocument*                                                                               _document{nullptr};
         gpu::Buffer                                                                             _stylePaletteSSBO{};
         void*                                                                                   _stylePaletteMemory{nullptr};
 
@@ -452,11 +452,11 @@ export namespace ufox::gui {
         uint32_t                                                                                _maxStyles{0};
     };
 
-    [[nodiscard]] const font::Glyph* GetGlyph(const Document& doc, const Style& style) noexcept;
+    [[nodiscard]] const font::Glyph* GetGlyph(const UIDocument& doc, const Style& style) noexcept;
 
     class VisualElement: public discadelta::DiscadeltaRectLayoutBase<VisualElement> {
     public:
-        Document*                                               document{nullptr};
+        UIDocument*                                               document{nullptr};
         std::string_view                                        name;
         Style                                                   style{};
         size_t                                                  ssboIndex = 0;
@@ -513,7 +513,7 @@ export namespace ufox::gui {
         }
 
         void markStyleChanged() noexcept {
-            Document* doc = root ? root->document : document;
+            UIDocument* doc = root ? root->document : document;
             if (doc != nullptr) MarkGUIStyleChanged(*doc);
         }
 
@@ -544,7 +544,7 @@ export namespace ufox::gui {
             *gpuSlot = elementData; // single struct copy directly into mapped memory
         }
 
-        void setAsRenderRoot(Document* document) {
+        void setAsRenderRoot(UIDocument* document) {
             this->document = document;
         }
 
@@ -683,7 +683,7 @@ export namespace ufox::gui {
             target->executeOnAttachment();
         }
         void onRemove(VisualElement* target) override {
-            if (Document* doc = root ? root->document : document)
+            if (UIDocument* doc = root ? root->document : document)
                 ForgetPointerTarget(*doc, target);
 
             std::erase(leafChildren,target);
@@ -988,26 +988,26 @@ export namespace ufox::gui {
 
     inline KeyID TESTER_TEXTURE_ID{"grok-image-b9472c20-0cfc-4f3d-b558-d5c3066aa081.jpg"};
 
-    class  Document {
+    class  UIDocument {
     public:
-        explicit Document(UFoxWindow& _window, MeshManager& _meshManager, font::GlyphManager& _glyphManager, TextureManager* _textureManager = nullptr) : window(&_window) , meshManager(&_meshManager), glyphManager(&_glyphManager), textureManager(_textureManager) {
-            window->registerCallbackEvent<EventType::eSystemInit>([](void* user) { static_cast<Document*>(user)->init();}, this);
-            window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user) { static_cast<Document*>(user)->onPostSystemInit(w,h);}, this);
-            window->registerCallbackEvent<EventType::eStart>([](void* user) { static_cast<Document*>(user)->onStart();}, this);
-            window->registerCallbackEvent<EventType::eResize>([](const float& w, const float& h, void* user) {  static_cast<Document*>(user)->onResize(w,h);}, this);
-            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user) { static_cast<Document*>(user)->onGainsFocus();}, this);
-            window->registerCallbackEvent<EventType::ePreDraw>([](void* user) { static_cast<Document*>(user)->onPreDraw();}, this);
-            window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<Document*>(user)->onLayoutChanged(currentImage);}, this);
+        explicit UIDocument(UFoxWindow& _window, MeshManager& _meshManager, font::GlyphManager& _glyphManager, TextureManager* _textureManager = nullptr) : window(&_window) , meshManager(&_meshManager), glyphManager(&_glyphManager), textureManager(_textureManager) {
+            window->registerCallbackEvent<EventType::eSystemInit>([](void* user) { static_cast<UIDocument*>(user)->init();}, this);
+            window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user) { static_cast<UIDocument*>(user)->onPostSystemInit(w,h);}, this);
+            window->registerCallbackEvent<EventType::eStart>([](void* user) { static_cast<UIDocument*>(user)->onStart();}, this);
+            window->registerCallbackEvent<EventType::eResize>([](const float& w, const float& h, void* user) {  static_cast<UIDocument*>(user)->onResize(w,h);}, this);
+            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user) { static_cast<UIDocument*>(user)->onGainsFocus();}, this);
+            window->registerCallbackEvent<EventType::ePreDraw>([](void* user) { static_cast<UIDocument*>(user)->onPreDraw();}, this);
+            window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<UIDocument*>(user)->onLayoutChanged(currentImage);}, this);
             window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
-            const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user ) { static_cast<Document*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, stencilAttachment);}, this);
+            const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user ) { static_cast<UIDocument*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, stencilAttachment);}, this);
             window->registerCallbackEvent<EventType::ePointer>(
-    [](const PointerEvent& e, void* user) { return static_cast<Document*>(user)->onPointer(e); }, this);
+    [](const PointerEvent& e, void* user) { return static_cast<UIDocument*>(user)->onPointer(e); }, this);
             window->registerCallbackEvent<EventType::eProcessInput>(
-                [](void* user) { static_cast<Document*>(user)->flushPointerQueue(); }, this);
+                [](void* user) { static_cast<UIDocument*>(user)->flushPointerQueue(); }, this);
             paletteManager = std::make_unique<GUIPaletteManager>(window, this);
         }
 
-        ~Document() {
+        ~UIDocument() {
             hovered_ = nullptr;
             pressed_ = nullptr;
             pointerQueue_.clear();
@@ -1062,7 +1062,7 @@ export namespace ufox::gui {
             rootElement->style.flexExpand =1.0f;
             rootElement->style.alignItems = discadelta::AlignMode::eStart;
 
-            debug::log(debug::LogLevel::eInfo, "GUI Document Init : Susses");
+            debug::log(debug::LogLevel::eInfo, "GUI UIDocument Init : Susses");
         }
 
         void onPostSystemInit(const float& width, const float& height) {
@@ -1156,7 +1156,8 @@ export namespace ufox::gui {
         bool                                                                layoutChangedFlag{false};
         bool                                                                styleChangedFlag{false};
 
-        bool onPointer(const PointerEvent& e) {
+        bool onPointer(const
+            PointerEvent& e) {
     if (!rootElement) return false;                          // before init()
 
     VisualElement* hit    = rootElement->hitTest(e.pos);
@@ -1457,7 +1458,7 @@ void flushPointerQueue() {
             paletteManager->clearDynamicMap();
             AssignGpuSlots(*rootElement, static_cast<ElementData*>(elementMemory),0,*textureManager,*paletteManager);
             treeStructureChangedFlag = false;
-            debug::log(debug::LogLevel::eInfo, "GUI Document Remake Render Resource : Susses");
+            debug::log(debug::LogLevel::eInfo, "GUI UIDocument Remake Render Resource : Susses");
         }
 
         void onLayoutChanged(const uint32_t&) {
@@ -1505,7 +1506,7 @@ void flushPointerQueue() {
         void onPreDraw() {
             onStyleChanged();
             onTreeStructureChanged();
-            debug::log(debug::LogLevel::eInfo, "GUI Document PreDraw : Susses");
+            debug::log(debug::LogLevel::eInfo, "GUI UIDocument PreDraw : Susses");
         }
 
         void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment
@@ -1551,23 +1552,23 @@ void flushPointerQueue() {
         }
     };
 
-    [[nodiscard]] const font::Glyph* GetGlyph(const Document& doc, const Style& style) noexcept {
+    [[nodiscard]] const font::Glyph* GetGlyph(const UIDocument& doc, const Style& style) noexcept {
         return doc.GetGlyph(style);
     }
 
-    void MarkGUITreeStructureChanged(Document& document) noexcept {
+    void MarkGUITreeStructureChanged(UIDocument& document) noexcept {
         document.markGUITreeStructureChanged();
     }
 
-    void MarkGUILayoutChanged(Document& document) noexcept {
+    void MarkGUILayoutChanged(UIDocument& document) noexcept {
         document.markGUILayoutChanged();
     }
 
-    void MarkGUIStyleChanged(Document& document) noexcept {
+    void MarkGUIStyleChanged(UIDocument& document) noexcept {
         document.markGUIStyleChanged();
     }
 
-    void ForgetPointerTarget(Document& document, VisualElement* removed) noexcept {
+    void ForgetPointerTarget(UIDocument& document, VisualElement* removed) noexcept {
         document.forgetPointerTarget(removed);
     }
 }

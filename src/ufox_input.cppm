@@ -23,34 +23,31 @@ export  namespace ufox::input {
 
     void UpdateGlobalMousePosition(const gpu::WindowResource& window, InputResource& res) {
         switch (res.mouseMotionState) {
-            case MouseMotionState::Moving: {
-                res.onMouseMove();
-                res.mouseMotionState = MouseMotionState::Stopping;
-            }
-            case MouseMotionState::Stopping: {
-                res.onMouseStop();
-                res.mouseDelta = glm::ivec2{0,0};
-                res.mouseMotionState = MouseMotionState::Idle;
-            }
-            case MouseMotionState::Idle: {
-#ifdef USE_SDL
-                float x,y;
-                SDL_GetGlobalMouseState(&x,&y);
-                x = x - static_cast<float>(window.position.x);
-                y = y - static_cast<float>(window.position.y);
-#else
-                double x,y;
-                glfwGetCursorPos(window.getHandle(), &x, &y);
-#endif
-                glm::ivec2 pos = {static_cast<int>(x), static_cast<int>(y)};
-                res.updateMouseDelta(pos);
+        case MouseMotionState::Moving: {
+            res.onMouseMove();
+            res.mouseMotionState = MouseMotionState::Stopping;
+        }
+        case MouseMotionState::Stopping: {
+            res.onMouseStop();
+            res.mouseDelta = glm::ivec2{0,0};
+            res.mouseMotionState = MouseMotionState::Idle;
+        }
+        case MouseMotionState::Idle: {
 
-                if (res.getMouseDeltaMagnitude() > 0.0f) {
-                    res.mousePosition = pos;
-                    res.mouseMotionState = MouseMotionState::Moving;
-                }
+            float x,y;
+            SDL_GetGlobalMouseState(&x,&y);
+            x = x - static_cast<float>(window.position.x);
+            y = y - static_cast<float>(window.position.y);
+
+            glm::ivec2 pos = {static_cast<int>(x), static_cast<int>(y)};
+            res.updateMouseDelta(pos);
+
+            if (res.getMouseDeltaMagnitude() > 0.0f) {
+                res.mousePosition = pos;
+                res.mouseMotionState = MouseMotionState::Moving;
             }
-            default: ;
+        }
+        default: ;
         }
     }
 
