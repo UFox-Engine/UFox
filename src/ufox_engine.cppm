@@ -21,13 +21,14 @@ import ufox_render_core;
 import ufox_font_lib;
 import ufox_font_core;
 import ufox_lib;
+import ufox_beta;
 
 using namespace ufox::engine;
 export namespace ufox {
 
-    class UFoxEngine {
+    class ufox_engine {
     public:
-        explicit UFoxEngine(const std::string& title, uint32_t width, uint32_t height): window(CreateUFoxWindow(title, width, height)){}
+        explicit ufox_engine(const std::string& title, uint32_t width, uint32_t height): window(CreateUFoxWindow(title, width, height)){}
 
         void preRun() {
             // create only what the test needs
@@ -63,22 +64,22 @@ export namespace ufox {
                         geometry::discadelta::LengthMode::eFlat, 150};
                     v11->style.alignSelf       = geometry::discadelta::AlignMode::eStretch;
                     v11->style.marginLeft = v11->style.marginRight =
-                        v11->style.marginTop = v11->style.marginBottom = 5;
+                        v11->style.marginTop = v11->style.marginBottom = 0;
 
                     v11->style.borderBottomColor = {0.0f, 0.0f, 1.0f, 1.0f};
-                    v11->style.borderBottomWidth = 5;
+                    v11->style.borderBottomWidth = 0;
                     v11->style.borderBottomLeftRadius  = 25;
                     v11->style.borderBottomRightRadius = 17;
 
                     v11->style.borderTopColor = {1.0f, 0.0f, 0.0f, 1.0f};
-                    v11->style.borderTopWidth = 18;
+                    v11->style.borderTopWidth = 0;
                     v11->style.borderTopLeftRadius  = 25;
                     v11->style.borderTopRightRadius = 20;
 
                     v11->style.borderLeftColor  = {1.0f, 0.0f, 1.0f, 1.0f};
-                    v11->style.borderLeftWidth  = 12;
+                    v11->style.borderLeftWidth  = 0;
                     v11->style.borderRightColor = {1.0f, 1.0f, 0.0f, 1.0f};
-                    v11->style.borderRightWidth = 8;
+                    v11->style.borderRightWidth = 0;
 
                     v11->registerCallbackEvent<gui::ElementEventType::PointerEnter>(
                         [](gui::ElementPointerEvent&, void* user) {
@@ -97,7 +98,7 @@ export namespace ufox {
                     v11->updateMetrics();
 
                     auto* title = doc->rootElement->createChild<gui::Label>(
-                        KeyID{"title"}, "title", "Hallo, gg Welt!", 24.0f);
+                        KeyID{"title"}, "title", ufox_beta::GetHallo(), 24.0f);
                     title->setColor({1, 1, 1, 1});
 
                     auto v3 = std::make_unique<gui::VisualElement>("v3");
@@ -141,7 +142,7 @@ export namespace ufox {
         Camera                                       mainCamera{};   // cheap, can stay always present
     };
 
-    [[nodiscard]] std::unique_ptr<UFoxEngine> CreateUFoxEngine(const std::string& title,uint32_t width,uint32_t height){
-    return std::make_unique<UFoxEngine>(title, width, height);
+    [[nodiscard]] std::unique_ptr<ufox_engine> CreateUFoxEngine(const std::string& title,uint32_t width,uint32_t height){
+    return std::make_unique<ufox_engine>(title, width, height);
 }
 }

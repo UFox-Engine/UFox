@@ -37,6 +37,83 @@ import ufox_engine_lib;
 
 import ufox_nanoid;
 
+export namespace ufox::action {
+
+constexpr  float Normalize_axis(Sint16 value) {
+  float norm = mathf::Divide(value, 32768.0f);
+  return norm;
+}
+
+constexpr void NormaliseGamepadAxisValue(const float deadZone, glm::vec2& value,const glm::vec2& rawValue) {
+  const float len = glm::length(rawValue);
+  if (len < deadZone) {
+    value = glm::vec2(0.0f);
+  } else {
+    const float scaled = (len - deadZone) / (1.0f - deadZone);
+    value = rawValue / len * glm::min(scaled, 1.0f);
+  }
+}
+
+class ActionEventManager {
+  public:
+  void writingActionContext(const SDL_Event & event ) {
+    switch (event.type) {
+    case SDL_EVENT_GAMEPAD_ADDED:{
+      if (gamepad == nullptr) {  /* we don't have a stick yet and one was added, open it! */
+        gamepad = SDL_OpenGamepad(event.gdevice.which);
+        if (!gamepad) {
+          SDL_Log("Failed to open gamepad ID %u: %s", static_cast<uint32_t>(event.gdevice.which), SDL_GetError());
+        }
+      }
+    }break;
+    case SDL_EVENT_GAMEPAD_REMOVED: {
+      if (gamepad && (SDL_GetGamepadID(gamepad) == event.gdevice.which)) {
+        SDL_CloseGamepad(gamepad);  /* our controller was unplugged. */
+        gamepad = nullptr;
+      }
+
+    }break;
+    case SDL_EVENT_MOUSE_MOTION: {
+      actionContext.pointMotionX = event.motion.x;
+      actionContext.pointMotionY = event.motion.y;
+
+    }break;
+    case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+      constexpr float deadZone = 0.15f;
+
+      if (event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX || event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTY) {
+        if (event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX) {
+          actionContext.rawGamepadAnalogLeft.x = Normalize_axis(event.gaxis.value);
+        } else {
+          actionContext.rawGamepadAnalogLeft.y = -Normalize_axis(event.gaxis.value);   // flip so +Y = up
+        }
+
+        NormaliseGamepadAxisValue(deadZone, actionContext.gamepadAnalogLeft, actionContext.rawGamepadAnalogLeft);
+      }
+
+      if (event.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHTX || event.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHTY) {
+        if (event.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHTX) {
+          actionContext.rawGamepadAnalogRight.x = Normalize_axis(event.gaxis.value);
+        } else {
+          actionContext.rawGamepadAnalogRight.y = -Normalize_axis(event.gaxis.value);
+        }
+
+        NormaliseGamepadAxisValue(deadZone, actionContext.gamepadAnalogRight, actionContext.rawGamepadAnalogRight);
+      }
+
+    } break;
+    default:;
+    }
+  }
+
+ActionContext actionContext{};
+  private:
+  SDL_Gamepad* gamepad = nullptr;
+
+  };
+}
+
+
 export namespace ufox::engine {
 
 #ifdef USE_SDL
@@ -164,7 +241,7 @@ export namespace ufox::engine {
     }
 
     template<typename... Args>
-    bool executeUntilHandled(const Args&... args) const {
+    [[nodiscard]] bool executeUntilHandled(const Args&... args) const {
       for (const auto& [callback, user] : handlers)
         if (callback && callback(args..., user)) return true;
       return false;
@@ -202,6 +279,7 @@ export namespace ufox::engine {
     std::optional<gpu::WindowResource>                    windowResource{};
     std::optional<gpu::FrameResource>                     frameResource{};
     std::optional<gpu::DepthImageResource>                depthResource{};
+    std::optional<action::ActionEventManager>             actionEventManager{};
 
 
     [[nodiscard]] constexpr bool isRunning() const { return running; }
@@ -628,6 +706,7 @@ auto& getEventList() {
 
         default: {}
         }
+        actionEventManager->writingActionContext(event);
       }
     }
   };
@@ -665,6 +744,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     gpu::MakeFrameResource(window->frameResource, window->gpuResource, gpu::SIGNALED_FENCE_CREATE_FLAG);
     gpu::MakeDepthImage(window->gpuResource,window->depthResource, *window->windowResource->swapchainResource);
 
+    window->actionEventManager.emplace();
 
 #ifdef USE_SDL
     SDL_AddEventWatch(FramebufferResizeCallback, window.get());
@@ -933,7 +1013,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       std::span<const std::string_view> sourceExtensions{};
 
       BuiltInResources builtInResources{};
-      std::unordered_map<KeyID, ResourceContext, ResourceIDHash, ResourceIDEq> container{};
+      std::unordered_map<KeyID, ResourceContext, KeyIDHash, KeyIDEq> container{};
 
       [[nodiscard]] const std::filesystem::path& getDirectory() const noexcept {
         return directory;

@@ -146,7 +146,7 @@ export namespace ufox::engine {
 
   inline const KeyID INVALID_CONTENT_ID{};
 
-  struct ResourceIDHash {
+  struct KeyIDHash {
     using is_transparent = void;
 
     [[nodiscard]] std::size_t operator()(const KeyID& id) const noexcept {
@@ -162,7 +162,7 @@ export namespace ufox::engine {
     }
   };
 
-  struct ResourceIDEq {
+  struct KeyIDEq {
     using is_transparent = void;
 
     [[nodiscard]] bool operator()(const KeyID& a, const KeyID& b) const noexcept {
@@ -328,6 +328,43 @@ export namespace ufox::engine {
   using BuiltInResources = std::unordered_map<std::string, const KeyID*>;
 }
 
+export namespace ufox::action {
+  enum class ActionEventType : uint8_t {
+    eKey,
+    eAnalog,
+    eButton,
+    ePointer,
+    eScroll,
+    eText,
+    eNone
+  };
+
+  struct ActionContext {
+    float pointMotionX{0.0f};
+    float pointMotionY{0.0f};
+
+    glm::vec2 rawGamepadAnalogLeft{0.0f};
+    glm::vec2 gamepadAnalogLeft{0.0f};
+
+    glm::vec2 rawGamepadAnalogRight{0.0f};
+    glm::vec2 gamepadAnalogRight{0.0f};
+
+
+    float keyboardKey_A{0.0f};
+  };
+
+  struct ActionEvent {
+    const std::string     name;
+    const ActionEventType type;
+    ActionContext         value{};
+
+    explicit ActionEvent(const std::string_view name_, const ActionEventType type_)
+        : name(name_), type(type_) {}
+
+    virtual ~ActionEvent() = default;
+  };
+}
+
 
 namespace std {
   template <>
@@ -337,3 +374,5 @@ namespace std {
     }
   };
 }
+
+

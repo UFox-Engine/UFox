@@ -16,7 +16,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
 
-
+add_executable(UFoxEngine)
 
 # SPDX-License-Identifier: MIT
 #
@@ -66,6 +66,27 @@ CPMAddPackage(NAME msdf-atlas-gen GITHUB_REPOSITORY Chlumsky/msdf-atlas-gen GIT_
         "MSDF_ATLAS_USE_VCPKG OFF"
 )
 
+set(SLANG_VERSION 2026.22.1)
+
+if(WIN32)
+    set(SLANG_PLATFORM windows-x86_64)
+    set(SLANG_LIB slang-compiler.dll)
+elseif(APPLE)
+    set(SLANG_PLATFORM macos-${CMAKE_SYSTEM_PROCESSOR})
+    set(SLANG_LIB libslang-compiler.dylib)
+else()
+    set(SLANG_PLATFORM linux-${CMAKE_SYSTEM_PROCESSOR})
+    set(SLANG_LIB libslang-compiler.so)
+endif()
+
+CPMAddPackage(
+        NAME slang
+        URL "https://github.com/shader-slang/slang/releases/download/v${SLANG_VERSION}/slang-${SLANG_VERSION}-${SLANG_PLATFORM}.zip"
+        DOWNLOAD_ONLY YES
+)
+
+
+
 if(tinyobjloader_ADDED)
     # Because it's header-only we just create an interface target
     add_library(tinyobjloader INTERFACE)
@@ -113,8 +134,57 @@ target_link_libraries(glm-module
 )
 
 
+if(slang_ADDED)
+    add_library(slang::slang SHARED IMPORTED)
+    set_target_properties(slang::slang PROPERTIES
+            IMPORTED_LOCATION "${slang_SOURCE_DIR}/bin/${SLANG_LIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${slang_SOURCE_DIR}/include"
+    )
+    if(WIN32)
+        set_target_properties(slang::slang PROPERTIES
+                IMPORTED_IMPLIB "${slang_SOURCE_DIR}/lib/slang-compiler.lib"
+        )
+    endif()
 
+    # copy next to the exe
+    add_custom_command(TARGET UFoxEngine POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:slang::slang>" "$<TARGET_FILE_DIR:UFoxEngine>"
+    )
+endif()
 
+include(GenerateExportHeader)
+
+add_library(ufox_beta SHARED)
+
+target_sources(ufox_beta
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        src/ufox_beta.cppm
+)
+
+target_compile_features(ufox_beta PUBLIC cxx_std_20)   # or whatever you already use
+
+# Visibility (important for shared libs)
+set_target_properties(ufox_beta PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "ufox_beta"
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+)
+
+generate_export_header(ufox_beta
+        BASE_NAME UFOX_BETA
+        EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/ufox_beta_export.h
+)
+
+target_sources(ufox_beta
+        PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR}
+        FILES ${CMAKE_CURRENT_BINARY_DIR}/ufox_beta_export.h
+)
 
 set(LIBS)
 list(APPEND LIBS
@@ -126,9 +196,9 @@ list(APPEND LIBS
         SDL3_image::SDL3_image
         SDL3::SDL3 tinyobjloader
         msdf-atlas-gen::msdf-atlas-gen
+        slang::slang
+        ufox_beta
 )
-
-add_executable(UFoxEngine)
 
 # Regular sources
 target_sources(UFoxEngine
@@ -142,7 +212,7 @@ target_sources(UFox-modules
         PUBLIC
         FILE_SET CXX_MODULES TYPE CXX_MODULES
         FILES
-        src/UFoxEngine.cppm
+        src/ufox_engine.cppm
         src/ufox_nanoid.cppm
         src/ufox_Lib.cppm
         src/ufox_gpu_lib.cppm
@@ -154,8 +224,6 @@ target_sources(UFox-modules
         src/ufox_geometry_core.cppm
         src/ufox_render_lib.cppm
         src/ufox_render_core.cppm
-        src/ufox_action_lib.cppm
-        src/ufox_action_core.cppm
         src/ufox_font_lib.cppm
         src/ufox_font_core.cppm
         src/ufox_gui_lib.cppm
@@ -253,7 +321,7 @@ function (add_slang_shader_target TARGET)
             COMMAND ${CMAKE_COMMAND} -E make_directory "${SHADERS_DIR}"
             COMMAND ${SLANGC_EXECUTABLE} ${SHADER_SOURCES}
             -target spirv
-            -profile spirv_1_4
+            -profile spirv_1_6+spvShaderNonUniformEXT
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             ${ENTRY_POINTS}

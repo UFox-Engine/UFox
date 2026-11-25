@@ -1067,8 +1067,8 @@ export namespace ufox::geometry::discadelta {
 
         std::vector<Entry>  container{};
         std::unordered_map<engine::KeyID, size_t,
-                           engine::ResourceIDHash,
-                           engine::ResourceIDEq>  resourceIndex{};
+                           engine::KeyIDHash,
+                           engine::KeyIDEq>  resourceIndex{};
 
         // ── Public queries ────────────────────────────────────────
 

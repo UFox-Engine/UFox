@@ -50,10 +50,7 @@ export namespace ufox::gpu {
 
     std::vector<std::string> GetDeviceExtensions() {
         return {
-            vk::KHRSwapchainExtensionName,
-            vk::KHRSpirv14ExtensionName,
-            vk::KHRSynchronization2ExtensionName,
-            vk::KHRCreateRenderpass2ExtensionName
+            vk::KHRSwapchainExtensionName
         };
     }
 
@@ -166,7 +163,7 @@ export namespace ufox::gpu {
 
     [[nodiscard]] vk::PresentModeKHR ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresentModes) {
         for (const auto& availablePresentMode : availablePresentModes) {
-            if (availablePresentMode == vk::PresentModeKHR::eMailbox) {
+            if (availablePresentMode == vk::PresentModeKHR::eFifo) {
                 return availablePresentMode;
             }
         }
@@ -280,10 +277,7 @@ export namespace ufox::gpu {
             auto deviceProperties = device.getProperties();
             auto deviceFeatures = device.getFeatures();
 
-            if (deviceProperties.apiVersion < PhysicalDeviceRequirements::MINIMUM_API_VERSION ||
-                !deviceFeatures.geometryShader){
-                continue;
-                }
+            if (deviceProperties.apiVersion < PhysicalDeviceRequirements::MINIMUM_API_VERSION) continue;
 
             uint32_t score = 0;
 
@@ -343,43 +337,61 @@ export namespace ufox::gpu {
     }
 
     void MakeDevice(GPUResources& gpu, const GraphicDeviceCreateInfo& info) {
-        //root
-        auto features2 = gpu.physicalDevice->getFeatures2();
-        //1
-        vk::PhysicalDeviceVulkan11Features vulkan11Features;
-        vulkan11Features.setShaderDrawParameters(info.getEnableShaderDrawParameters());
-        //2
-        vk::PhysicalDeviceVulkan12Features vulkan12Features;
-        vulkan12Features.setRuntimeDescriptorArray(true);
-        //3
-        vk::PhysicalDeviceVulkan13Features vulkan13Features;
-        vulkan13Features.setDynamicRendering(info.getEnableDynamicRendering());
-        vulkan13Features.setSynchronization2(info.getEnableSynchronization2());
-        //4
-        vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures;
-        extendedDynamicStateFeatures.setExtendedDynamicState(info.getEnableExtendedDynamicState());
+        vk::StructureChain<
+            vk::DeviceCreateInfo,
+            vk::PhysicalDeviceFeatures2,
+            vk::PhysicalDeviceVulkan11Features,
+            vk::PhysicalDeviceVulkan12Features,
+            vk::PhysicalDeviceVulkan13Features,
+            vk::PhysicalDeviceVulkan14Features> chain;
 
-        //3 <-- 4
-        vulkan13Features.pNext = &extendedDynamicStateFeatures;
-        //2 <-- 3
-        vulkan12Features.pNext = &vulkan13Features;
-        //1 <-- 2
-        vulkan11Features.pNext = &vulkan12Features;
-        //root <-- 1
-        features2.pNext = &vulkan11Features;
+        // core 1.0: only what the engine really uses
+        chain.get<vk::PhysicalDeviceFeatures2>().features
+            .setSamplerAnisotropy(true);
 
-        std::vector<char const *> enabledExtensions;
-        enabledExtensions.reserve( info.deviceExtensions.size() );
-        for ( auto const & ext : info.deviceExtensions ){
-            enabledExtensions.push_back( ext.data() );
-        }
+        // 1.1
+        chain.get<vk::PhysicalDeviceVulkan11Features>()
+            .setShaderDrawParameters(info.getEnableShaderDrawParameters());
 
-        float                     queuePriority = 0.0f;
-        vk::DeviceQueueCreateInfo deviceQueueCreateInfo( vk::DeviceQueueCreateFlags(), gpu.queueFamilyIndices->graphicsFamily, 1, &queuePriority );
-        vk::DeviceCreateInfo      deviceCreateInfo( vk::DeviceCreateFlags(), deviceQueueCreateInfo, {}, enabledExtensions, nullptr, features2 );
-        gpu.device.emplace(*gpu.physicalDevice, deviceCreateInfo);
-        const auto properties = gpu.physicalDevice->getProperties();
-        gpu.maxStorageBufferRange = properties.limits.maxStorageBufferRange;
+        // 1.2: bindless textures
+        chain.get<vk::PhysicalDeviceVulkan12Features>()
+            .setRuntimeDescriptorArray(true)
+            .setShaderSampledImageArrayNonUniformIndexing(true)
+            .setDescriptorBindingPartiallyBound(true)
+            .setDescriptorBindingSampledImageUpdateAfterBind(true)
+            .setDescriptorBindingUpdateUnusedWhilePending(true)
+            .setBufferDeviceAddress(true)
+            .setTimelineSemaphore(true)
+            .setScalarBlockLayout(true);
+
+        // 1.3
+        chain.get<vk::PhysicalDeviceVulkan13Features>()
+            .setDynamicRendering(info.getEnableDynamicRendering())
+            .setSynchronization2(info.getEnableSynchronization2())
+            .setMaintenance4(true);
+
+        // 1.4 (all mandatory on a 1.4 driver)
+        chain.get<vk::PhysicalDeviceVulkan14Features>()
+            .setDynamicRenderingLocalRead(true)
+            .setMaintenance5(true)
+            .setMaintenance6(true)
+            .setPushDescriptor(true)
+            .setHostImageCopy(true);
+
+        std::vector<const char*> enabledExtensions;
+        enabledExtensions.reserve(info.deviceExtensions.size());
+        for (auto const& ext : info.deviceExtensions) enabledExtensions.push_back(ext.data());
+
+        float queuePriority = 1.0f;
+        vk::DeviceQueueCreateInfo queueInfo({}, gpu.queueFamilyIndices->graphicsFamily, 1, &queuePriority);
+
+        chain.get<vk::DeviceCreateInfo>()
+            .setQueueCreateInfos(queueInfo)
+            .setPEnabledExtensionNames(enabledExtensions);
+
+        gpu.device.emplace(*gpu.physicalDevice, chain.get<vk::DeviceCreateInfo>());
+
+        gpu.maxStorageBufferRange = gpu.physicalDevice->getProperties().limits.maxStorageBufferRange;
     }
 
     void MakeCommandPool(GPUResources& gpu, const vk::CommandPoolCreateFlags& flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer | vk::CommandPoolCreateFlagBits::eTransient) {

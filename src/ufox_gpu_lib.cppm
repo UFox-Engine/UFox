@@ -256,7 +256,7 @@ WindowResource CreateWindow(const vk::raii::Instance& instance, std::string cons
 #ifdef USE_SDL
         struct sdlContext {
             sdlContext() {
-                if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+                if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD)) {
                     debug::log(debug::LogLevel::eError, "Failed to initialize SDL: {}", SDL_GetError());
                     throw std::runtime_error("Failed to initialize SDL");
                 }

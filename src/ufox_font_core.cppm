@@ -452,7 +452,7 @@ export namespace ufox::font {
 
     private:
         render::TextureManager& textureManager;
-        std::unordered_map<GlyphUnicodeBlock, std::unordered_map<KeyID, GlyphTypeKey>> fonts_;
+        std::unordered_map<GlyphUnicodeBlock, std::unordered_map<KeyID, GlyphTypeKey, KeyIDHash, KeyIDEq>> fonts_;
 
         BuiltInResources MakeFontBuiltInResources(GlyphManager& manager);
 

@@ -447,7 +447,7 @@ export namespace ufox::gui {
         // Cache Maps
         std::unordered_map<StyleStaticData, uint32_t, std::hash<StyleStaticData>, StyleEqual>   _staticMap{};
         std::unordered_map<StyleStaticData, uint32_t, std::hash<StyleStaticData>, StyleEqual>   _dynamicMap{};
-        std::unordered_map<KeyID,StyleStaticData, ResourceIDHash, ResourceIDEq>            _stylePreset{};
+        std::unordered_map<KeyID,StyleStaticData, KeyIDHash, KeyIDEq>            _stylePreset{};
         uint32_t                                                                                _validatedPresetCount{0};
         uint32_t                                                                                _maxStyles{0};
     };
