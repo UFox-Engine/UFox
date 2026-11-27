@@ -9,4 +9,4 @@
 - In-House GUI
 
 **In-House Technologies**
-- [Discadelta Algorithm](docs/discadelta-algorithm.md) — Incremental 1D chain partitioning for GUI, procedural geometry, physics, and more
+- [Discadelta Algorithm](src/ufox_geometry_core.cppm#L572) — Incremental 1D chain partitioning for GUI, procedural geometry, physics, and more
