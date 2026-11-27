@@ -9,4 +9,8 @@
 - In-House GUI
 
 **In-House Technologies**
-- [Discadelta Algorithm](src/ufox_geometry_core.cppm#L572) — Incremental 1D chain partitioning for GUI, procedural geometry, physics, and more
+- [Discadelta Algorithm](src/ufox_geometry_core.cppm#L572) — Incremental 1D chain partitioning for GUI Layout System.
+- [UFoxGUI](docs/ufox-gui.md) — The UFox GUI is a retained-mode, GPU-accelerated user interface system built on top of the Discadelta layout engine featuring SDF Font.
+
+**Third-Party Technologies**
+- [MSDF-ATLAS](https://github.com/Chlumsky/msdf-atlas-gen) — Multi-channel signed distance field atlas for Font atlas texture
