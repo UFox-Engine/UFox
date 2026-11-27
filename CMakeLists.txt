@@ -186,13 +186,15 @@ target_sources(ufox_beta
         FILES ${CMAKE_CURRENT_BINARY_DIR}/ufox_beta_export.h
 )
 
+
 set(LIBS)
 list(APPEND LIBS
         Vulkan-Headers
         Freetype::Freetype
         ktx
         nlohmann_json
-        glfw glm-module
+        glfw
+        glm-module
         SDL3_image::SDL3_image
         SDL3::SDL3 tinyobjloader
         msdf-atlas-gen::msdf-atlas-gen
@@ -228,6 +230,7 @@ target_sources(UFox-modules
         src/ufox_font_core.cppm
         src/ufox_gui_lib.cppm
         src/ufox_gui_core.cppm
+        src/ufox_mathf.cppm
 )
 
 target_link_libraries(UFox-modules PRIVATE ${LIBS})

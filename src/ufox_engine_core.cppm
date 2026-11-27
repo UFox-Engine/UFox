@@ -34,7 +34,7 @@ import ufox_lib;
 import ufox_gpu_lib;
 import ufox_gpu_core;
 import ufox_engine_lib;
-
+import ufox_mathf;
 import ufox_nanoid;
 
 export namespace ufox::action {
@@ -106,9 +106,21 @@ class ActionEventManager {
     }
   }
 
-ActionContext actionContext{};
+  void recordPointerMotion(const float x, const float y) noexcept {
+    glm::vec2 pos (x, y);
+    mathf::UpdateDelta(pointerActionContext.delta, pos, pointerActionContext.pos);
+    updateMousePosition(pos);
+  }
+
+
+  void updateMousePosition(const glm::vec2& pos) {
+    pointerActionContext.pos = pos;
+  }
+
   private:
   SDL_Gamepad* gamepad = nullptr;
+  PointerActionContext pointerActionContext{};
+  ActionContext actionContext{};
 
   };
 }
@@ -467,10 +479,12 @@ auto& getEventList() {
       updateScreenProjectionBuffer(width, height);
     }
 
+
     void updateScreenProjectionBuffer(const float& width, const float& height) const {
+      if (width < 1.0f || height < 1.0f) return;   // minimized: keep the last good matrix
       if (screenViewProjectionBuffer.has_value()) {
         const glm::mat4 viewProject = SCREEN_VIEW_METRIX * CalculateScreenProjectionMatrix(width, height);
-        gpu::CopyToDevice(*screenViewProjectionBuffer->memory,&viewProject, MAT4_BUFFER_SIZE);
+        gpu::CopyToDevice(*screenViewProjectionBuffer->memory, &viewProject, MAT4_BUFFER_SIZE);
       }
     }
 

@@ -1000,11 +1000,8 @@ export namespace ufox::gui {
             window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<UIDocument*>(user)->onLayoutChanged(currentImage);}, this);
             window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
             const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user ) { static_cast<UIDocument*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, stencilAttachment);}, this);
-            window->registerCallbackEvent<EventType::ePointer>(
-    [](const PointerEvent& e, void* user) { return static_cast<UIDocument*>(user)->onPointer(e); }, this);
-            window->registerCallbackEvent<EventType::eProcessInput>(
-                [](void* user) { static_cast<UIDocument*>(user)->flushPointerQueue(); }, this);
-            paletteManager = std::make_unique<GUIPaletteManager>(window, this);
+            window->registerCallbackEvent<EventType::ePointer>([](const PointerEvent& e, void* user) { return static_cast<UIDocument*>(user)->onPointer(e); }, this);
+            window->registerCallbackEvent<EventType::eProcessInput>([](void* user) { static_cast<UIDocument*>(user)->flushPointerQueue(); }, this);paletteManager = std::make_unique<GUIPaletteManager>(window, this);
         }
 
         ~UIDocument() {
@@ -1156,49 +1153,48 @@ export namespace ufox::gui {
         bool                                                                layoutChangedFlag{false};
         bool                                                                styleChangedFlag{false};
 
-        bool onPointer(const
-            PointerEvent& e) {
-    if (!rootElement) return false;                          // before init()
+        bool onPointer(const PointerEvent& e) {
+            if (!rootElement) return false;
 
-    VisualElement* hit    = rootElement->hitTest(e.pos);
-    VisualElement* target = (pressed_ && e.phase != PointerPhase::eDown) ? pressed_ : hit;
+            VisualElement* hit    = rootElement->hitTest(e.pos);
+            VisualElement* target = (pressed_ && e.phase != PointerPhase::eDown) ? pressed_ : hit;
 
-    ElementPointerEvent ev{};
-    ev.pos = e.pos; ev.delta = e.delta; ev.button = e.button; ev.clicks = e.clicks;
+            ElementPointerEvent ev{};
+            ev.pos = e.pos; ev.delta = e.delta; ev.button = e.button; ev.clicks = e.clicks;
 
-    switch (e.phase) {
-    case PointerPhase::eMove:
-        if (hit != hovered_) {
-            enqueue(hovered_, ElementEventType::PointerLeave, ev, false);
-            enqueue(hit,      ElementEventType::PointerEnter, ev, false);
-            hovered_ = hit;
+            switch (e.phase) {
+            case PointerPhase::eMove:
+                if (hit != hovered_) {
+                    enqueue(hovered_, ElementEventType::PointerLeave, ev, false);
+                    enqueue(hit,      ElementEventType::PointerEnter, ev, false);
+                    hovered_ = hit;
+                }
+                enqueueMotion(target, ev);
+                break;
+            case PointerPhase::eDown:
+                pressed_ = hit;
+                enqueue(hit, ElementEventType::PointerDown, ev, true);
+                break;
+            case PointerPhase::eUp:
+                enqueue(pressed_, ElementEventType::PointerUp, ev, true);
+                if (pressed_ != nullptr && pressed_ == hit)
+                    enqueue(hit, ElementEventType::PointerClick, ev, true);
+                pressed_ = nullptr;
+                break;
+            case PointerPhase::eWheel:
+                enqueue(hit, ElementEventType::PointerWheel, ev, true);
+                break;
+            case PointerPhase::eLeave:
+                enqueue(hovered_, ElementEventType::PointerLeave, ev, false);
+                hovered_ = nullptr;
+                break;
+            }
+
+            // consumed only if the target or one of its ancestors listens; otherwise main gets it
+            for (auto* el = target; el != nullptr; el = el->parentElement())
+                if (el->wantsPointer()) return true;
+            return false;
         }
-        enqueueMotion(target, ev);
-        break;
-    case PointerPhase::eDown:
-        pressed_ = hit;
-        enqueue(hit, ElementEventType::PointerDown, ev, true);
-        break;
-    case PointerPhase::eUp:
-        enqueue(pressed_, ElementEventType::PointerUp, ev, true);
-        if (pressed_ != nullptr && pressed_ == hit)
-            enqueue(hit, ElementEventType::PointerClick, ev, true);
-        pressed_ = nullptr;
-        break;
-    case PointerPhase::eWheel:
-        enqueue(hit, ElementEventType::PointerWheel, ev, true);
-        break;
-    case PointerPhase::eLeave:
-        enqueue(hovered_, ElementEventType::PointerLeave, ev, false);
-        hovered_ = nullptr;
-        break;
-    }
-
-    // consumed only if the target or one of its ancestors listens; otherwise main gets it
-    for (auto* el = target; el != nullptr; el = el->parentElement())
-        if (el->wantsPointer()) return true;
-    return false;
-}
 
 void enqueue(VisualElement* target, const ElementEventType type, const ElementPointerEvent& ev, const bool bubbles) {
     if (target == nullptr) return;
@@ -1478,7 +1474,6 @@ void flushPointerQueue() {
             styleChangedFlag = false;
         }
 
-
         void updateTextureDescriptorSets() const {
             if (descriptorSets.empty()) return;
 
@@ -1509,8 +1504,7 @@ void flushPointerQueue() {
             debug::log(debug::LogLevel::eInfo, "GUI UIDocument PreDraw : Susses");
         }
 
-        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment
-                ) const {
+        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment) const {
 
 
             int height, width;

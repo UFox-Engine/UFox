@@ -8,6 +8,6 @@ export module ufox_beta;
 namespace ufox_beta {
 
 export UFOX_BETA_EXPORT const char* GetHallo() {
-  return "hallo, ufox";
+  return "hallo, ufox 15";
 }
 }

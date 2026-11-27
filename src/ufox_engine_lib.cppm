@@ -16,6 +16,8 @@ module;
 #include <GLFW/glfw3.h>
 #endif
 
+
+
 export module ufox_engine_lib;
 
 import ufox_lib;
@@ -23,7 +25,42 @@ import ufox_gpu_lib;
 
 
 
+export namespace ufox::action {
+enum class ActionEventType : uint8_t {
+  eKey,
+  eAnalog,
+  eButton,
+  ePointer,
+  eScroll,
+  eText,
+  eNone
+};
+
+struct PointerActionContext {
+  glm::vec2 pos{0.0f};
+  glm::vec2 relPos{0.0f};
+  glm::vec2 delta{0.0f};
+};
+
+struct ActionContext {
+  float pointMotionX{0.0f};
+  float pointMotionY{0.0f};
+
+  glm::vec2 rawGamepadAnalogLeft{0.0f};
+  glm::vec2 gamepadAnalogLeft{0.0f};
+
+  glm::vec2 rawGamepadAnalogRight{0.0f};
+  glm::vec2 gamepadAnalogRight{0.0f};
+
+
+  float keyboardKey_A{0.0f};
+};
+
+}
+
+
 export namespace ufox::engine {
+
 
   enum class EventType {
     eResize,
@@ -328,42 +365,7 @@ export namespace ufox::engine {
   using BuiltInResources = std::unordered_map<std::string, const KeyID*>;
 }
 
-export namespace ufox::action {
-  enum class ActionEventType : uint8_t {
-    eKey,
-    eAnalog,
-    eButton,
-    ePointer,
-    eScroll,
-    eText,
-    eNone
-  };
 
-  struct ActionContext {
-    float pointMotionX{0.0f};
-    float pointMotionY{0.0f};
-
-    glm::vec2 rawGamepadAnalogLeft{0.0f};
-    glm::vec2 gamepadAnalogLeft{0.0f};
-
-    glm::vec2 rawGamepadAnalogRight{0.0f};
-    glm::vec2 gamepadAnalogRight{0.0f};
-
-
-    float keyboardKey_A{0.0f};
-  };
-
-  struct ActionEvent {
-    const std::string     name;
-    const ActionEventType type;
-    ActionContext         value{};
-
-    explicit ActionEvent(const std::string_view name_, const ActionEventType type_)
-        : name(name_), type(type_) {}
-
-    virtual ~ActionEvent() = default;
-  };
-}
 
 
 namespace std {

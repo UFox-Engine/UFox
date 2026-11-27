@@ -21,6 +21,7 @@ module;
 
 export module ufox_gpu_lib;
 import ufox_lib;
+import ufox_mathf;
 
 export namespace ufox::gpu {
   inline vk::Format STANDARD_COLOR_TEXTURE_FORMAT = vk::Format::eR8G8B8A8Unorm;
@@ -238,17 +239,17 @@ export namespace ufox::gpu {
     [[nodiscard]] WindowHandle* getHandle() const { return handle.get(); }
 
     template<mathf::Arithmetic T>
-    bool getExtent(T& width, T& height) const {
-      int _width, _height;
-  #ifdef USE_SDL
-      SDL_GetWindowSize(handle.get(), &_width, &_height);
-  #else
-      glfwGetFramebufferSize(handle.get(), &_width, &_height);
-  #endif
-      width = static_cast<T>(_width);
-      height = static_cast<T>(_height);
+bool getExtent(T& width, T& height) const {
+      int w = 0, h = 0;
+#ifdef USE_SDL
+      SDL_GetWindowSize(handle.get(), &w, &h);
+#else
+      glfwGetFramebufferSize(handle.get(), &w, &h);
+#endif
+      width  = static_cast<T>(w);
+      height = static_cast<T>(h);
 
-      return height < 1 || width < 1;
+      return w < 1 || h < 1;   // test the ints: no float/unsigned surprises
     }
   };
 
