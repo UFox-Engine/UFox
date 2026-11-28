@@ -22,6 +22,7 @@ import ufox_engine_core;
 import ufox_render_lib;
 import ufox_render_core;
 import ufox_key;
+import ufox_core;
 
 using namespace ufox::engine;
 
@@ -333,20 +334,11 @@ export namespace ufox::font {
     class GlyphManager;
     const KeyID* MakeGlyphContent(GlyphManager& manager,const KeyID& atlasTextureID,const ResourceContextCreateInfo& info,const GlyphUnicodeBlock& block,const FontType& style, const GlyphFontMetrics& metrics,const std::vector<GlyphContext>& glyphs);
 
-    class GlyphManager final : public ResourceManagerBase {
+    class GlyphManager final : public ResourceManagerBase, public SystemBase{
     public:
-        explicit GlyphManager(UFoxWindow& _window, render::TextureManager& _textureManager): ResourceManagerBase(_window, FONT_RESOURCE_PATH, FONT_RESOURCE_EXTENSIONS), textureManager(_textureManager) {
-            window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<GlyphManager*>(user)->onSystemInit(); }, this);
-            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<GlyphManager*>(user)->onGainsFocus(); }, this);
+        explicit GlyphManager(UFoxWindow& _window, render::TextureManager& _textureManager,const std::string_view id_ = "Glyph-Manager"): ResourceManagerBase(_window, FONT_RESOURCE_PATH, FONT_RESOURCE_EXTENSIONS), SystemBase(id_), textureManager(_textureManager) {}
 
-            for (const auto b : {GlyphUnicodeBlock::eLGC, GlyphUnicodeBlock::eJP, GlyphUnicodeBlock::eTHAI})
-                fonts_.try_emplace(b);
-        }
-
-        ~GlyphManager() override {
-            window->unregisterCallbackEvent(EventType::eSystemInit,this);
-            window->unregisterCallbackEvent(EventType::eGainsFocus,this);
-        }
+        ~GlyphManager() override {}
 
         void onMakeResource(ResourceContextCreateInfo& info) override {
             const std::string folderName = info.sourcePath.parent_path().filename().string();
@@ -383,12 +375,24 @@ export namespace ufox::font {
             }
         }
 
+        int awake() override {
+            onSystemInit();
+            return 0;
+        }
+
         void onSystemInit() override {
+            for (const auto b : {GlyphUnicodeBlock::eLGC, GlyphUnicodeBlock::eJP, GlyphUnicodeBlock::eTHAI})
+                fonts_.try_emplace(b);
             ReadResourceContextMetaData(directory, sourceExtensions, this);
             debug::log(debug::LogLevel::eInfo, "GlyphManager: init success");
         }
 
         void onPostSystemInit(const float &width, const float &height) override {}
+
+        int focusGained() override {
+            onGainsFocus();
+            return 0;
+        }
 
         void onGainsFocus() override {
             refreshResource();

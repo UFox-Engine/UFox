@@ -31,6 +31,7 @@ import ufox_gpu_lib;
 import ufox_gpu_core;
 import ufox_nanoid;
 import ufox_key;
+import ufox_core;
 
 using namespace ufox::engine;
 
@@ -41,7 +42,6 @@ export namespace ufox::geometry {
     const KeyID* MakeMeshContent(MeshManager& manager, const std::span<Vertex>& vertices, const std::span<uint16_t>& indices, const ResourceContextCreateInfo& info);
 
     void LoadGLTF(std::string_view MODEL_PATH,std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
-
         auto glbBytes = UFoxWindow::ReadFileBinary(MODEL_PATH.data());
 
         if (glbBytes.empty()){
@@ -390,17 +390,12 @@ export namespace ufox::geometry {
         gpu::MakeAndCopyBuffer(gpu, mesh.indices, vk::BufferUsageFlagBits::eIndexBuffer, mesh.indexBuffer);
     }
 
-    class MeshManager final : ResourceManagerBase {
+    class MeshManager : public ResourceManagerBase , public SystemBase{
     public:
-        explicit MeshManager(UFoxWindow& _window) :
-        ResourceManagerBase(_window, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION) {
-            window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<MeshManager*>(user)->onSystemInit(); }, this);
-            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<MeshManager*>(user)->onGainsFocus(); }, this);
-        }
+        explicit MeshManager(UFoxWindow& _window,const std::string_view id_ = "Mesh-Manager") :
+        ResourceManagerBase(_window, MESH_RESOURCE_PATH, MESH_RESOURCE_EXTENSION), SystemBase(id_) {}
 
         ~MeshManager() override {
-            window->unregisterCallbackEvent(EventType::eSystemInit,this);
-            window->unregisterCallbackEvent(EventType::eGainsFocus,this);
             clearAllGpuResources(*this);
         }
 
@@ -411,6 +406,16 @@ export namespace ufox::geometry {
             if (LoadMeshFromFile(info.sourcePath, vertices, indices)) {
                 MakeMeshContent(*this, vertices, indices, info);
             }
+        }
+
+        int awake() override {
+            onSystemInit();
+            return 0;
+        }
+
+        int focusGained() override {
+            onGainsFocus();
+            return 0;
         }
 
         void onSystemInit() override {

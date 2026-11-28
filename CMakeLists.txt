@@ -164,6 +164,8 @@ target_sources(UFOX_ENGINE_LIB
         src/ufox_key.cppm
         src/ufox_nanoid.cppm
         src/ufox_core.cppm
+        src/ufox_gpu_lib.cppm
+        src/ufox_windowing.cppm
 )
 
 target_compile_features(UFOX_ENGINE_LIB PUBLIC cxx_std_23)
@@ -262,7 +264,6 @@ target_sources(UFox-modules
         FILES
         src/ufox_engine_app.cppm
         src/ufox_Lib.cppm
-        src/ufox_gpu_lib.cppm
         src/ufox_gpu_core.cppm
         src/ufox_input.cppm
         src/ufox_engine_lib.cppm
@@ -284,6 +285,7 @@ target_link_libraries(UFox-modules PRIVATE ${LIBS})
 if(USE_SDL)
     target_compile_definitions(UFox-modules PRIVATE USE_SDL=1)
     target_compile_definitions(UFoxEngine PRIVATE USE_SDL=1)
+    target_compile_definitions(UFOX_ENGINE_LIB PRIVATE USE_SDL=1)
     message(STATUS "Enable SDL3 support")
 endif()
 
@@ -319,7 +321,7 @@ add_dependencies(UFoxEngine CopyResources)
 
 add_subdirectory(thirdparty/nanoid)
 add_dependencies(UFoxEngine nanoid)
-target_link_libraries(UFOX_ENGINE_LIB PRIVATE nanoid SDL3::SDL3 glm-module)
+target_link_libraries(UFOX_ENGINE_LIB PRIVATE nanoid SDL3::SDL3 glm-module glfw Vulkan-Headers ufox_mathf)
 target_link_libraries(ufox_beta PRIVATE UFOX_ENGINE_LIB)
 
 find_program(GLSL_VALIDATOR glslangValidator HINTS $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)

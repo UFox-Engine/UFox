@@ -25,6 +25,7 @@ import ufox_gpu_lib;
 import ufox_gpu_core;
 import ufox_render_lib;
 import ufox_key;
+import ufox_core;
 
 using namespace ufox::engine;
 
@@ -174,21 +175,13 @@ export namespace ufox::render {
         return descriptor;
     }
 
-    class TextureManager final : public ResourceManagerBase {
+    class TextureManager final : public ResourceManagerBase, public SystemBase {
     public:
-        explicit TextureManager(UFoxWindow& _window)
-            : ResourceManagerBase(_window, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS) {
-            window->registerCallbackEvent<EventType::eSystemInit>([](void* user){static_cast<TextureManager*>(user)->onSystemInit();}, this);
-            window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user){static_cast<TextureManager*>(user)->onPostSystemInit(w,h);}, this);
-            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user){static_cast<TextureManager*>(user)->onGainsFocus(); }, this);
-            window->registerCallbackEvent<EventType::ePreDraw>([](void* user) {static_cast<TextureManager*>(user)->onPreDraw();}, this);
+        explicit TextureManager(UFoxWindow& _window,const std::string_view id_ = "Texture-Manager")
+            : ResourceManagerBase(_window, TEXTURE_RESOURCE_PATH, TEXTURE_RESOURCE_EXTENSIONS), SystemBase(id_) {
         }
 
         ~TextureManager() override {
-            window->unregisterCallbackEvent(EventType::eSystemInit,this);
-            window->unregisterCallbackEvent(EventType::ePostSystemInit,this);
-            window->unregisterCallbackEvent(EventType::eGainsFocus,this);
-            window->unregisterCallbackEvent(EventType::ePreDraw,this);
             clearAllGpuResources(*this);
         }
 
@@ -199,6 +192,11 @@ export namespace ufox::render {
             }
         }
 
+        int awake() override {
+            onSystemInit();
+            return 0;
+        }
+
         void onSystemInit() override {
             ReadResourceContextMetaData(directory, sourceExtensions, this);
             const auto limit = window->gpuResource.physicalDevice->getProperties().limits;
@@ -207,12 +205,27 @@ export namespace ufox::render {
             debug::log(debug::LogLevel::eInfo, "TextureManager: init: success");
         }
 
+        int start(RunTimeContext& ctx) override {
+            onPostSystemInit(ctx.screenSize.x, ctx.screenSize.y);
+            return 0;
+        }
+
         void onPostSystemInit(const float &width, const float &height) override{
             makeTextureMap(textureMap, defaultMapIndex);
         }
 
+        int focusGained() override {
+            enablePreDrawRefresh = true;
+            return 0;
+        }
+
         void onGainsFocus() override {
             enablePreDrawRefresh = true;
+        }
+
+        int prepareRender() override {
+            onPreDraw();
+            return 0;
         }
 
         void onPreDraw() override {

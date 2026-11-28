@@ -31,6 +31,8 @@ import ufox_render_core;
 import ufox_font_lib;
 import ufox_font_core;
 import ufox_key;
+import ufox_core;
+import ufox_windowing;
 
 using namespace ufox::geometry;
 using namespace ufox::render;
@@ -995,10 +997,10 @@ export namespace ufox::gui {
             window->registerCallbackEvent<EventType::ePostSystemInit>([](const float& w, const float& h, void* user) { static_cast<UIDocument*>(user)->onPostSystemInit(w,h);}, this);
             window->registerCallbackEvent<EventType::eStart>([](void* user) { static_cast<UIDocument*>(user)->onStart();}, this);
             window->registerCallbackEvent<EventType::eResize>([](const float& w, const float& h, void* user) {  static_cast<UIDocument*>(user)->onResize(w,h);}, this);
-            window->registerCallbackEvent<EventType::eGainsFocus>([](void* user) { static_cast<UIDocument*>(user)->onGainsFocus();}, this);
+            //window->registerCallbackEvent<EventType::eGainsFocus>([](void* user) { static_cast<UIDocument*>(user)->onGainsFocus();}, this);
             window->registerCallbackEvent<EventType::ePreDraw>([](void* user) { static_cast<UIDocument*>(user)->onPreDraw();}, this);
             window->registerCallbackEvent<EventType::eUpdateBuffer>([](const uint32_t& currentImage, void* user){ static_cast<UIDocument*>(user)->onLayoutChanged(currentImage);}, this);
-            window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const gpu::WindowResource& winResource,
+            window->registerCallbackEvent<EventType::eRenderPass>([](const vk::raii::CommandBuffer& cmb,const uint32_t& imageIndex, const windowing::WindowResource& winResource,
             const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user ) { static_cast<UIDocument*>(user)->drawCanvas(cmb, imageIndex, winResource, colorAttachment, stencilAttachment);}, this);
             window->registerCallbackEvent<EventType::ePointer>([](const PointerEvent& e, void* user) { return static_cast<UIDocument*>(user)->onPointer(e); }, this);
             window->registerCallbackEvent<EventType::eProcessInput>([](void* user) { static_cast<UIDocument*>(user)->flushPointerQueue(); }, this);paletteManager = std::make_unique<GUIPaletteManager>(window, this);
@@ -1015,7 +1017,7 @@ export namespace ufox::gui {
                 window->unregisterCallbackEvent(EventType::ePostSystemInit,this);
                 window->unregisterCallbackEvent(EventType::eStart,this);
                 window->unregisterCallbackEvent(EventType::eResize,this);
-                window->unregisterCallbackEvent(EventType::eGainsFocus,this);
+                //window->unregisterCallbackEvent(EventType::eGainsFocus,this);
                 window->unregisterCallbackEvent(EventType::ePreDraw,this);
                 window->unregisterCallbackEvent(EventType::eUpdateBuffer,this);
                 window->unregisterCallbackEvent(EventType::eRenderPass,this);
@@ -1504,7 +1506,7 @@ void flushPointerQueue() {
             debug::log(debug::LogLevel::eInfo, "GUI UIDocument PreDraw : Susses");
         }
 
-        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment) const {
+        void drawCanvas(const vk::raii::CommandBuffer &cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment) const {
 
 
             int height, width;

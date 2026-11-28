@@ -23,6 +23,8 @@ export module ufox_engine_lib;
 import ufox_lib;
 import ufox_gpu_lib;
 import ufox_key;
+import ufox_core;
+import ufox_windowing;
 
 
 export namespace ufox::action {
@@ -93,10 +95,9 @@ export namespace ufox::engine {
   using SystemInitEventHandler = void(*)(void* user);
   using PostSystemInitEventHandler = void(*)(const float& w, const float& h, void* user);
   using StartEventHandler = void(*)(void* user);
-  using GainsFocusEventHandler = void(*)(void* user);
   using PreDrawEventHandler = void(*)(void* user);
   using UpdateBufferEventHandler = void(*)(const uint32_t& currentImage, void* user);
-  using RenderPassEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const gpu::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user );
+  using RenderPassEventHandler = void(*)(const vk::raii::CommandBuffer& cmb, const uint32_t& imageIndex, const windowing::WindowResource& winResource, const vk::RenderingAttachmentInfo& colorAttachment, const vk::RenderingAttachmentInfo& stencilAttachment, void* user );
 
   template<EventType Type>
   struct EventTraits;
@@ -121,10 +122,6 @@ export namespace ufox::engine {
     using Handler = StartEventHandler;
   };
 
-  template<>
-  struct EventTraits<EventType::eGainsFocus> {
-    using Handler = GainsFocusEventHandler;
-  };
 
   template<>
   struct EventTraits<EventType::ePreDraw> {

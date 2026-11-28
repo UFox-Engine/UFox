@@ -30,8 +30,14 @@ export module ufox_gpu_core;
 
 import ufox_lib;
 import ufox_gpu_lib;
+import ufox_core;
+import ufox_windowing;
 
 export namespace ufox::gpu {
+inline vk::Format STANDARD_COLOR_TEXTURE_FORMAT = vk::Format::eR8G8B8A8Unorm;
+inline vk::ImageSubresourceRange DEFAULT_COLOR_SUBRESOURCE_RANGE{
+    vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+
     uint32_t FindMemoryType(const GPUResources& gpu, const uint32_t typeFilter, const vk::MemoryPropertyFlags properties) {
         vk::PhysicalDeviceMemoryProperties memProperties = gpu.physicalDevice->getMemoryProperties();
 
@@ -158,8 +164,6 @@ export namespace ufox::gpu {
             return vk::PipelineStageFlagBits2::eNone;
         }
     }
-
-
 
     [[nodiscard]] vk::PresentModeKHR ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresentModes) {
         for (const auto& availablePresentMode : availablePresentModes) {
@@ -304,7 +308,7 @@ export namespace ufox::gpu {
     }
 
 
-    void FindGraphicsAndPresentQueueFamilyIndex(GPUResources& gpu, const WindowResource& surfaceData) {
+    void FindGraphicsAndPresentQueueFamilyIndex(GPUResources& gpu, const windowing::WindowResource& surfaceData) {
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = gpu.physicalDevice->getQueueFamilyProperties();
         assert(queueFamilyProperties.size() < (std::numeric_limits<uint32_t>::max)());
 
@@ -410,7 +414,7 @@ export namespace ufox::gpu {
         gpu.presentQueue.emplace(*gpu.device, gpu.queueFamilyIndices->presentFamily, 0);
     }
 
-    void ReMakeSwapchainResource(SwapchainResource& resource, const GPUResources& gpu,  const WindowResource& surfaceData, const vk::ImageUsageFlags usage) {
+    void ReMakeSwapchainResource(SwapchainResource& resource, const GPUResources& gpu,  const windowing::WindowResource& surfaceData, const vk::ImageUsageFlags usage) {
 
         vk::SurfaceCapabilitiesKHR surfaceCapabilities  = gpu.physicalDevice->getSurfaceCapabilitiesKHR( *surfaceData.surface );
         vk::SurfaceFormatKHR surfaceFormat              = ChooseSwapSurfaceFormat(gpu.physicalDevice->getSurfaceFormatsKHR(surfaceData.surface.value()));
@@ -463,7 +467,7 @@ export namespace ufox::gpu {
         }
     }
 
-    void MakeSwapchainResource(std::optional<SwapchainResource>& swapChain,const GPUResources& gpu, const WindowResource& surfaceData, const vk::ImageUsageFlags usage) {
+    void MakeSwapchainResource(std::optional<SwapchainResource>& swapChain,const GPUResources& gpu, const windowing::WindowResource& surfaceData, const vk::ImageUsageFlags usage) {
         SwapchainResource resource{};
         ReMakeSwapchainResource(resource, gpu, surfaceData, usage);
         swapChain.emplace(std::move(resource));

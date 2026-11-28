@@ -3,21 +3,21 @@
 //
 module;
 
-#include "_deps/sdl3-src/include/SDL3/SDL_events.h"
-
-#include <ranges>
 #include <string>
 #include <string_view>
 #include <ufox_engine_export.h>
 #include <unordered_map>
 #include <utility>
-
+#include <vulkan/vulkan_raii.hpp>
+#include <SDL3/SDL.h>
 
 export module ufox_core;
 
 import ufox_key;
 import ufox_nanoid;
+import ufox_mathf;
 import glm;
+import ufox_windowing;
 
 namespace ufox {
   export struct UFOX_ENGINE_EXPORT ApplicationDataBase;
@@ -30,6 +30,7 @@ namespace ufox {
     double                deltaTime{};
     SDL_Event             event{};
     ApplicationDataBase*  appData{};
+    glm::ivec2            screenSize{};
 
     void reset() {
       isRunning = true;
@@ -48,12 +49,14 @@ namespace ufox {
     virtual ~SystemBase() = default;
 
     virtual int awake() { return 0; }
-    virtual int events(SDL_Event& event, bool& _isRunning) {return 0;}
-    virtual int start(const double& deltaTime) { return 0; }
-    virtual int update(const double& deltaTime) { return 0; }
-    virtual int lateUpdate(const double& deltaTime) { return 0; }
-    virtual int fixedUpdate(const double& deltaTime) { return 0; }
+    virtual int events(RunTimeContext& ctx) {return 0;}
+    virtual int start(RunTimeContext& ctx) { return 0; }
+    virtual int update(RunTimeContext& ctx) { return 0; }
+    virtual int lateUpdate(RunTimeContext& ctx) { return 0; }
+    virtual int fixedUpdate(RunTimeContext& ctx) { return 0; }
     virtual int close() { return 0; }
+    virtual int focusGained() { return 0; }
+    virtual int prepareRender() {return 0;}
 
     [[nodiscard]] const KeyID* getId() const noexcept { return &id; }
 
@@ -92,3 +95,4 @@ namespace ufox {
 
   };
 }
+

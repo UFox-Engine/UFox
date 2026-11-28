@@ -46,67 +46,70 @@ inline const auto UFOX_MAIN_WINDOW_ID = KeyID{"UFox_Main_Window"};
 
 
             meshManager.emplace(*mainWindow);
+            assert(appData->addSystem(*meshManager->getId(), &meshManager.value()) && "Failed to add mesh manager system");
             textureManager.emplace(*mainWindow);
+            assert(appData->addSystem(*textureManager->getId(), &textureManager.value()) && "Failed to add texture manager system");
             glyphManager.emplace(*mainWindow, *textureManager);
-            document.emplace(*mainWindow, *meshManager, *glyphManager, &*textureManager);
+            assert(appData->addSystem(*glyphManager->getId(), &glyphManager.value()) && "Failed to add glyph manager system");
+            //document.emplace(*mainWindow, *meshManager, *glyphManager, &*textureManager);
 
-            
+
             // ePostSystemInit → build test UI
-            mainWindow->registerCallbackEvent<EventType::ePostSystemInit>(
-                [](const float& w, const float& h, void* user) {
-                    auto* doc = static_cast<gui::UIDocument*>(user);
-                    if (!doc || !doc->rootElement) return;
-
-                    auto* v11 = doc->rootElement->createChild<gui::VisualElement>(
-                        KeyID{"v11"}, "v11");
-
-                    v11->style.backgroundColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
-                    v11->style.flexCompress    = 1.0f;
-                    v11->style.flexExpand      = 1.0f;
-                    v11->style.maxWidth        = geometry::discadelta::Length{
-                        geometry::discadelta::LengthMode::eFlat, 150};
-                    v11->style.alignSelf       = geometry::discadelta::AlignMode::eStretch;
-                    v11->style.marginLeft = v11->style.marginRight =
-                        v11->style.marginTop = v11->style.marginBottom = 0;
-
-                    v11->style.borderBottomColor = {0.0f, 0.0f, 1.0f, 1.0f};
-                    v11->style.borderBottomWidth = 0;
-                    v11->style.borderBottomLeftRadius  = 25;
-                    v11->style.borderBottomRightRadius = 17;
-
-                    v11->style.borderTopColor = {1.0f, 0.0f, 0.0f, 1.0f};
-                    v11->style.borderTopWidth = 0;
-                    v11->style.borderTopLeftRadius  = 25;
-                    v11->style.borderTopRightRadius = 20;
-
-                    v11->style.borderLeftColor  = {1.0f, 0.0f, 1.0f, 1.0f};
-                    v11->style.borderLeftWidth  = 0;
-                    v11->style.borderRightColor = {1.0f, 1.0f, 0.0f, 1.0f};
-                    v11->style.borderRightWidth = 0;
-
-                    v11->registerCallbackEvent<gui::ElementEventType::PointerEnter>(
-                        [](gui::ElementPointerEvent&, void* user) {
-                            auto* el = static_cast<gui::VisualElement*>(user);
-                            el->style.backgroundColor = {1, 0, 0, 1};
-                            el->markStyleChanged();
-                        }, v11);
-
-                    v11->registerCallbackEvent<gui::ElementEventType::PointerLeave>(
-                        [](gui::ElementPointerEvent&, void* user) {
-                            auto* el = static_cast<gui::VisualElement*>(user);
-                            el->style.backgroundColor = {1, 1, 1, 1};
-                            el->markStyleChanged();
-                        }, v11);
-
-                    v11->updateMetrics();
-
-                    auto* title = doc->rootElement->createChild<gui::Label>(
-                        KeyID{"title"}, "title", ufox_beta::GetHallo(), 24.0f);
-                    title->setColor({1, 1, 1, 1});
-
-                    auto v3 = std::make_unique<gui::VisualElement>("v3");
-                    doc->rootElement->add(std::move(v3));
-                }, &document);
+            // mainWindow->registerCallbackEvent<EventType::ePostSystemInit>(
+            //     [](const float& w, const float& h, void* user) {
+            //         auto* doc = static_cast<gui::UIDocument*>(user);
+            //         if (!doc || !doc->rootElement) return;
+            //
+            //         auto* v11 = doc->rootElement->createChild<gui::VisualElement>(
+            //             KeyID{"v11"}, "v11");
+            //
+            //         v11->style.backgroundColor = glm::vec4{1.0f, 1.0f, 1.0f, 1.0f};
+            //         v11->style.flexCompress    = 1.0f;
+            //         v11->style.flexExpand      = 1.0f;
+            //         v11->style.maxWidth        = geometry::discadelta::Length{
+            //             geometry::discadelta::LengthMode::eFlat, 150};
+            //         v11->style.alignSelf       = geometry::discadelta::AlignMode::eStretch;
+            //         v11->style.marginLeft = v11->style.marginRight =
+            //             v11->style.marginTop = v11->style.marginBottom = 0;
+            //
+            //         v11->style.borderBottomColor = {0.0f, 0.0f, 1.0f, 1.0f};
+            //         v11->style.borderBottomWidth = 0;
+            //         v11->style.borderBottomLeftRadius  = 25;
+            //         v11->style.borderBottomRightRadius = 17;
+            //
+            //         v11->style.borderTopColor = {1.0f, 0.0f, 0.0f, 1.0f};
+            //         v11->style.borderTopWidth = 0;
+            //         v11->style.borderTopLeftRadius  = 25;
+            //         v11->style.borderTopRightRadius = 20;
+            //
+            //         v11->style.borderLeftColor  = {1.0f, 0.0f, 1.0f, 1.0f};
+            //         v11->style.borderLeftWidth  = 0;
+            //         v11->style.borderRightColor = {1.0f, 1.0f, 0.0f, 1.0f};
+            //         v11->style.borderRightWidth = 0;
+            //
+            //         v11->registerCallbackEvent<gui::ElementEventType::PointerEnter>(
+            //             [](gui::ElementPointerEvent&, void* user) {
+            //                 auto* el = static_cast<gui::VisualElement*>(user);
+            //                 el->style.backgroundColor = {1, 0, 0, 1};
+            //                 el->markStyleChanged();
+            //             }, v11);
+            //
+            //         v11->registerCallbackEvent<gui::ElementEventType::PointerLeave>(
+            //             [](gui::ElementPointerEvent&, void* user) {
+            //                 auto* el = static_cast<gui::VisualElement*>(user);
+            //                 el->style.backgroundColor = {1, 1, 1, 1};
+            //                 el->markStyleChanged();
+            //             }, v11);
+            //
+            //         v11->updateMetrics();
+            //
+            //         auto* title = doc->rootElement->createChild<gui::Label>(
+            //             KeyID{"title"}, "title", ufox_beta::GetHallo(), 24.0f);
+            //         title->setColor({1, 1, 1, 1});
+            //
+            //         auto v3 = std::make_unique<gui::VisualElement>("v3");
+            //         doc->rootElement->add(std::move(v3));
+            //     }, &document);
         }
 
         void awake() {
@@ -116,6 +119,8 @@ inline const auto UFOX_MAIN_WINDOW_ID = KeyID{"UFox_Main_Window"};
         void run() {
             RunTimeContext context{};
             context.reset();
+            auto et = mainWindow->getExtent();
+            context.screenSize = glm::ivec2{et.width, et.height};
 
             while (context.isRunning) {
                 onEventLoop(context);
@@ -126,6 +131,12 @@ inline const auto UFOX_MAIN_WINDOW_ID = KeyID{"UFox_Main_Window"};
 
         void onEventLoop(RunTimeContext& ctx) {
             while (SDL_PollEvent(&ctx.event)) {
+                if (ctx.event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+                    mainWindow->waitGPUIdle();
+                    executeFocusGained();
+                    mainWindow->requestPreDraw();
+                }
+
                 executeEventsLoop(ctx);
             }
         }
@@ -136,17 +147,19 @@ inline const auto UFOX_MAIN_WINDOW_ID = KeyID{"UFox_Main_Window"};
 
         void onRenderLoop(RunTimeContext& ctx) {
             if (!ctx.isRendering) return;
-            mainWindow->prepareRender();
+            mainWindow->prepareRenderStart();
+            executePrepareRender();
+            mainWindow->prepareRenderEnd();
             if (const auto cmb = mainWindow->render()) mainWindow->postRender(cmb);
         }
 
         void close() {
             appData->systemBaseContainer.clear();
 
-            if (document) {
-                mainWindow->unregisterCallbackEvent(EventType::eResize, &mainCamera);
-                mainWindow->unregisterCallbackEvent(EventType::ePostSystemInit, &*document);
-            }
+            // if (document) {
+            //     mainWindow->unregisterCallbackEvent(EventType::eResize, &mainCamera);
+            //     mainWindow->unregisterCallbackEvent(EventType::ePostSystemInit, &*document);
+            // }
             // optionals destroy themselves in reverse order
 
         }
@@ -164,7 +177,7 @@ inline const auto UFOX_MAIN_WINDOW_ID = KeyID{"UFox_Main_Window"};
         [[nodiscard]] std::optional<geometry::MeshManager>& getMeshManager()     { return meshManager; }
         [[nodiscard]] std::optional<render::TextureManager>& getTextureManager() { return textureManager; }
         [[nodiscard]] std::optional<font::GlyphManager>& getGlyphManager()       { return glyphManager; }
-        [[nodiscard]] std::optional<gui::UIDocument>& getUIDocument()                { return document; }
+        //[[nodiscard]] std::optional<gui::UIDocument>& getUIDocument()                { return document; }
         [[nodiscard]] Camera& getMainCamera()                                    { return mainCamera; }
 
 
@@ -173,7 +186,7 @@ inline const auto UFOX_MAIN_WINDOW_ID = KeyID{"UFox_Main_Window"};
         std::optional<geometry::MeshManager>         meshManager{};
         std::optional<render::TextureManager>        textureManager{};
         std::optional<font::GlyphManager>            glyphManager{};
-        std::optional<gui::UIDocument>               document{};
+        //std::optional<gui::UIDocument>               document{};
         Camera                                       mainCamera{};
 
         std::optional<ApplicationDataBase>           appData{};
@@ -186,28 +199,40 @@ inline const auto UFOX_MAIN_WINDOW_ID = KeyID{"UFox_Main_Window"};
 
         void executeEventsLoop(RunTimeContext& ctx) {
             for (const auto &system : appData->systemBaseContainer | std::views::values) {
-                system->events(ctx.event, ctx.isRunning);
+                system->events(ctx);
             }
         }
 
         void executeUpdateLoop(RunTimeContext& ctx) {
             if (!ctx.isStarted) {
                 for (const auto &system : appData->systemBaseContainer | std::views::values) {
-                    system->start(ctx.deltaTime);
+                    system->start(ctx);
                     ctx.isStarted = true;
                 }
             }
 
             for (const auto &system : appData->systemBaseContainer | std::views::values) {
-                system->update(ctx.deltaTime);
+                system->update(ctx);
             }
 
             for (const auto &system : appData->systemBaseContainer | std::views::values) {
-                system->fixedUpdate(ctx.deltaTime);
+                system->fixedUpdate(ctx);
             }
 
             for (const auto &system : appData->systemBaseContainer | std::views::values) {
-                system->lateUpdate(ctx.deltaTime);
+                system->lateUpdate(ctx);
+            }
+        }
+
+        void executeFocusGained() {
+            for (const auto &system : appData->systemBaseContainer | std::views::values) {
+                system->focusGained();
+            }
+        }
+
+        void executePrepareRender() {
+            for (const auto &system : appData->systemBaseContainer | std::views::values) {
+                system->prepareRender();
             }
         }
     };

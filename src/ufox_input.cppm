@@ -15,13 +15,15 @@ export module ufox_input;
 
 import ufox_lib;
 import ufox_gpu_lib;
+import ufox_core;
+import ufox_windowing;
 
 export  namespace ufox::input {
     void RefreshResources(InputResource& res) {
         res.refresh();
     }
 
-    void UpdateGlobalMousePosition(const gpu::WindowResource& window, InputResource& res) {
+    void UpdateGlobalMousePosition(const windowing::WindowResource& window, InputResource& res) {
         switch (res.mouseMotionState) {
         case MouseMotionState::Moving: {
             res.onMouseMove();

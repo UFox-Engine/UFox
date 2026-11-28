@@ -38,6 +38,7 @@ import ufox_mathf;
 import ufox_nanoid;
 import ufox_key;
 import ufox_core;
+import ufox_windowing;
 
 export namespace ufox::action {
 
@@ -291,7 +292,7 @@ export namespace ufox::engine {
 
     gpu::GraphicDeviceCreateInfo                          gpuCreateInfo{};
     gpu::GPUResources                                     gpuResource{};
-    std::optional<gpu::WindowResource>                    windowResource{};
+    std::optional<windowing::WindowResource>              windowResource{};
     std::optional<gpu::FrameResource>                     frameResource{};
     std::optional<gpu::DepthImageResource>                depthResource{};
     std::optional<action::ActionEventManager>             actionEventManager{};
@@ -314,9 +315,6 @@ export namespace ufox::engine {
         break;
       case EventType::eStart:
         startEvents.remove(user);
-        break;
-      case EventType::eGainsFocus:
-        gainsFocusEvents.remove(user);
         break;
       case EventType::ePreDraw:
         preDrawEvents.remove(user);
@@ -341,7 +339,6 @@ export namespace ufox::engine {
       else if constexpr (Type == EventType::eSystemInit)      { return systemInitEvents; }
       else if constexpr (Type == EventType::ePostSystemInit)  { return postSystemInitEvents; }
       else if constexpr (Type == EventType::eStart)           { return startEvents; }
-      else if constexpr (Type == EventType::eGainsFocus)      { return gainsFocusEvents; }
       else if constexpr (Type == EventType::ePreDraw)         { return preDrawEvents; }
       else if constexpr (Type == EventType::eUpdateBuffer)    { return updateBufferEvents; }
       else if constexpr (Type == EventType::eRenderPass)      { return renderPassEvents; }
@@ -397,6 +394,12 @@ export namespace ufox::engine {
       enabledPreDraw = true;
     }
 
+    void waitGPUIdle() const {
+      if (gpuResource.device) {
+        gpuResource.device->waitIdle();
+      }
+    }
+
     int awake() override{
       float width, height = 0;
       windowResource->getExtent(width, height);
@@ -406,8 +409,8 @@ export namespace ufox::engine {
       return 0;
     }
 
-    int events(SDL_Event& event , bool& running) override{
-      switch (event.type) {
+    int events(RunTimeContext& ctx) override{
+      switch (ctx.event.type) {
         case SDL_EVENT_QUIT: {
           if (gpuResource.device) {
             gpuResource.device->waitIdle();
@@ -417,12 +420,12 @@ export namespace ufox::engine {
             windowResource->swapchainResource->Clear();
           }
 
-          running = false;
+          ctx.isRunning = false;
           SDL_RemoveEventWatch(FramebufferResizeCallback, this);
           break;
         }
         case SDL_EVENT_WINDOW_MOVED: {
-          windowResource->position = vk::Offset2D{event.window.data1,event.window.data2};
+          windowResource->position = vk::Offset2D{ctx.event.window.data1,ctx.event.window.data2};
           break;
         }
         case SDL_EVENT_WINDOW_MINIMIZED: {
@@ -436,33 +439,23 @@ export namespace ufox::engine {
 
           break;
         }
-        case SDL_EVENT_WINDOW_FOCUS_GAINED:{
-
-          gpuResource.device->waitIdle();
-          executeGainsFocus();
-          requestPreDraw();
-
-          debug::log(debug::LogLevel::eInfo, "Window gains focus");
-
-          break;
-        }
         case SDL_EVENT_MOUSE_MOTION:
           dispatchPointer({PointerPhase::eMove, PointerButton::eNone,
-                           {event.motion.x, event.motion.y}, {event.motion.xrel, event.motion.yrel}, 0});
+                           {ctx.event.motion.x, ctx.event.motion.y}, {ctx.event.motion.xrel, ctx.event.motion.yrel}, 0});
           break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
           SDL_CaptureMouse(true);                               // keep receiving motion/up while dragging outside the window
-          dispatchPointer({PointerPhase::eDown, ToPointerButton(event.button.button),
-                           {event.button.x, event.button.y}, {}, event.button.clicks});
+          dispatchPointer({PointerPhase::eDown, ToPointerButton(ctx.event.button.button),
+                           {ctx.event.button.x, ctx.event.button.y}, {}, ctx.event.button.clicks});
           break;
         case SDL_EVENT_MOUSE_BUTTON_UP:
-          dispatchPointer({PointerPhase::eUp, ToPointerButton(event.button.button),
-                           {event.button.x, event.button.y}, {}, event.button.clicks});
+          dispatchPointer({PointerPhase::eUp, ToPointerButton(ctx.event.button.button),
+                           {ctx.event.button.x, ctx.event.button.y}, {}, ctx.event.button.clicks});
           if (SDL_GetMouseState(nullptr, nullptr) == 0) SDL_CaptureMouse(false);
           break;
         case SDL_EVENT_MOUSE_WHEEL:
           dispatchPointer({PointerPhase::eWheel, PointerButton::eNone,
-                           {event.wheel.mouse_x, event.wheel.mouse_y}, {event.wheel.x, event.wheel.y}, 0});
+                           {ctx.event.wheel.mouse_x, ctx.event.wheel.mouse_y}, {ctx.event.wheel.x, ctx.event.wheel.y}, 0});
           break;
         case SDL_EVENT_WINDOW_MOUSE_LEAVE:
           dispatchPointer({PointerPhase::eLeave, PointerButton::eNone, {-1.0f, -1.0f}, {}, 0});
@@ -471,28 +464,30 @@ export namespace ufox::engine {
         default: {}
         }
 
-      actionEventManager->writingActionContext(event);
+      actionEventManager->writingActionContext(ctx.event);
 
       return 0;
     }
 
-    int start(const double& deltaTime) override {return 0;}
+    int start(RunTimeContext& ctx) override {return 0;}
 
-    int update(const double &deltaTime) override {
+    int update(RunTimeContext& ctx) override {
       executeProcessInput();
       return 0;
     }
 
-    int lateUpdate(const double &deltaTime) override {return 0;}
+    int lateUpdate(RunTimeContext& ctx) override {return 0;}
 
-    int fixedUpdate(const double &deltaTime) override {return 0;}
+    int fixedUpdate(RunTimeContext& ctx) override {return 0;}
 
-    void prepareRender() {
+    void prepareRenderStart() {
       if (preDrawEvents.empty() || !enabledPreDraw) return;
       gpuResource.device->waitIdle();
-      preDrawEvents.execute();
-      enabledPreDraw = false;
     }
+
+    void prepareRenderEnd() {enabledPreDraw = false;}
+
+    int prepareRender() override {return 0;}
 
     const vk::raii::CommandBuffer* render() {
       while ( vk::Result::eTimeout == gpuResource.device->waitForFences( *frameResource->getCurrentDrawFence(), vk::True, UINT64_MAX ) )
@@ -585,7 +580,7 @@ export namespace ufox::engine {
     EventList<PostSystemInitEventHandler>                         postSystemInitEvents{};
     EventList<ResizeEventHandler>                                 resizeEventHandlers{};
     EventList<StartEventHandler>                                  startEvents{};
-    EventList<GainsFocusEventHandler>                             gainsFocusEvents{};
+
     EventList<PreDrawEventHandler>                                preDrawEvents{};
     EventList<UpdateBufferEventHandler>                           updateBufferEvents{};
     EventList<RenderPassEventHandler>                             renderPassEvents{};
@@ -630,11 +625,6 @@ export namespace ufox::engine {
       if (!startEvents.empty())
         startEvents.execute();
       startFrameExecuted = true;
-    }
-
-    void executeGainsFocus() const {
-      if (gainsFocusEvents.empty()) return;
-      gainsFocusEvents.execute();
     }
 
     void executeResize(const float& width, const float& height) {
@@ -745,7 +735,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
     window->gpuResource.context.emplace();
     gpu::MakeInstance(window->gpuResource, window->gpuCreateInfo);
     gpu::PickBestPhysicalDevice(window->gpuResource);
-    window->windowResource = gpu::CreateWindow(*window->gpuResource.instance, title, {width, height});
+    window->windowResource = windowing::CreateWindow(*window->gpuResource.instance, title, {width, height});
     gpu::FindGraphicsAndPresentQueueFamilyIndex(window->gpuResource, *window->windowResource);
     gpu::MakeDevice(window->gpuResource, window->gpuCreateInfo);
     gpu::MakeCommandPool(window->gpuResource);
