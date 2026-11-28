@@ -3,12 +3,14 @@
 //
 module;
 
+#include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <iostream>
 #include <memory>
+#include <ranges>
+#include <vulkan/vulkan_raii.hpp>
 
-
-export module ufox_engine;
+export module ufox_engine_app;
 
 import ufox_engine_lib;
 import ufox_engine_core;
@@ -22,34 +24,35 @@ import ufox_font_lib;
 import ufox_font_core;
 import ufox_lib;
 import ufox_beta;
+import ufox_key;
+import ufox_core;
 
 using namespace ufox::engine;
 export namespace ufox {
 
-    class ufox_engine {
+inline const auto UFOX_ENGINE_ID = KeyID{"UFox"};
+inline const auto UFOX_ENGINE_VERSION = KeyID{"0.1.0"};
+
+inline const auto UFOX_MAIN_WINDOW_ID = KeyID{"UFox_Main_Window"};
+
+    class UFoxEngineApp {
     public:
-        explicit ufox_engine(const std::string& title, uint32_t width, uint32_t height): window(CreateUFoxWindow(title, width, height)){}
+        explicit UFoxEngineApp() = default;
 
-        void preRun() {
-            // create only what the test needs
-            meshManager.emplace(*window);
-            textureManager.emplace(*window);
-            glyphManager.emplace(*window, *textureManager);
-            document.emplace(*window, *meshManager, *glyphManager, &*textureManager);
+        void init() {
+            appData.emplace(UFOX_ENGINE_ID, UFOX_ENGINE_VERSION);
+            mainWindow = CreateUFoxWindow(appData->getEngineTitle(), appData->screenSize.x, appData->screenSize.y);
+            assert(appData->addSystem(UFOX_MAIN_WINDOW_ID, mainWindow.get()) && "Failed to add main window system");
 
-            // eStart
-            window->registerCallbackEvent<EventType::eStart>(
-                [](void*) { std::cout << "STARTED" << std::endl; }, nullptr);
 
-            // eResize → update camera aspect
-            window->registerCallbackEvent<EventType::eResize>(
-                [](const float& w, const float& h, void* user) {
-                    auto* camera = static_cast<Camera*>(user);
-                    CalculateAspectRatio(w, h, camera->aspectRatio);
-                }, &mainCamera);
+            meshManager.emplace(*mainWindow);
+            textureManager.emplace(*mainWindow);
+            glyphManager.emplace(*mainWindow, *textureManager);
+            document.emplace(*mainWindow, *meshManager, *glyphManager, &*textureManager);
 
+            
             // ePostSystemInit → build test UI
-            window->registerCallbackEvent<EventType::ePostSystemInit>(
+            mainWindow->registerCallbackEvent<EventType::ePostSystemInit>(
                 [](const float& w, const float& h, void* user) {
                     auto* doc = static_cast<gui::UIDocument*>(user);
                     if (!doc || !doc->rootElement) return;
@@ -106,43 +109,107 @@ export namespace ufox {
                 }, &document);
         }
 
-        void onRun() {
-            window->run();
-        }
-
-        void postRun() {
-            if (document) {
-                window->unregisterCallbackEvent(EventType::eResize, &mainCamera);
-                window->unregisterCallbackEvent(EventType::ePostSystemInit, &*document);
-            }
-            // optionals destroy themselves in reverse order
+        void awake() {
+            executeAwake();
         }
 
         void run() {
-            preRun();
-            onRun();
-            postRun();
+            RunTimeContext context{};
+            context.reset();
+
+            while (context.isRunning) {
+                onEventLoop(context);
+                onUpdateLoop(context);
+                onRenderLoop(context);
+            }
+        }
+
+        void onEventLoop(RunTimeContext& ctx) {
+            while (SDL_PollEvent(&ctx.event)) {
+                executeEventsLoop(ctx);
+            }
+        }
+
+        void onUpdateLoop(RunTimeContext& ctx){
+            executeUpdateLoop(ctx);
+        }
+
+        void onRenderLoop(RunTimeContext& ctx) {
+            if (!ctx.isRendering) return;
+            mainWindow->prepareRender();
+            if (const auto cmb = mainWindow->render()) mainWindow->postRender(cmb);
+        }
+
+        void close() {
+            appData->systemBaseContainer.clear();
+
+            if (document) {
+                mainWindow->unregisterCallbackEvent(EventType::eResize, &mainCamera);
+                mainWindow->unregisterCallbackEvent(EventType::ePostSystemInit, &*document);
+            }
+            // optionals destroy themselves in reverse order
+
+        }
+
+
+        void execution() {
+            init();
+            awake();
+            run();
+            close();
         }
 
         // accessors that return optional references / pointers
-        [[nodiscard]] UFoxWindow& getWindow() { return *window; }
-
+        [[nodiscard]] UFoxWindow& getWindow() { return *mainWindow; }
         [[nodiscard]] std::optional<geometry::MeshManager>& getMeshManager()     { return meshManager; }
         [[nodiscard]] std::optional<render::TextureManager>& getTextureManager() { return textureManager; }
         [[nodiscard]] std::optional<font::GlyphManager>& getGlyphManager()       { return glyphManager; }
         [[nodiscard]] std::optional<gui::UIDocument>& getUIDocument()                { return document; }
         [[nodiscard]] Camera& getMainCamera()                                    { return mainCamera; }
 
+
     private:
-        std::unique_ptr<UFoxWindow>                  window{};
+        std::unique_ptr<UFoxWindow>                  mainWindow{};
         std::optional<geometry::MeshManager>         meshManager{};
         std::optional<render::TextureManager>        textureManager{};
         std::optional<font::GlyphManager>            glyphManager{};
         std::optional<gui::UIDocument>               document{};
-        Camera                                       mainCamera{};   // cheap, can stay always present
+        Camera                                       mainCamera{};
+
+        std::optional<ApplicationDataBase>           appData{};
+
+        void executeAwake() {
+            for (const auto &system : appData->systemBaseContainer | std::views::values) {
+                system->awake();
+            }
+        }
+
+        void executeEventsLoop(RunTimeContext& ctx) {
+            for (const auto &system : appData->systemBaseContainer | std::views::values) {
+                system->events(ctx.event, ctx.isRunning);
+            }
+        }
+
+        void executeUpdateLoop(RunTimeContext& ctx) {
+            if (!ctx.isStarted) {
+                for (const auto &system : appData->systemBaseContainer | std::views::values) {
+                    system->start(ctx.deltaTime);
+                    ctx.isStarted = true;
+                }
+            }
+
+            for (const auto &system : appData->systemBaseContainer | std::views::values) {
+                system->update(ctx.deltaTime);
+            }
+
+            for (const auto &system : appData->systemBaseContainer | std::views::values) {
+                system->fixedUpdate(ctx.deltaTime);
+            }
+
+            for (const auto &system : appData->systemBaseContainer | std::views::values) {
+                system->lateUpdate(ctx.deltaTime);
+            }
+        }
     };
 
-    [[nodiscard]] std::unique_ptr<ufox_engine> CreateUFoxEngine(const std::string& title,uint32_t width,uint32_t height){
-    return std::make_unique<ufox_engine>(title, width, height);
-}
 }

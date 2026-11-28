@@ -253,7 +253,7 @@ bool getExtent(T& width, T& height) const {
     }
   };
 
-WindowResource CreateWindow(const vk::raii::Instance& instance, std::string const & windowName, vk::Extent2D const & extent ) {
+WindowResource CreateWindow(const vk::raii::Instance& instance,const std::string_view  windowName,const vk::Extent2D extent ) {
 #ifdef USE_SDL
         struct sdlContext {
             sdlContext() {
@@ -272,7 +272,7 @@ WindowResource CreateWindow(const vk::raii::Instance& instance, std::string cons
 
 
         Uint32 flags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
-        SDL_Window* window = SDL_CreateWindow(windowName.c_str(), static_cast<int>(extent.width), static_cast<int>(extent.height), flags);
+        SDL_Window* window = SDL_CreateWindow(windowName.data(), static_cast<int>(extent.width), static_cast<int>(extent.height), flags);
 
         if (!window) {
             throw std::runtime_error("Failed to create SDL window");

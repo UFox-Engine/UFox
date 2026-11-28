@@ -22,7 +22,7 @@ export module ufox_engine_lib;
 
 import ufox_lib;
 import ufox_gpu_lib;
-
+import ufox_key;
 
 
 export namespace ufox::action {
@@ -160,68 +160,7 @@ export namespace ufox::engine {
   template<typename T>
   concept Arithmetic = std::is_arithmetic_v<T>;
 
-  struct KeyID final {
-    std::string data{};
 
-    KeyID() = default;
-    explicit KeyID(std::string_view s) : data(s) {}
-
-    [[nodiscard]] bool empty() const noexcept { return data.empty(); }
-    [[nodiscard]] bool IsValid() const noexcept { return !empty(); }
-    [[nodiscard]] explicit operator bool() const noexcept { return IsValid(); }
-
-    [[nodiscard]] std::string_view view() const noexcept { return data; }
-    [[nodiscard]] const std::string& str() const noexcept { return data; }
-
-    friend auto operator<=>(const KeyID&, const KeyID&) noexcept = default;
-    friend bool operator==(const KeyID&, const KeyID&) noexcept = default;
-
-    friend std::ostream& operator<<(std::ostream& os, const KeyID& id) {
-      return os << (id.IsValid() ? id.data : "[invalid]");
-    }
-  };
-
-  inline const KeyID INVALID_CONTENT_ID{};
-
-  struct KeyIDHash {
-    using is_transparent = void;
-
-    [[nodiscard]] std::size_t operator()(const KeyID& id) const noexcept {
-      return std::hash<std::string_view>{}(id.view());
-    }
-
-    [[nodiscard]] std::size_t operator()(std::string_view id) const noexcept {
-      return std::hash<std::string_view>{}(id);
-    }
-
-    [[nodiscard]] std::size_t operator()(const char* id) const noexcept {
-      return id ? std::hash<std::string_view>{}(id) : 0u;
-    }
-  };
-
-  struct KeyIDEq {
-    using is_transparent = void;
-
-    [[nodiscard]] bool operator()(const KeyID& a, const KeyID& b) const noexcept {
-      return a.data == b.data;
-    }
-
-    [[nodiscard]] bool operator()(const KeyID& a, std::string_view b) const noexcept {
-      return a.data == b;
-    }
-
-    [[nodiscard]] bool operator()(std::string_view a, const KeyID& b) const noexcept {
-      return a == b.data;
-    }
-
-    [[nodiscard]] bool operator()(const KeyID& a, const char* b) const noexcept {
-      return b && a.data == b;
-    }
-
-    [[nodiscard]] bool operator()(const char* a, const KeyID& b) const noexcept {
-      return a && std::string_view{a} == b.data;
-    }
-  };
 
   enum class SourceType : uint8_t {
     eBuiltIn   = 0,
@@ -366,15 +305,15 @@ export namespace ufox::engine {
 }
 
 
-
-
 namespace std {
-  template <>
-  struct hash<ufox::engine::KeyID>{
-    [[nodiscard]] size_t operator()(const ufox::engine::KeyID& id) const noexcept{
-      return std::hash<std::string>{}(id.data);
-    }
-  };
+template <>
+struct hash<ufox::KeyID> {          // or ufox::engine::KeyID if still nested
+  [[nodiscard]] size_t operator()(const ufox::KeyID& id) const noexcept {
+    return std::hash<std::string_view>{}(id.view());
+  }
+};
 }
+
+
 
 

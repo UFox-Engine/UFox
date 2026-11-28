@@ -21,6 +21,7 @@ import ufox_engine_lib;
 import ufox_engine_core;
 import ufox_render_lib;
 import ufox_render_core;
+import ufox_key;
 
 using namespace ufox::engine;
 
@@ -433,10 +434,10 @@ export namespace ufox::font {
             if (f == b->second.end()) return nullptr;
 
             const KeyID* want = f->second.slot(style);
-            if (want && want->IsValid()) return want;
+            if (want && want->isValid()) return want;
 
             const KeyID* fallback = f->second.slot(FontType::eRegular);
-            return (fallback && fallback->IsValid()) ? fallback : nullptr;
+            return (fallback && fallback->isValid()) ? fallback : nullptr;
         }
 
         [[nodiscard]] Glyph* getGlyph(const GlyphUnicodeBlock block, const KeyID& family,

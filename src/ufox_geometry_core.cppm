@@ -30,6 +30,7 @@ import ufox_input;
 import ufox_gpu_lib;
 import ufox_gpu_core;
 import ufox_nanoid;
+import ufox_key;
 
 using namespace ufox::engine;
 
@@ -581,8 +582,8 @@ export namespace ufox::geometry::discadelta {
         virtual void onTreeStructureChanged()           = 0;
         // ── Construction ──────────────────────────────────────────
 
-        explicit DiscadeltaRectLayoutBase(const engine::KeyID& _id) {
-            id = _id.IsValid() ? _id : engine::KeyID{nanoid::generate(12)};
+        explicit DiscadeltaRectLayoutBase(const KeyID& _id) {
+            id = _id.isValid() ? _id : KeyID{nanoid::generate(12)};
         }
 
         DiscadeltaRectLayoutBase()
@@ -1066,9 +1067,7 @@ export namespace ufox::geometry::discadelta {
         using Entry    = std::variant<Owned, NonOwned>;
 
         std::vector<Entry>  container{};
-        std::unordered_map<engine::KeyID, size_t,
-                           engine::KeyIDHash,
-                           engine::KeyIDEq>  resourceIndex{};
+        std::unordered_map<KeyID, size_t,KeyIDHash,KeyIDEq>  resourceIndex{};
 
         // ── Public queries ────────────────────────────────────────
 
@@ -1078,12 +1077,12 @@ export namespace ufox::geometry::discadelta {
             return container.empty();
         }
 
-        [[nodiscard]] bool contains(const engine::KeyID& id_) const {
+        [[nodiscard]] bool contains(const KeyID& id_) const {
             return resourceIndex.contains(id_);
         }
 
         [[nodiscard]] bool contains(std::string_view name) const {
-            return contains(engine::KeyID{name});
+            return contains(KeyID{name});
         }
 
         [[nodiscard]] glm::mat4 getTransformMat4() const {
@@ -1194,7 +1193,7 @@ export namespace ufox::geometry::discadelta {
         // ── Query ─────────────────────────────────────────────────
 
         template<typename T = Derived>
-        [[nodiscard]] T* Q(const engine::KeyID& rid) const {
+        [[nodiscard]] T* Q(const KeyID& rid) const {
             auto it = resourceIndex.find(rid);
             if (it == resourceIndex.end()) return nullptr;
 
@@ -1208,7 +1207,7 @@ export namespace ufox::geometry::discadelta {
 
         template<typename T = Derived>
         [[nodiscard]] T* Q(std::string_view name) const {
-            return Q<T>(engine::KeyID{name});
+            return Q<T>(KeyID{name});
         }
     };
 }

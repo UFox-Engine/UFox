@@ -36,6 +36,8 @@ import ufox_gpu_core;
 import ufox_engine_lib;
 import ufox_mathf;
 import ufox_nanoid;
+import ufox_key;
+import ufox_core;
 
 export namespace ufox::action {
 
@@ -268,8 +270,9 @@ export namespace ufox::engine {
   };
 
 
-  class UFoxWindow {
+  class UFoxWindow : public SystemBase {
   public:
+    UFoxWindow(std::string_view key = "MainWindow") : SystemBase(key) {}
 
     ~UFoxWindow() {
       if (gpuResource.device) {
@@ -280,7 +283,7 @@ export namespace ufox::engine {
         windowResource->swapchainResource->Clear();
       }
 
-      running = false;
+
 #ifdef USE_SDL
       SDL_RemoveEventWatch(FramebufferResizeCallback, this);
 #endif
@@ -292,9 +295,6 @@ export namespace ufox::engine {
     std::optional<gpu::FrameResource>                     frameResource{};
     std::optional<gpu::DepthImageResource>                depthResource{};
     std::optional<action::ActionEventManager>             actionEventManager{};
-
-
-    [[nodiscard]] constexpr bool isRunning() const { return running; }
 
     template<EventType Type>
     void registerCallbackEvent(EventTraits<Type>::Handler callback, void* user) {
@@ -336,8 +336,7 @@ export namespace ufox::engine {
       }
     }
 
-    template<EventType Type>
-auto& getEventList() {
+    template<EventType Type>auto& getEventList() {
       if constexpr (Type == EventType::eResize)               { return resizeEventHandlers; }
       else if constexpr (Type == EventType::eSystemInit)      { return systemInitEvents; }
       else if constexpr (Type == EventType::ePostSystemInit)  { return postSystemInitEvents; }
@@ -386,6 +385,10 @@ auto& getEventList() {
       return windowResource->swapchainResource.value().getImageCount();
     }
 
+    [[nodiscard]] vk::Extent2D getExtent() const {
+      return windowResource->extent;
+    }
+
     void pauseFrame() {
       pauseRendering = true;
     }
@@ -394,34 +397,159 @@ auto& getEventList() {
       enabledPreDraw = true;
     }
 
-    void run() {
-#ifdef USE_SDL
-      running = true;
-      SDL_Event event;
-
+    int awake() override{
       float width, height = 0;
       windowResource->getExtent(width, height);
 
       executeSystemInit();
       executePostSystemInit(width,height);
+      return 0;
+    }
 
-      while (running) {
-        executeStart();
-        sdlPollEvents(event, running);
-        executeProcessInput();
-        executePreDraw();
-        drawFrame();
-      }
-#else
-      executeSystemInit();
-      executeResourceInitEvents();
+    int events(SDL_Event& event , bool& running) override{
+      switch (event.type) {
+        case SDL_EVENT_QUIT: {
+          if (gpuResource.device) {
+            gpuResource.device->waitIdle();
+          }
+          pauseRendering = true;
+          if (windowResource->swapchainResource) {
+            windowResource->swapchainResource->Clear();
+          }
 
-      while (!glfwWindowShouldClose(windowResource->getHandle())) {
-        executeStart();
-        glfwPollEvents();
-        drawFrame();
+          running = false;
+          SDL_RemoveEventWatch(FramebufferResizeCallback, this);
+          break;
+        }
+        case SDL_EVENT_WINDOW_MOVED: {
+          windowResource->position = vk::Offset2D{event.window.data1,event.window.data2};
+          break;
+        }
+        case SDL_EVENT_WINDOW_MINIMIZED: {
+          pauseRendering = true;
+
+          break;
+        }
+        case SDL_EVENT_WINDOW_RESTORED: {
+          if (pauseRendering)
+            pauseRendering = false;
+
+          break;
+        }
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:{
+
+          gpuResource.device->waitIdle();
+          executeGainsFocus();
+          requestPreDraw();
+
+          debug::log(debug::LogLevel::eInfo, "Window gains focus");
+
+          break;
+        }
+        case SDL_EVENT_MOUSE_MOTION:
+          dispatchPointer({PointerPhase::eMove, PointerButton::eNone,
+                           {event.motion.x, event.motion.y}, {event.motion.xrel, event.motion.yrel}, 0});
+          break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+          SDL_CaptureMouse(true);                               // keep receiving motion/up while dragging outside the window
+          dispatchPointer({PointerPhase::eDown, ToPointerButton(event.button.button),
+                           {event.button.x, event.button.y}, {}, event.button.clicks});
+          break;
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+          dispatchPointer({PointerPhase::eUp, ToPointerButton(event.button.button),
+                           {event.button.x, event.button.y}, {}, event.button.clicks});
+          if (SDL_GetMouseState(nullptr, nullptr) == 0) SDL_CaptureMouse(false);
+          break;
+        case SDL_EVENT_MOUSE_WHEEL:
+          dispatchPointer({PointerPhase::eWheel, PointerButton::eNone,
+                           {event.wheel.mouse_x, event.wheel.mouse_y}, {event.wheel.x, event.wheel.y}, 0});
+          break;
+        case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+          dispatchPointer({PointerPhase::eLeave, PointerButton::eNone, {-1.0f, -1.0f}, {}, 0});
+          break;
+
+        default: {}
+        }
+
+      actionEventManager->writingActionContext(event);
+
+      return 0;
+    }
+
+    int start(const double& deltaTime) override {return 0;}
+
+    int update(const double &deltaTime) override {
+      executeProcessInput();
+      return 0;
+    }
+
+    int lateUpdate(const double &deltaTime) override {return 0;}
+
+    int fixedUpdate(const double &deltaTime) override {return 0;}
+
+    void prepareRender() {
+      if (preDrawEvents.empty() || !enabledPreDraw) return;
+      gpuResource.device->waitIdle();
+      preDrawEvents.execute();
+      enabledPreDraw = false;
+    }
+
+    const vk::raii::CommandBuffer* render() {
+      while ( vk::Result::eTimeout == gpuResource.device->waitForFences( *frameResource->getCurrentDrawFence(), vk::True, UINT64_MAX ) )
+        ;
+
+      if (pauseRendering) return nullptr;
+
+      auto [result, imageIndex] = windowResource->swapchainResource->swapChain->acquireNextImage(UINT64_MAX, frameResource->getCurrentPresentCompleteSemaphore(), nullptr);
+      windowResource->swapchainResource->currentImageIndex = imageIndex;
+      gpuResource.device->resetFences(*frameResource->getCurrentDrawFence());
+      if (result == vk::Result::eErrorOutOfDateKHR) {
+        debug::log(debug::LogLevel::eInfo, "Recreating swapchain due to acquireNextImage failure");
+        recreateSwapchain();
+        return nullptr;
       }
-#endif
+      if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
+        throw std::runtime_error("Failed to acquire swapchain image");
+      }
+
+      executeUpdateBuffer(imageIndex);
+
+      const vk::raii::CommandBuffer& cmb = frameResource->getCurrentCommandBuffer();
+      cmb.reset();
+      recordCommandBuffer(cmb, imageIndex);
+
+
+      return &cmb;
+    }
+
+    void postRender(const vk::raii::CommandBuffer* cmb) {
+      vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+      vk::SubmitInfo submitInfo{};
+      submitInfo.setWaitSemaphoreCount(1)
+                .setPWaitSemaphores(&*frameResource->getCurrentPresentCompleteSemaphore())
+                .setPWaitDstStageMask(&waitDestinationStageMask)
+                .setCommandBufferCount(1)
+                .setPCommandBuffers(&**cmb)
+                .setSignalSemaphoreCount(1)
+                .setPSignalSemaphores(&*windowResource->swapchainResource->getCurrentRenderFinishedSemaphore());
+      gpuResource.graphicsQueue->submit(submitInfo, frameResource->getCurrentDrawFence());
+      vk::PresentInfoKHR presentInfo{};
+      presentInfo.setWaitSemaphoreCount(1)
+                 .setPWaitSemaphores(&*windowResource->swapchainResource->getCurrentRenderFinishedSemaphore())
+                 .setSwapchainCount(1)
+                 .setPSwapchains(&**windowResource->swapchainResource->swapChain)
+                 .setPImageIndices(&windowResource->swapchainResource->currentImageIndex);
+
+      const auto result = gpuResource.presentQueue->presentKHR(presentInfo);
+      if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR || framebufferResized) {
+        framebufferResized = false;
+        recreateSwapchain();
+        return;
+      }
+      if (result != vk::Result::eSuccess) {
+        throw std::runtime_error("Failed to present swapchain image");
+      }
+      frameResource->continueNextFrame();
     }
 
     template<Arithmetic T>
@@ -433,8 +561,8 @@ auto& getEventList() {
       recreateSwapchain();
       updateScreenProjectionBuffer(fw, fh);
       executeResize(fw, fh);
-      executePreDraw();
-      drawFrame();
+      prepareRender();
+      if (const auto cmb = render()) postRender(cmb);
     }
 
     [[nodiscard]] vk::DescriptorBufferInfo makeScreenViewProjectionBufferInfo() const {
@@ -464,7 +592,6 @@ auto& getEventList() {
     EventList<PointerEventHandler>                                pointerEvents{};
     EventList<ProcessInputEventHandler>                           processInputEvents{};
 
-    bool                                                          running {false};
     bool                                                          framebufferResized {false};
     bool                                                          pauseRendering {false};
     bool                                                          startFrameExecuted {false};
@@ -478,7 +605,6 @@ auto& getEventList() {
       windowResource->getExtent(width, height);
       updateScreenProjectionBuffer(width, height);
     }
-
 
     void updateScreenProjectionBuffer(const float& width, const float& height) const {
       if (width < 1.0f || height < 1.0f) return;   // minimized: keep the last good matrix
@@ -514,13 +640,6 @@ auto& getEventList() {
     void executeResize(const float& width, const float& height) {
       if (resizeEventHandlers.empty()) return;
       resizeEventHandlers.execute(width, height);
-    }
-
-    void executePreDraw() {
-      if (preDrawEvents.empty() || !enabledPreDraw) return;
-      gpuResource.device->waitIdle();
-      preDrawEvents.execute();
-      enabledPreDraw = false;
     }
 
     void executeUpdateBuffer(const uint32_t& imageIndex) const {
@@ -601,128 +720,6 @@ auto& getEventList() {
       cmb.end();
     }
 
-    void drawFrame() {
-      while ( vk::Result::eTimeout == gpuResource.device->waitForFences( *frameResource->getCurrentDrawFence(), vk::True, UINT64_MAX ) )
-        ;
-
-      if (pauseRendering) {return;}
-
-      auto [result, imageIndex] = windowResource->swapchainResource->swapChain->acquireNextImage(UINT64_MAX, frameResource->getCurrentPresentCompleteSemaphore(), nullptr);
-      windowResource->swapchainResource->currentImageIndex = imageIndex;
-      gpuResource.device->resetFences(*frameResource->getCurrentDrawFence());
-      if (result == vk::Result::eErrorOutOfDateKHR) {
-        debug::log(debug::LogLevel::eInfo, "Recreating swapchain due to acquireNextImage failure");
-        recreateSwapchain();
-        return;
-      }
-      if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
-        throw std::runtime_error("Failed to acquire swapchain image");
-      }
-
-      executeUpdateBuffer(imageIndex);
-
-      const vk::raii::CommandBuffer& cmb = frameResource->getCurrentCommandBuffer();
-      cmb.reset();
-      recordCommandBuffer(cmb, imageIndex);
-
-
-      vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
-      vk::SubmitInfo submitInfo{};
-      submitInfo.setWaitSemaphoreCount(1)
-                .setPWaitSemaphores(&*frameResource->getCurrentPresentCompleteSemaphore())
-                .setPWaitDstStageMask(&waitDestinationStageMask)
-                .setCommandBufferCount(1)
-                .setPCommandBuffers(&*cmb)
-                .setSignalSemaphoreCount(1)
-                .setPSignalSemaphores(&*windowResource->swapchainResource->getCurrentRenderFinishedSemaphore());
-      gpuResource.graphicsQueue->submit(submitInfo, frameResource->getCurrentDrawFence());
-      vk::PresentInfoKHR presentInfo{};
-      presentInfo.setWaitSemaphoreCount(1)
-                 .setPWaitSemaphores(&*windowResource->swapchainResource->getCurrentRenderFinishedSemaphore())
-                 .setSwapchainCount(1)
-                 .setPSwapchains(&**windowResource->swapchainResource->swapChain)
-                 .setPImageIndices(&windowResource->swapchainResource->currentImageIndex);
-
-      result = gpuResource.presentQueue->presentKHR(presentInfo);
-      if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR || framebufferResized) {
-        framebufferResized = false;
-        recreateSwapchain();
-        return;
-      }
-      if (result != vk::Result::eSuccess) {
-        throw std::runtime_error("Failed to present swapchain image");
-      }
-      frameResource->continueNextFrame();
-    }
-
-    void sdlPollEvents(SDL_Event& event , bool& running) {
-      while (SDL_PollEvent(&event)) {
-        switch (event.type) {
-        case SDL_EVENT_QUIT: {
-          if (gpuResource.device) {
-            gpuResource.device->waitIdle();
-          }
-          pauseRendering = true;
-          if (windowResource->swapchainResource) {
-            windowResource->swapchainResource->Clear();
-          }
-
-          running = false;
-          SDL_RemoveEventWatch(FramebufferResizeCallback, this);
-          break;
-        }
-        case SDL_EVENT_WINDOW_MOVED: {
-          windowResource->position = vk::Offset2D{event.window.data1,event.window.data2};
-          break;
-        }
-        case SDL_EVENT_WINDOW_MINIMIZED: {
-          pauseRendering = true;
-
-          break;
-        }
-        case SDL_EVENT_WINDOW_RESTORED: {
-          if (pauseRendering)
-            pauseRendering = false;
-
-          break;
-        }
-        case SDL_EVENT_WINDOW_FOCUS_GAINED:{
-
-          gpuResource.device->waitIdle();
-          executeGainsFocus();
-          requestPreDraw();
-
-          debug::log(debug::LogLevel::eInfo, "Window gains focus");
-
-          break;
-        }
-        case SDL_EVENT_MOUSE_MOTION:
-          dispatchPointer({PointerPhase::eMove, PointerButton::eNone,
-                           {event.motion.x, event.motion.y}, {event.motion.xrel, event.motion.yrel}, 0});
-          break;
-        case SDL_EVENT_MOUSE_BUTTON_DOWN:
-          SDL_CaptureMouse(true);                               // keep receiving motion/up while dragging outside the window
-          dispatchPointer({PointerPhase::eDown, ToPointerButton(event.button.button),
-                           {event.button.x, event.button.y}, {}, event.button.clicks});
-          break;
-        case SDL_EVENT_MOUSE_BUTTON_UP:
-          dispatchPointer({PointerPhase::eUp, ToPointerButton(event.button.button),
-                           {event.button.x, event.button.y}, {}, event.button.clicks});
-          if (SDL_GetMouseState(nullptr, nullptr) == 0) SDL_CaptureMouse(false);
-          break;
-        case SDL_EVENT_MOUSE_WHEEL:
-          dispatchPointer({PointerPhase::eWheel, PointerButton::eNone,
-                           {event.wheel.mouse_x, event.wheel.mouse_y}, {event.wheel.x, event.wheel.y}, 0});
-          break;
-        case SDL_EVENT_WINDOW_MOUSE_LEAVE:
-          dispatchPointer({PointerPhase::eLeave, PointerButton::eNone, {-1.0f, -1.0f}, {}, 0});
-          break;
-
-        default: {}
-        }
-        actionEventManager->writingActionContext(event);
-      }
-    }
   };
 
 #ifdef USE_SDL
@@ -741,8 +738,8 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
 #endif
 
 
-  std::unique_ptr<UFoxWindow> CreateUFoxWindow(const std::string& title, const uint32_t& width, const uint32_t& height) {
-    auto window = std::make_unique<UFoxWindow>();
+  std::unique_ptr<UFoxWindow> CreateUFoxWindow(const std::string_view title, const uint32_t& width, const uint32_t& height) {
+    auto window = std::make_unique<UFoxWindow>("");
 
     window->gpuCreateInfo = gpu::CreateGraphicDeviceInfo();
     window->gpuResource.context.emplace();
@@ -1042,7 +1039,7 @@ constexpr void FramebufferResizeCallback(GLFWwindow* window, int width, int heig
       }
 
       bool makeResourceContext(KeyID& id, const bool& overwrite) {
-        if (!id.IsValid()) {
+        if (!id.isValid()) {
           do {
             id = KeyID(nanoid::generate(12));
           } while (container.contains(id));

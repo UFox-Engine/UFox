@@ -3,7 +3,6 @@ module;
 
 #define GLM_FORCE_RADIANS
 #include "glm/vec2.hpp"
-#include "nanoid/nanoid.h"
 
 #include <SDL3/SDL_surface.h>
 #include <_mingw_mac.h>
@@ -31,6 +30,7 @@ import ufox_render_lib;
 import ufox_render_core;
 import ufox_font_lib;
 import ufox_font_core;
+import ufox_key;
 
 using namespace ufox::geometry;
 using namespace ufox::render;

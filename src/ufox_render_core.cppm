@@ -24,6 +24,7 @@ import ufox_nanoid;
 import ufox_gpu_lib;
 import ufox_gpu_core;
 import ufox_render_lib;
+import ufox_key;
 
 using namespace ufox::engine;
 

@@ -13,6 +13,7 @@ export module ufox_render_lib;
 
 import ufox_engine_lib;
 import ufox_gpu_lib;
+import ufox_key;
 
 export namespace ufox::render {
 
@@ -61,7 +62,7 @@ export namespace ufox::render {
     gpu::Image                            image{};
     std::optional<vk::raii::Sampler>      sampler{};
 
-    explicit Texture(const std::string_view name_view, std::vector<std::byte>& _pixels, const vk::Extent2D _extent, const engine::KeyID& cid)
+    explicit Texture(const std::string_view name_view, std::vector<std::byte>& _pixels, const vk::Extent2D _extent, const KeyID& cid)
         : ResourceBase(name_view, cid), pixels(std::move(_pixels)), extent(_extent) {
     }
 

@@ -5,9 +5,14 @@ module;
 
 export module ufox_beta;
 
+import ufox_mathf;
+import ufox_nanoid;
+
 namespace ufox_beta {
 
-export UFOX_BETA_EXPORT const char* GetHallo() {
-  return "hallo, ufox 15";
+export UFOX_BETA_EXPORT std::string GetHallo() {
+  float x = ufox::mathf::Mul(10,100);
+  std::string id = ufox::nanoid::generate(12);
+  return "hallo, ufox " + std::to_string(x) + " " + id;
 }
 }

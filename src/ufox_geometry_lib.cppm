@@ -13,6 +13,7 @@ import ufox_lib;
 import ufox_gpu_lib;
 import ufox_engine_lib;
 import ufox_nanoid;
+import ufox_key;
 
 export namespace ufox::geometry {
     /**
@@ -108,8 +109,8 @@ export namespace ufox::geometry {
     inline const auto QUAD = "quad";
     inline const auto CUBE = "cube";
 
-    inline const engine::KeyID BUILTIN_QUAD_ID  {QUAD};
-    inline const engine::KeyID BUILTIN_CUBE_ID  {CUBE};
+    inline const KeyID BUILTIN_QUAD_ID  {QUAD};
+    inline const KeyID BUILTIN_CUBE_ID  {CUBE};
 
     struct Mesh final : engine::ResourceBase {
         std::vector<Vertex>                     vertices{};
@@ -118,7 +119,7 @@ export namespace ufox::geometry {
         std::optional<gpu::Buffer>      vertexBuffer{};
         std::optional<gpu::Buffer>      indexBuffer{};
 
-        explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const engine::KeyID& cid_): ResourceBase(name_view, cid_) {
+        explicit Mesh(const std::string_view name_view, const std::span<Vertex>& _vertices, const std::span<uint16_t>& _indices, const KeyID& cid_): ResourceBase(name_view, cid_) {
             vertices.assign(std::begin(_vertices), std::end(_vertices));
             indices.assign(std::begin(_indices), std::end(_indices));
         }

@@ -155,6 +155,38 @@ endif()
 
 include(GenerateExportHeader)
 
+add_library(UFOX_ENGINE_LIB SHARED)
+
+target_sources(UFOX_ENGINE_LIB
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        src/ufox_key.cppm
+        src/ufox_nanoid.cppm
+        src/ufox_core.cppm
+)
+
+target_compile_features(UFOX_ENGINE_LIB PUBLIC cxx_std_23)
+
+set_target_properties(UFOX_ENGINE_LIB PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "UFoxEngine"
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+)
+
+generate_export_header(UFOX_ENGINE_LIB
+        BASE_NAME UFOX_ENGINE
+        EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/ufox_engine_export.h
+)
+
+target_sources(UFOX_ENGINE_LIB
+        PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS ${CMAKE_CURRENT_BINARY_DIR}
+        FILES ${CMAKE_CURRENT_BINARY_DIR}/ufox_engine_export.h
+)
+
 add_library(ufox_beta SHARED)
 
 target_sources(ufox_beta
@@ -164,7 +196,7 @@ target_sources(ufox_beta
         src/ufox_beta.cppm
 )
 
-target_compile_features(ufox_beta PUBLIC cxx_std_20)   # or whatever you already use
+target_compile_features(ufox_beta PUBLIC cxx_std_23) 
 
 # Visibility (important for shared libs)
 set_target_properties(ufox_beta PROPERTIES
@@ -186,6 +218,18 @@ target_sources(ufox_beta
         FILES ${CMAKE_CURRENT_BINARY_DIR}/ufox_beta_export.h
 )
 
+add_library(ufox_mathf STATIC)
+target_sources(ufox_mathf
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        src/ufox_mathf.cppm
+)
+target_link_libraries(ufox_mathf PUBLIC glm-module)
+
+
+
+target_link_libraries(ufox_beta PRIVATE ufox_mathf)
 
 set(LIBS)
 list(APPEND LIBS
@@ -200,6 +244,8 @@ list(APPEND LIBS
         msdf-atlas-gen::msdf-atlas-gen
         slang::slang
         ufox_beta
+        ufox_mathf
+        UFOX_ENGINE_LIB
 )
 
 # Regular sources
@@ -214,8 +260,7 @@ target_sources(UFox-modules
         PUBLIC
         FILE_SET CXX_MODULES TYPE CXX_MODULES
         FILES
-        src/ufox_engine.cppm
-        src/ufox_nanoid.cppm
+        src/ufox_engine_app.cppm
         src/ufox_Lib.cppm
         src/ufox_gpu_lib.cppm
         src/ufox_gpu_core.cppm
@@ -230,7 +275,7 @@ target_sources(UFox-modules
         src/ufox_font_core.cppm
         src/ufox_gui_lib.cppm
         src/ufox_gui_core.cppm
-        src/ufox_mathf.cppm
+
 )
 
 target_link_libraries(UFox-modules PRIVATE ${LIBS})
@@ -274,7 +319,8 @@ add_dependencies(UFoxEngine CopyResources)
 
 add_subdirectory(thirdparty/nanoid)
 add_dependencies(UFoxEngine nanoid)
-target_link_libraries(UFox-modules PRIVATE nanoid)
+target_link_libraries(UFOX_ENGINE_LIB PRIVATE nanoid SDL3::SDL3 glm-module)
+target_link_libraries(ufox_beta PRIVATE UFOX_ENGINE_LIB)
 
 find_program(GLSL_VALIDATOR glslangValidator HINTS $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)
 find_program(SLANGC_EXECUTABLE slangc HINTS $ENV{VULKAN_SDK}/Bin/ $ENV{VULKAN_SDK}/Bin32/)

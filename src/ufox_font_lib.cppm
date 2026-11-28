@@ -8,6 +8,7 @@ module;
 export module ufox_font_lib;
 
 import ufox_engine_lib;
+import ufox_key;
 
 export namespace ufox::font {
   inline auto FONT_RESOURCE_PATH = "res/fonts";
@@ -149,10 +150,10 @@ export namespace ufox::font {
     GlyphRange(const std::set<msdf_atlas::unicode_t>& _set, GlyphUnicodeBlock _character) : set(_set), character(_character) {}
   };
 
-  inline const std::unordered_map<engine::KeyID, GlyphUnicodeBlock> GLYPH_SOURCE_TYPE_MAP = {
-    {engine::KeyID{"0000-04FF"}, {GlyphUnicodeBlock::eLGC}},
-    {engine::KeyID{"3040-30FF"}, {GlyphUnicodeBlock::eJP}},
-    {engine::KeyID{"0E00-0E7F"}, {GlyphUnicodeBlock::eTHAI}}
+  inline const std::unordered_map<KeyID, GlyphUnicodeBlock> GLYPH_SOURCE_TYPE_MAP = {
+    {KeyID{"0000-04FF"}, {GlyphUnicodeBlock::eLGC}},
+    {KeyID{"3040-30FF"}, {GlyphUnicodeBlock::eJP}},
+    {KeyID{"0E00-0E7F"}, {GlyphUnicodeBlock::eTHAI}}
   };
 
 
@@ -168,11 +169,11 @@ export namespace ufox::font {
     FontType          style{FontType::eRegular};
     double                      maxAscent{0.0};
     double                      maxDescent{0.0};
-    engine::KeyID          atlasTextureID{};
+    KeyID          atlasTextureID{};
     GlyphFontMetrics            metrics{};
     std::vector<GlyphContext>   glyphs{};
 
-    Glyph(std::string_view name_view, const engine::KeyID& cid_,
+    Glyph(std::string_view name_view, const KeyID& cid_,
           GlyphUnicodeBlock block_, FontType style_,
           const GlyphFontMetrics & _metrics,
           const std::vector<GlyphContext>& glyphs_)
@@ -187,7 +188,7 @@ export namespace ufox::font {
       }
     }
 
-    Glyph(std::string_view name_view, const engine::KeyID& cid_)
+    Glyph(std::string_view name_view, const KeyID& cid_)
         : ResourceBase(name_view, cid_), atlasTextureID(cid_) {}
 
     [[nodiscard]] bool hasGpuResources() const noexcept override { return false; }
@@ -205,9 +206,9 @@ export namespace ufox::font {
   };
 
   struct GlyphTypeKey final {
-    engine::KeyID regular, bold, italic, boldItalic;
+    KeyID regular, bold, italic, boldItalic;
 
-    [[nodiscard]] engine::KeyID* slot(const FontType t) noexcept {
+    [[nodiscard]] KeyID* slot(const FontType t) noexcept {
       switch (t) {
       case FontType::eRegular:    return &regular;
       case FontType::eBold:       return &bold;
@@ -217,7 +218,7 @@ export namespace ufox::font {
       }
     }
 
-    [[nodiscard]] const engine::KeyID* slot(const FontType t) const noexcept {
+    [[nodiscard]] const KeyID* slot(const FontType t) const noexcept {
       return const_cast<GlyphTypeKey*>(this)->slot(t);
     }
   };

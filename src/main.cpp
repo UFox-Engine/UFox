@@ -1,11 +1,13 @@
 #include <iostream>
+#include <memory>
 
-import ufox_engine;
+import ufox_engine_app;
 
 int main() {
   try {
-    auto engine = ufox::CreateUFoxEngine("UFox", 800, 800);   // or ufox::engine::CreateUFoxEngine
-    engine->run();          // preRun → onRun → postRun
+    std::unique_ptr<ufox::UFoxEngineApp> engine = std::make_unique<ufox::UFoxEngineApp>();
+    if (engine == nullptr) throw std::runtime_error("Failed to create engine");
+    engine->execution();
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
     return EXIT_FAILURE;
